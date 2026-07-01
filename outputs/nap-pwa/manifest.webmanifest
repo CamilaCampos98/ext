@@ -1,0 +1,19 @@
+{
+  "name": "Soneca",
+  "short_name": "Soneca",
+  "description": "Organizador gratuito de sonecas, janelas de sono e avisos para bebês.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#071426",
+  "theme_color": "#071426",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

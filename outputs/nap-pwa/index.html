@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a1028">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Soneca">
+    <meta name="description" content="PWA gratuita para organizar sonecas, janelas de sono e lembretes do bebê.">
+    <title>Soneca</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css?v=8">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Soneca</p>
+          <h1>Rotina de sono</h1>
+        </div>
+        <button class="icon-button" id="installHelp" aria-label="Instalar no iPhone" title="Instalar">
+          <span aria-hidden="true">+</span>
+        </button>
+      </header>
+
+      <main>
+        <section class="hero sleep-dashboard">
+          <div class="day-ring-wrap">
+            <svg class="day-ring" viewBox="0 0 240 240" aria-label="Linha do tempo circular das sonecas do dia" role="img">
+              <circle class="day-ring-track" cx="120" cy="120" r="92"></circle>
+              <g id="daySegments"></g>
+              <line class="day-ring-now" id="dayNowHand" x1="120" y1="120" x2="120" y2="30"></line>
+              <circle class="day-ring-core" cx="120" cy="120" r="58"></circle>
+            </svg>
+            <div class="day-ring-center">
+              <span>Agora</span>
+              <strong id="dayCenterTime">--:--</strong>
+              <small id="dayCenterLabel">dia de sono</small>
+            </div>
+          </div>
+          <div class="dashboard-copy">
+            <div class="baby-summary" aria-label="Perfil do bebê">
+              <span class="baby-avatar" aria-hidden="true">☾</span>
+              <div>
+                <strong id="profileName">Bebê</strong>
+                <span id="profileMeta">6 meses</span>
+              </div>
+            </div>
+            <p class="label">Próxima janela</p>
+            <h2 id="nextWindow">Configure o bebê</h2>
+            <p id="nextHint">Informe idade e último despertar para calcular a próxima soneca.</p>
+            <div class="dashboard-legend" id="dayLegend"></div>
+            <div class="night-callout">
+              <span>Sono noturno</span>
+              <strong id="bedtimeSuggestion">--:--</strong>
+              <p id="bedtimeReason">Calculado após registrar as sonecas do dia.</p>
+            </div>
+          </div>
+          <div class="hero-meter" aria-label="Pressão de sono estimada">
+            <svg viewBox="0 0 120 120" role="img">
+              <circle class="meter-bg" cx="60" cy="60" r="50"></circle>
+              <circle class="meter-fg" id="sleepPressureRing" cx="60" cy="60" r="50"></circle>
+            </svg>
+            <strong id="sleepPressure">0%</strong>
+            <span>pressão</span>
+          </div>
+        </section>
+
+        <section class="panel timer-panel">
+          <div class="section-head">
+            <div>
+              <p class="label">Agora</p>
+              <h2 id="napStatus">Nenhuma soneca ativa</h2>
+            </div>
+            <span class="pill" id="notificationState">Avisos desligados</span>
+          </div>
+          <div class="timer" id="timer">00:00</div>
+          <div class="nap-detail-grid">
+            <div>
+              <span>Iniciou</span>
+              <strong id="currentStart">-</strong>
+            </div>
+            <div>
+              <span>Terminou</span>
+              <strong id="currentEnd">-</strong>
+            </div>
+            <div>
+              <span>Humor</span>
+              <strong id="currentMood">-</strong>
+            </div>
+          </div>
+          <div class="button-row">
+            <button class="primary" id="startNap">Iniciar soneca</button>
+            <button class="secondary" id="endNap">Encerrar</button>
+          </div>
+          <button class="text-button manual-link" id="openManualNap">Adicionar soneca anterior</button>
+          <p class="fineprint" id="activeNapHint">Ao encerrar, registre como o bebê acordou para melhorar a leitura da rotina.</p>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <p class="label">Perfil</p>
+              <h2>Dados da rotina</h2>
+            </div>
+            <button class="text-button" id="requestNotifications">Ativar avisos</button>
+          </div>
+          <div class="profile-card">
+            <div class="profile-moon" aria-hidden="true">☾</div>
+            <div>
+              <span>Perfil do bebê</span>
+              <strong id="profileCardName">Bebê</strong>
+              <small id="profileCardMeta">6 meses · dia iniciado às --:--</small>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label>
+              Nome
+              <input id="babyName" autocomplete="off" placeholder="Bebê">
+            </label>
+            <label>
+              Idade
+              <div class="inline-input">
+                <input id="babyAge" type="number" inputmode="numeric" min="0" max="36" value="6">
+                <span>meses</span>
+              </div>
+            </label>
+            <label>
+              Início do dia
+              <input id="dayStart" type="time">
+            </label>
+            <label>
+              Último despertar
+              <input id="lastWake" type="time">
+            </label>
+            <label>
+              Hora de dormir
+              <input id="bedtime" type="time" value="19:30">
+            </label>
+          </div>
+          <div class="insight-grid">
+            <div>
+              <span>Janela usada</span>
+              <strong id="wakeWindowUsed">-</strong>
+            </div>
+            <div>
+              <span>Sono em 24h</span>
+              <strong id="sleep24h">0h</strong>
+            </div>
+            <div>
+              <span>Sonecas hoje</span>
+              <strong id="napCount">0</strong>
+            </div>
+          </div>
+          <div class="notice-card" id="notificationHelp">
+            <strong>Status dos avisos</strong>
+            <p id="notificationHelpText">Toque em ativar avisos para verificar suporte e permissões neste aparelho.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <p class="label">Histórico</p>
+              <h2>Últimas sonecas</h2>
+            </div>
+            <button class="text-button danger" id="clearHistory">Limpar</button>
+          </div>
+          <ol class="history" id="history"></ol>
+        </section>
+
+        <section class="note">
+          <strong>Importante</strong>
+          <p>As previsões são estimativas para organização da rotina. Sono seguro e situações como prematuridade, refluxo, doença, ganho de peso baixo ou despertares persistentes devem ser acompanhados pelo pediatra.</p>
+        </section>
+      </main>
+    </div>
+
+    <div class="sheet" id="installSheet" aria-hidden="true">
+      <div class="sheet-card">
+        <button class="icon-button close" id="closeInstall" aria-label="Fechar">x</button>
+        <h2>Instalar no iPhone</h2>
+        <p>No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início". Depois abra por esse ícone para usar como app.</p>
+        <p class="fineprint">No iOS, notificações web dependem do suporte do Safari e da permissão do usuário. Sem backend, os avisos são confiáveis enquanto o app está aberto ou em segundo plano recente.</p>
+      </div>
+    </div>
+
+    <div class="sheet" id="moodSheet" aria-hidden="true">
+      <div class="sheet-card">
+        <button class="icon-button close" id="closeMood" aria-label="Fechar">x</button>
+        <p class="label">Encerrar soneca</p>
+        <h2>Como o bebê acordou?</h2>
+        <div class="mood-options" role="group" aria-label="Humor ao acordar">
+          <button class="mood-option happy" data-mood="happy">
+            <span></span>
+            Bem humorado
+          </button>
+          <button class="mood-option neutral" data-mood="neutral">
+            <span></span>
+            Neutro
+          </button>
+          <button class="mood-option upset" data-mood="upset">
+            <span></span>
+            Mau humorado
+          </button>
+        </div>
+        <button class="text-button" id="skipMood">Salvar sem humor</button>
+      </div>
+    </div>
+
+    <div class="sheet" id="manualNapSheet" aria-hidden="true">
+      <div class="sheet-card">
+        <button class="icon-button close" id="closeManualNap" aria-label="Fechar">x</button>
+        <p class="label">Registro manual</p>
+        <h2>Adicionar soneca anterior</h2>
+        <div class="form-grid manual-form">
+          <label>
+            Início
+            <input id="manualStart" type="datetime-local">
+          </label>
+          <label>
+            Fim
+            <input id="manualEnd" type="datetime-local">
+          </label>
+        </div>
+        <div class="mood-options compact" role="group" aria-label="Humor ao acordar">
+          <button class="mood-option happy" data-manual-mood="happy">
+            <span></span>
+            Bem humorado
+          </button>
+          <button class="mood-option neutral" data-manual-mood="neutral">
+            <span></span>
+            Neutro
+          </button>
+          <button class="mood-option upset" data-manual-mood="upset">
+            <span></span>
+            Mau humorado
+          </button>
+        </div>
+        <button class="primary full-width" id="saveManualNap">Salvar soneca</button>
+        <p class="fineprint" id="manualNapError"></p>
+      </div>
+    </div>
+
+    <script src="app.js?v=23" defer></script>
+  </body>
+</html>
