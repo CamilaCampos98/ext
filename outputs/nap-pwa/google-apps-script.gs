@@ -1,4 +1,5 @@
 const SHEET_NAME = 'Sonecas';
+const FEEDINGS_SHEET_NAME = 'Mamadas';
 const SHARED_TOKEN = 'sonecas';
 
 const HEADERS = [
@@ -22,6 +23,18 @@ const HEADERS = [
   'Tipo'
 ];
 
+const FEEDING_HEADERS = [
+  'Recebido em',
+  'ID',
+  'Bebê',
+  'Idade (meses)',
+  'Horário',
+  'Tipo',
+  'Peito',
+  'Observação',
+  'Inicio do dia'
+];
+
 function doGet(e) {
   const token = e && e.parameter ? e.parameter.token : '';
 
@@ -31,6 +44,10 @@ function doGet(e) {
 
   if (e && e.parameter && e.parameter.action === 'list') {
     return jsonResponse(listRows(getSheet()));
+  }
+
+  if (e && e.parameter && e.parameter.action === 'listFeedings') {
+    return jsonResponse(listFeedingRows(getFeedingSheet()));
   }
 
   return jsonResponse({
@@ -51,6 +68,18 @@ function doPost(e) {
 
     if (payload.action === 'delete') {
       return jsonResponse(deleteNapRow(sheet, payload.id));
+    }
+
+    if (payload.action === 'deleteFeeding') {
+      return jsonResponse(deleteRowById(getFeedingSheet(), payload.id));
+    }
+
+    if (payload.action === 'appendFeeding') {
+      return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendFeedings') {
+      return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), payload.records || []));
     }
 
     if (payload.action === 'bulkAppend') {
@@ -91,11 +120,33 @@ function getSheet() {
   return sheet;
 }
 
+function getFeedingSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(FEEDINGS_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(FEEDINGS_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(FEEDING_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, FEEDING_HEADERS);
+  }
+
+  return sheet;
+}
+
 function ensureHeaders(sheet) {
-  const width = Math.max(sheet.getLastColumn(), HEADERS.length);
+  ensureSpecificHeaders(sheet, HEADERS);
+}
+
+function ensureSpecificHeaders(sheet, headers) {
+  const width = Math.max(sheet.getLastColumn(), headers.length);
   const currentHeaders = sheet.getRange(1, 1, 1, width).getValues()[0];
 
-  HEADERS.forEach((header, index) => {
+  headers.forEach((header, index) => {
     if (currentHeaders[index] !== header) {
       sheet.getRange(1, index + 1).setValue(header);
     }
@@ -103,6 +154,10 @@ function ensureHeaders(sheet) {
 }
 
 function deleteNapRow(sheet, id) {
+  return deleteRowById(sheet, id);
+}
+
+function deleteRowById(sheet, id) {
   if (!id) {
     return { ok: false, error: 'ID ausente.' };
   }
@@ -152,6 +207,35 @@ function appendMissingRows(sheet, records) {
   };
 }
 
+function appendMissingFeedingRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+
+  records.forEach((record) => {
+    const id = String(record.id || '');
+    if (!id || existingIds.has(id)) {
+      skipped.push(id);
+      return;
+    }
+
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push(toFeedingSheetRow(record));
+  });
+
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, FEEDING_HEADERS.length).setValues(rows);
+  }
+
+  return {
+    ok: true,
+    inserted: inserted,
+    skipped: skipped
+  };
+}
+
 function getExistingIds(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return new Set();
@@ -180,6 +264,20 @@ function toSheetRow(payload) {
     payload.note || '',
     toTimeString(payload.dayStart),
     payload.type || 'nap'
+  ];
+}
+
+function toFeedingSheetRow(payload) {
+  return [
+    new Date(),
+    payload.id || '',
+    payload.babyName || '',
+    payload.babyAge || '',
+    toDateTimeString(payload.at),
+    payload.typeLabel || payload.type || '',
+    payload.sideLabel || payload.side || '',
+    payload.note || '',
+    toTimeString(payload.dayStart)
   ];
 }
 
@@ -214,6 +312,45 @@ function listRows(sheet) {
     }));
 
   return { ok: true, records: records };
+}
+
+function listFeedingRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { ok: true, records: [] };
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, FEEDING_HEADERS.length).getValues();
+  const records = values
+    .filter((row) => row[1])
+    .map((row) => ({
+      receivedAt: toIsoString(row[0]),
+      id: String(row[1]),
+      babyName: row[2] || '',
+      babyAge: row[3] || '',
+      at: toDateTimeString(row[4]),
+      type: feedingTypeKey(row[5]),
+      side: feedingSideKey(row[6]),
+      note: row[7] || '',
+      dayStart: toTimeString(row[8])
+    }));
+
+  return { ok: true, records: records };
+}
+
+function feedingTypeKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text.indexOf('fórmula') >= 0 || text.indexOf('formula') >= 0) return 'formula';
+  if (text.indexOf('mamadeira') >= 0) return 'bottle';
+  return 'breast';
+}
+
+function feedingSideKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text.indexOf('direito') >= 0) return 'right';
+  if (text.indexOf('ambos') >= 0) return 'both';
+  if (text.indexOf('esquerdo') >= 0) return 'left';
+  return '';
 }
 
 function toIsoString(value) {

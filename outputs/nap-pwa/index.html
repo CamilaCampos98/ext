@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#0a1028">
+    <meta name="theme-color" content="#111a3d">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Soneca">
@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=15">
+    <link rel="stylesheet" href="styles.css?v=24">
   </head>
   <body>
     <div class="app-shell">
@@ -36,14 +36,16 @@
             <svg class="day-ring" viewBox="0 0 240 240" aria-label="Linha do tempo circular das sonecas do dia" role="img">
               <circle class="day-ring-track" cx="120" cy="120" r="92"></circle>
               <g id="daySegments"></g>
+              <g id="dayMarkers"></g>
               <line class="day-ring-now" id="dayNowHand" x1="120" y1="120" x2="120" y2="30"></line>
               <circle class="day-ring-core" cx="120" cy="120" r="58"></circle>
             </svg>
             <div class="day-ring-center">
-              <span>Agora</span>
+              <span aria-hidden="true"></span>
               <strong id="dayCenterTime">--:--</strong>
               <small id="dayCenterLabel">dia de sono</small>
             </div>
+            <div class="ring-caption-row" id="ringCaptions"></div>
           </div>
           <div class="dashboard-copy">
             <div class="baby-summary" aria-label="Perfil do bebê">
@@ -114,6 +116,10 @@
               <span>Registrar a noite passada sem cronômetro</span>
             </button>
           </div>
+          <div class="feeding-actions">
+            <button class="primary feed-button" id="openFeeding" type="button">Registrar mamada</button>
+            <button class="secondary feed-button" id="openManualFeeding" type="button">Mamada anterior</button>
+          </div>
           <p class="fineprint" id="activeNapHint">Ao encerrar, registre como o bebê acordou para melhorar a leitura da rotina.</p>
         </section>
 
@@ -157,6 +163,14 @@
               Hora de dormir
               <input id="bedtime" type="time" value="19:30">
             </label>
+          </div>
+          <div class="feeding-profile">
+            <p class="label">Amamentação</p>
+            <div class="checkbox-grid">
+              <label><input id="feedBreastEnabled" type="checkbox"> Leite materno</label>
+              <label><input id="feedBottleEnabled" type="checkbox"> Mamadeira</label>
+              <label><input id="feedFormulaEnabled" type="checkbox"> Fórmula</label>
+            </div>
           </div>
           <div class="insight-grid">
             <div>
@@ -326,6 +340,35 @@
       </div>
     </div>
 
-    <script src="app.js?v=37" defer></script>
+    <div class="sheet" id="feedingSheet" aria-hidden="true">
+      <div class="sheet-card">
+        <button class="icon-button close" id="closeFeeding" aria-label="Fechar">x</button>
+        <p class="label">Amamentação</p>
+        <h2 id="feedingTitle">Registrar mamada</h2>
+        <div class="form-grid manual-form">
+          <label>
+            Horário
+            <input id="feedingTime" type="datetime-local">
+          </label>
+          <label>
+            Tipo
+            <select id="feedingType"></select>
+          </label>
+        </div>
+        <div class="side-options" id="feedingSideGroup" role="group" aria-label="Peito usado">
+          <button class="side-option" type="button" data-feed-side="left">Esquerdo</button>
+          <button class="side-option" type="button" data-feed-side="right">Direito</button>
+          <button class="side-option" type="button" data-feed-side="both">Ambos</button>
+        </div>
+        <label>
+          Observação
+          <input id="feedingNote" autocomplete="off" placeholder="Opcional">
+        </label>
+        <button class="primary full-width" id="saveFeeding">Salvar mamada</button>
+        <p class="fineprint" id="feedingError"></p>
+      </div>
+    </div>
+
+    <script src="app.js?v=49" defer></script>
   </body>
 </html>

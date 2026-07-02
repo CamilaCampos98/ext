@@ -2,7 +2,7 @@ const STORAGE_KEY = "soneca-pwa-state-v1";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY = "";
 const PUSH_SUBSCRIBE_ENDPOINT = "";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzFAKiVT3iymE1aR_0jzBfqzZ8-cNOL0rEVh1RuxBF1bYLeM7t19VdyDiXJDupF8txlig/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyXhag4VlD-y5IbQWcYoU2TMoF6RMri96HrzylzMwsRMgJPZQN-pTs1MFPJqFpdKCl-Zg/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 
@@ -28,7 +28,13 @@ const defaultState = {
   activeNightStart: null,
   cycleStartAt: null,
   naps: [],
-  nights: []
+  nights: [],
+  feedings: [],
+  feedingOptions: {
+    breast: true,
+    bottle: true,
+    formula: true
+  }
 };
 
 let state = loadState();
@@ -38,9 +44,11 @@ const els = {
   nextWindow: document.querySelector("#nextWindow"),
   nextHint: document.querySelector("#nextHint"),
   daySegments: document.querySelector("#daySegments"),
+  dayMarkers: document.querySelector("#dayMarkers"),
   dayNowHand: document.querySelector("#dayNowHand"),
   dayCenterTime: document.querySelector("#dayCenterTime"),
   dayCenterLabel: document.querySelector("#dayCenterLabel"),
+  ringCaptions: document.querySelector("#ringCaptions"),
   dayLegend: document.querySelector("#dayLegend"),
   bedtimeSuggestion: document.querySelector("#bedtimeSuggestion"),
   bedtimeReason: document.querySelector("#bedtimeReason"),
@@ -58,12 +66,17 @@ const els = {
   endNight: document.querySelector("#endNight"),
   openManualNap: document.querySelector("#openManualNap"),
   openManualNight: document.querySelector("#openManualNight"),
+  openFeeding: document.querySelector("#openFeeding"),
+  openManualFeeding: document.querySelector("#openManualFeeding"),
   activeNapHint: document.querySelector("#activeNapHint"),
   babyName: document.querySelector("#babyName"),
   babyAge: document.querySelector("#babyAge"),
   dayStart: document.querySelector("#dayStart"),
   lastWake: document.querySelector("#lastWake"),
   bedtime: document.querySelector("#bedtime"),
+  feedBreastEnabled: document.querySelector("#feedBreastEnabled"),
+  feedBottleEnabled: document.querySelector("#feedBottleEnabled"),
+  feedFormulaEnabled: document.querySelector("#feedFormulaEnabled"),
   profileName: document.querySelector("#profileName"),
   profileMeta: document.querySelector("#profileMeta"),
   profileCardName: document.querySelector("#profileCardName"),
@@ -109,12 +122,23 @@ const els = {
   manualTitle: document.querySelector("#manualTitle"),
   manualMoodOptions: document.querySelector("#manualMoodOptions"),
   saveManualNap: document.querySelector("#saveManualNap"),
-  manualNapError: document.querySelector("#manualNapError")
+  manualNapError: document.querySelector("#manualNapError"),
+  feedingSheet: document.querySelector("#feedingSheet"),
+  closeFeeding: document.querySelector("#closeFeeding"),
+  feedingTitle: document.querySelector("#feedingTitle"),
+  feedingTime: document.querySelector("#feedingTime"),
+  feedingType: document.querySelector("#feedingType"),
+  feedingSideGroup: document.querySelector("#feedingSideGroup"),
+  feedingNote: document.querySelector("#feedingNote"),
+  saveFeeding: document.querySelector("#saveFeeding"),
+  feedingError: document.querySelector("#feedingError")
 };
 
 let manualMood = "";
 let manualRecordType = "nap";
 let reportWeekStart = startOfWeek(new Date());
+let selectedFeedSide = "left";
+let feedingSheetSupport = null;
 
 init();
 
@@ -131,11 +155,13 @@ function init() {
 
 function hydrateForm() {
   repairDayStartIfItHidesTodayNaps();
+  applyLastWakeFromLatestNap();
   els.babyName.value = state.babyName;
   els.babyAge.value = state.babyAge;
   els.dayStart.value = state.dayStart || DEFAULT_DAY_START;
   els.lastWake.value = state.lastWake || minutesToTime(nowMinutes());
   els.bedtime.value = state.bedtime;
+  hydrateFeedingOptions();
   if (!els.historyDate.value) {
     els.historyDate.value = dateInputValue(new Date());
   }
@@ -172,6 +198,9 @@ function bindEvents() {
     els.lastWake.addEventListener(eventName, updateProfile);
     els.bedtime.addEventListener(eventName, updateProfile);
   });
+  [els.feedBreastEnabled, els.feedBottleEnabled, els.feedFormulaEnabled].forEach((input) => {
+    input.addEventListener("change", updateFeedingOptions);
+  });
 
   els.startNap.addEventListener("click", startNap);
   els.endNap.addEventListener("click", () => toggleMoodSheet(true));
@@ -179,6 +208,8 @@ function bindEvents() {
   els.endNight.addEventListener("click", completeNightSleep);
   els.openManualNap.addEventListener("click", () => openManualRecordSheet("nap"));
   els.openManualNight.addEventListener("click", () => openManualRecordSheet("night"));
+  els.openFeeding.addEventListener("click", () => openFeedingSheet(false));
+  els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
   els.requestNotifications.addEventListener("click", requestNotificationPermission);
   els.clearHistory.addEventListener("click", clearHistory);
   els.historyDate.addEventListener("change", renderHistory);
@@ -208,6 +239,12 @@ function bindEvents() {
   });
   els.closeManualNap.addEventListener("click", () => toggleManualNapSheet(false));
   els.saveManualNap.addEventListener("click", saveManualNap);
+  els.closeFeeding.addEventListener("click", () => toggleFeedingSheet(false));
+  els.saveFeeding.addEventListener("click", saveFeeding);
+  document.querySelectorAll("[data-feed-side]").forEach((button) => {
+    button.addEventListener("click", () => selectFeedSide(button.dataset.feedSide));
+  });
+  els.feedingType.addEventListener("change", updateFeedingSideVisibility);
   els.installSheet.addEventListener("click", (event) => {
     if (event.target === els.installSheet) toggleInstallSheet(false);
   });
@@ -223,9 +260,14 @@ function bindEvents() {
   els.manualNapSheet.addEventListener("click", (event) => {
     if (event.target === els.manualNapSheet) toggleManualNapSheet(false);
   });
+  els.feedingSheet.addEventListener("click", (event) => {
+    if (event.target === els.feedingSheet) toggleFeedingSheet(false);
+  });
   els.history.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-nap]");
     if (button) removeNapRecord(button.dataset.deleteNap);
+    const feedingButton = event.target.closest("[data-delete-feeding]");
+    if (feedingButton) removeFeedingRecord(feedingButton.dataset.deleteFeeding);
   });
 }
 
@@ -244,6 +286,30 @@ function updateProfile() {
   saveState();
   scheduleUpcomingNotifications();
   render();
+}
+
+function hydrateFeedingOptions() {
+  const options = inferredFeedingOptions();
+  state.feedingOptions = options;
+  els.feedBreastEnabled.checked = options.breast;
+  els.feedBottleEnabled.checked = options.bottle;
+  els.feedFormulaEnabled.checked = options.formula;
+}
+
+function updateFeedingOptions() {
+  state.feedingOptions = {
+    breast: els.feedBreastEnabled.checked,
+    bottle: els.feedBottleEnabled.checked,
+    formula: els.feedFormulaEnabled.checked
+  };
+
+  if (!state.feedingOptions.breast && !state.feedingOptions.bottle && !state.feedingOptions.formula) {
+    state.feedingOptions.breast = true;
+    els.feedBreastEnabled.checked = true;
+  }
+
+  saveState();
+  renderFeedingTypeOptions();
 }
 
 function startNap() {
@@ -375,13 +441,25 @@ function createNightRecord(startedAt, endedAt) {
   };
 }
 
+function createFeedingRecord(fedAt, type, side, note) {
+  return {
+    id: `feed-${fedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    babyName: state.babyName || "",
+    babyAge: state.babyAge,
+    at: fedAt.toISOString(),
+    type,
+    side: type === "breast" ? side : "",
+    note: note || "",
+    dayStart: state.dayStart,
+    synced: false
+  };
+}
+
 function addNapRecord(nap) {
   state.naps.unshift(nap);
   state.naps.sort((a, b) => new Date(b.end) - new Date(a.end));
   state.naps = state.naps.slice(0, 80);
-  const latestWake = new Date(state.naps[0].end);
-  state.lastWake = minutesToTime(latestWake.getHours() * 60 + latestWake.getMinutes());
-  els.lastWake.value = state.lastWake;
+  applyLastWakeFromLatestNap();
   nap.babyName = state.babyName || "";
   nap.babyAge = state.babyAge;
   nap.dayStart = state.dayStart;
@@ -397,6 +475,22 @@ function addNightRecord(night) {
   state.nights = state.nights.slice(0, 80);
 }
 
+function addFeedingRecord(feeding) {
+  const duplicate = state.feedings.find((item) => feedingSignature(item) === feedingSignature(feeding));
+  if (duplicate) {
+    setHint("Mamada duplicada ignorada: já existe um registro igual neste horário.");
+    return;
+  }
+
+  state.feedings.unshift(feeding);
+  state.feedings = dedupeFeedings(state.feedings)
+    .sort((a, b) => new Date(b.at) - new Date(a.at));
+  state.feedings = state.feedings.slice(0, 160);
+  hydrateFeedingOptions();
+  saveState();
+  syncFeedingToSheet(feeding);
+}
+
 function applyNightAsCycleStartIfLatest(night) {
   const endedAt = new Date(night.end);
   if (Number.isNaN(endedAt.getTime())) return;
@@ -406,9 +500,26 @@ function applyNightAsCycleStartIfLatest(night) {
 
   state.cycleStartAt = endedAt.toISOString();
   state.dayStart = minutesToTime(dateToDayMinutes(endedAt));
-  state.lastWake = state.dayStart;
   els.dayStart.value = state.dayStart;
-  els.lastWake.value = state.lastWake;
+  if (!napsToday().length) {
+    state.lastWake = state.dayStart;
+    els.lastWake.value = state.lastWake;
+  } else {
+    applyLastWakeFromLatestNap();
+  }
+}
+
+function applyLastWakeFromLatestNap() {
+  if (!state.naps.length) return false;
+  const sortedNaps = state.naps
+    .slice()
+    .sort((a, b) => new Date(b.end) - new Date(a.end));
+  const latestWake = new Date(sortedNaps[0].end);
+  if (Number.isNaN(latestWake.getTime())) return false;
+
+  state.lastWake = minutesToTime(dateToDayMinutes(latestWake));
+  if (els.lastWake) els.lastWake.value = state.lastWake;
+  return true;
 }
 
 function removeNapRecord(napKey) {
@@ -417,23 +528,30 @@ function removeNapRecord(napKey) {
   state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
   state.nights = state.nights.filter((item) => napIdentity(item) !== napKey);
 
-  if (state.naps.length) {
-    const latestWake = new Date(state.naps[0].end);
-    state.lastWake = minutesToTime(latestWake.getHours() * 60 + latestWake.getMinutes());
-  } else {
+  if (!applyLastWakeFromLatestNap()) {
     state.lastWake = minutesToTime(nowMinutes());
+    els.lastWake.value = state.lastWake;
+  } else {
+    els.lastWake.value = state.lastWake;
   }
-
-  els.lastWake.value = state.lastWake;
   saveState();
   if (nap && nap.id) deleteNapFromSheet(nap.id);
   if (night && night.id) deleteNapFromSheet(night.id);
   render();
 }
 
+function removeFeedingRecord(feedingKey) {
+  const feeding = state.feedings.find((item) => feedingIdentity(item) === feedingKey);
+  state.feedings = state.feedings.filter((item) => feedingIdentity(item) !== feedingKey);
+  saveState();
+  if (feeding && feeding.id) deleteFeedingFromSheet(feeding.id);
+  render();
+}
+
 function clearHistory() {
   state.naps = [];
   state.nights = [];
+  state.feedings = [];
   state.cycleStartAt = null;
   saveState();
   render();
@@ -598,6 +716,7 @@ function renderDayPlanner(prediction) {
   const now = nowMinutes();
   const night = calculateNightSuggestion(prediction);
   const today = napsToday();
+  const feedings = feedingsToday();
   const segments = [];
 
   today.forEach((nap) => {
@@ -630,7 +749,7 @@ function renderDayPlanner(prediction) {
 
   if (!state.activeNightStart) {
     segments.push({
-      type: "night",
+      type: "night-future",
       start: night.start,
       end: night.start + 120
     });
@@ -640,19 +759,61 @@ function renderDayPlanner(prediction) {
     .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end))
     .map((segment) => arcPath(segment.start, Math.max(segment.start + 6, segment.end), segment.type))
     .join("");
+  els.dayMarkers.innerHTML = [
+    ...today.map((nap) => ({ type: "nap", at: dateToDayMinutes(new Date(nap.start)) })),
+    ...feedings.map((feeding) => ({ type: "feed", at: dateToDayMinutes(new Date(feeding.at)) })),
+    { type: "next", at: prediction.target },
+    { type: "night", at: night.start }
+  ]
+    .filter((marker) => Number.isFinite(marker.at))
+    .map((marker) => markerSvg(marker))
+    .join("");
 
   const nowPoint = pointOnCircle(now, 92);
   els.dayNowHand.setAttribute("x2", String(nowPoint.x));
   els.dayNowHand.setAttribute("y2", String(nowPoint.y));
-  els.dayCenterTime.textContent = minutesToTime(now);
-  els.dayCenterLabel.textContent = `${today.length} soneca${today.length === 1 ? "" : "s"}`;
+  renderRingCenter(prediction, today);
   els.bedtimeSuggestion.textContent = minutesToTime(night.start);
   els.bedtimeReason.textContent = night.reason;
+  els.ringCaptions.innerHTML = "";
   els.dayLegend.innerHTML = `
     <span class="legend-item"><i class="legend-dot nap"></i>Sonecas</span>
+    <span class="legend-item"><i class="legend-dot feed"></i>Mamadas</span>
     <span class="legend-item"><i class="legend-dot next"></i>Próxima</span>
     <span class="legend-item"><i class="legend-dot night"></i>Noite</span>
   `;
+}
+
+function renderRingCenter(prediction, today) {
+  const nextNapName = `${ordinalFeminine(today.length + 1)} soneca`;
+  const now = nowMinutes();
+
+  if (state.activeNapStart) {
+    els.dayCenterLabel.textContent = "soneca";
+    els.dayCenterTime.textContent = "em andamento";
+    return;
+  }
+
+  if (state.activeNightStart) {
+    els.dayCenterLabel.textContent = "sono noturno";
+    els.dayCenterTime.textContent = "em andamento";
+    return;
+  }
+
+  if (now < prediction.start) {
+    els.dayCenterLabel.textContent = `${nextNapName} em`;
+    els.dayCenterTime.textContent = formatDuration(prediction.start - now);
+    return;
+  }
+
+  if (now <= prediction.end) {
+    els.dayCenterLabel.textContent = nextNapName;
+    els.dayCenterTime.textContent = "janela aberta";
+    return;
+  }
+
+  els.dayCenterLabel.textContent = nextNapName;
+  els.dayCenterTime.textContent = "janela aberta";
 }
 
 function calculateNightSuggestion(prediction) {
@@ -745,7 +906,11 @@ function renderHistory() {
     els.historyDate.value = dateInputValue(new Date());
   }
 
-  const records = [...state.naps.map((record) => ({ ...record, type: "nap" })), ...state.nights.map((record) => ({ ...record, type: "night" }))]
+  const records = [
+    ...state.naps.map((record) => ({ ...record, type: "nap" })),
+    ...state.nights.map((record) => ({ ...record, type: "night" })),
+    ...dedupeFeedings(state.feedings).map((record) => ({ ...record, type: "feeding", start: record.at, end: record.at }))
+  ]
     .filter((record) => recordDateInputValue(record) === els.historyDate.value)
     .sort((a, b) => new Date(b.end) - new Date(a.end));
 
@@ -756,6 +921,9 @@ function renderHistory() {
   els.history.innerHTML = records.map((record) => {
     const start = new Date(record.start);
     const end = new Date(record.end);
+    if (record.type === "feeding") {
+      return `<li><div><span>Mamada · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${feedingLabel(record)}</b></div></div><div class="history-actions"><div class="history-mood">${feedingSideLabel(record.side)}</div><button class="delete-nap" data-delete-feeding="${feedingIdentity(record)}" aria-label="Excluir mamada" title="Excluir mamada">×</button></div></li>`;
+    }
     const label = record.type === "night" ? "Sono noturno" : moodLabel(record.mood);
     const typeLabel = record.type === "night" ? "Noite" : "Soneca";
     return `<li><div><span>${typeLabel} · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)} - ${timeLabel(end)}</b><b>${formatDuration(safeDuration(record))}</b></div></div><div class="history-actions"><div class="history-mood">${label}</div><button class="delete-nap" data-delete-nap="${napIdentity(record)}" aria-label="Excluir registro" title="Excluir registro">×</button></div></li>`;
@@ -874,7 +1042,9 @@ async function syncPendingNapsToSheet() {
 
 async function syncFromSheetThenPending() {
   await loadNapsFromSheet();
+  await loadFeedingsFromSheet();
   await syncPendingNapsToSheet();
+  await syncPendingFeedingsToSheet();
 }
 
 async function loadNapsFromSheet() {
@@ -949,6 +1119,52 @@ function sheetRecordToNight(record) {
   };
 }
 
+async function loadFeedingsFromSheet() {
+  if (!SHEETS_WEB_APP_URL) return;
+
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listFeedings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao carregar mamadas.");
+    if (!Array.isArray(result.records)) {
+      feedingSheetSupport = false;
+      return;
+    }
+    feedingSheetSupport = true;
+
+    const remoteFeedings = (result.records || [])
+      .map(sheetRecordToFeeding)
+      .filter(Boolean);
+
+    if (!remoteFeedings.length) return;
+
+    mergeFeedings(remoteFeedings);
+    saveState();
+    render();
+    setHint(`Google Sheets carregado: ${remoteFeedings.length} mamada(s) encontrada(s).`);
+  } catch (error) {
+    setHint(`Nao consegui carregar as mamadas do Google Sheets: ${error.message}`);
+  }
+}
+
+function sheetRecordToFeeding(record) {
+  if (!record.id || !record.at) return null;
+  const fedAt = new Date(record.at);
+  if (Number.isNaN(fedAt.getTime())) return null;
+  return {
+    id: String(record.id),
+    babyName: record.babyName || "",
+    babyAge: Number(record.babyAge || 0),
+    at: fedAt.toISOString(),
+    type: record.type || "breast",
+    side: record.side || "",
+    note: record.note || "",
+    dayStart: normalizeTimeField(record.dayStart),
+    synced: true
+  };
+}
+
 function mergeNaps(remoteNaps) {
   const byId = new Map();
   state.naps.forEach((nap) => byId.set(String(nap.id || napIdentity(nap)), nap));
@@ -958,8 +1174,7 @@ function mergeNaps(remoteNaps) {
     .slice(0, 80);
 
   if (state.naps.length) {
-    const latestWake = new Date(state.naps[0].end);
-    state.lastWake = minutesToTime(latestWake.getHours() * 60 + latestWake.getMinutes());
+    applyLastWakeFromLatestNap();
     applyProfileFromLatestNap();
   }
 }
@@ -980,7 +1195,7 @@ function mergeNights(remoteNights) {
     if (!Number.isNaN(latestNightEnd.getTime())) {
       state.cycleStartAt = latestNightEnd.toISOString();
       state.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
-      state.lastWake = state.dayStart;
+      if (!state.naps.length) state.lastWake = state.dayStart;
       els.dayStart.value = state.dayStart;
       els.lastWake.value = state.lastWake;
       els.babyName.value = state.babyName;
@@ -988,6 +1203,16 @@ function mergeNights(remoteNights) {
       els.bedtime.value = state.bedtime;
     }
   }
+}
+
+function mergeFeedings(remoteFeedings) {
+  const byId = new Map();
+  state.feedings.forEach((feeding) => byId.set(String(feeding.id || feedingIdentity(feeding)), feeding));
+  remoteFeedings.forEach((feeding) => byId.set(String(feeding.id), feeding));
+  state.feedings = dedupeFeedings(Array.from(byId.values()))
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 160);
+  hydrateFeedingOptions();
 }
 
 function applyProfileFromLatestNap() {
@@ -1080,6 +1305,88 @@ function sheetPayloadForNap(nap) {
   return payload;
 }
 
+async function syncFeedingToSheet(feeding) {
+  if (!SHEETS_WEB_APP_URL || !feeding) return;
+  return syncFeedingsToSheet([feeding], "Mamada salva no aparelho. Enviando para o Google Sheets...");
+}
+
+async function syncPendingFeedingsToSheet() {
+  state.feedings = dedupeFeedings(state.feedings)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 160);
+  saveState();
+  const pending = state.feedings.filter((record) => !record.synced);
+  if (!pending.length) return;
+  await syncFeedingsToSheet(pending, "Sincronizando mamadas pendentes com o Google Sheets...");
+}
+
+async function syncFeedingsToSheet(feedings, statusMessage) {
+  if (!SHEETS_WEB_APP_URL || !feedings.length) return;
+  const supported = await ensureFeedingSheetSupport(true);
+  if (!supported) {
+    setHint("Mamada salva no aparelho. Reimplante o Apps Script novo para criar/sincronizar a aba Mamadas.");
+    return;
+  }
+
+  const records = feedings.map((feeding) => sheetPayloadForFeeding(feeding));
+  const payload = {
+    token: SHEETS_SHARED_TOKEN,
+    action: records.length > 1 ? "bulkAppendFeedings" : "appendFeeding",
+    records,
+    ...records[0]
+  };
+
+  try {
+    setHint(statusMessage);
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar mamada.");
+
+    const syncedIds = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.feedings = state.feedings.map((feeding) => (
+      syncedIds.has(String(feeding.id || feedingIdentity(feeding))) ? { ...feeding, synced: true } : feeding
+    ));
+    saveState();
+    setHint("Mamada salva no aparelho e sincronizada com o Google Sheets.");
+  } catch (error) {
+    setHint(`Mamada salva no aparelho, mas nao foi enviada ao Google Sheets: ${error.message}`);
+  }
+}
+
+async function ensureFeedingSheetSupport(forceRetry = false) {
+  if (feedingSheetSupport === true && !forceRetry) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listFeedings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    feedingSheetSupport = Boolean(result.ok && Array.isArray(result.records));
+  } catch {
+    if (!forceRetry) feedingSheetSupport = false;
+    return false;
+  }
+  return feedingSheetSupport;
+}
+
+function sheetPayloadForFeeding(feeding) {
+  const fedAt = new Date(feeding.at);
+  return {
+    id: feeding.id || feedingIdentity(feeding),
+    babyName: feeding.babyName || state.babyName || "Bebê",
+    babyAge: Number(feeding.babyAge || state.babyAge || 0),
+    at: toLocalDateTimeValue(fedAt),
+    type: feeding.type || "breast",
+    typeLabel: feedingLabel(feeding),
+    side: feeding.side || "",
+    sideLabel: feedingSideLabel(feeding.side),
+    note: feeding.note || "",
+    dayStart: normalizeTimeField(feeding.dayStart || state.dayStart)
+  };
+}
+
 async function deleteNapFromSheet(id) {
   if (!SHEETS_WEB_APP_URL || !id) return;
 
@@ -1098,6 +1405,27 @@ async function deleteNapFromSheet(id) {
     setHint("Soneca removida do aparelho e do Google Sheets.");
   } catch (error) {
     setHint(`Soneca removida do aparelho, mas não foi removida do Google Sheets: ${error.message}`);
+  }
+}
+
+async function deleteFeedingFromSheet(id) {
+  if (!SHEETS_WEB_APP_URL || !id) return;
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "deleteFeeding",
+        id
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao remover mamada.");
+    setHint("Mamada removida do aparelho e do Google Sheets.");
+  } catch (error) {
+    setHint(`Mamada removida do aparelho, mas nao foi removida do Google Sheets: ${error.message}`);
   }
 }
 
@@ -1288,6 +1616,16 @@ function napsToday() {
   return napsInCurrentDay();
 }
 
+function feedingsToday() {
+  const start = currentCycleStartDate();
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+
+  return state.feedings.filter((feeding) => {
+    const fedAt = new Date(feeding.at);
+    return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
+  });
+}
+
 function napsInCurrentDay() {
   const operationalNaps = operationalDayNaps();
   if (operationalNaps.length) return operationalNaps;
@@ -1337,6 +1675,11 @@ function expectedNapCount(value) {
   return Number(match[match.length - 1]);
 }
 
+function ordinalFeminine(number) {
+  const labels = ["primeira", "segunda", "terceira", "quarta", "quinta", "sexta", "sétima", "oitava"];
+  return labels[number - 1] || `${number}ª`;
+}
+
 function dateToDayMinutes(date) {
   return date.getHours() * 60 + date.getMinutes();
 }
@@ -1351,6 +1694,11 @@ function arcPath(startMinutes, endMinutes, type) {
   const largeArc = end - start > 12 * 60 ? 1 : 0;
 
   return `<path class="day-ring-segment ${type}" d="M ${startPoint.x} ${startPoint.y} A 92 92 0 ${largeArc} 1 ${endPoint.x} ${endPoint.y}"></path>`;
+}
+
+function markerSvg(marker) {
+  const point = pointOnCircle(marker.at, 92);
+  return `<circle class="day-marker ${marker.type}" cx="${point.x}" cy="${point.y}" r="5"></circle>`;
 }
 
 function pointOnCircle(minutes, radius) {
@@ -1386,6 +1734,7 @@ function loadState() {
     loaded.dayStart = normalizeTimeField(loaded.dayStart) || DEFAULT_DAY_START;
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
+    loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
     loaded.naps = (loaded.naps || []).map((nap) => ({
       ...nap,
@@ -1411,16 +1760,36 @@ function loadState() {
     if (!loaded.cycleStartAt && loaded.nights[0]) {
       loaded.cycleStartAt = loaded.nights[0].end;
     }
-    if (loaded.nights[0]) {
+    loaded.feedings = dedupeFeedings((loaded.feedings || []).map((feeding) => ({
+      ...feeding,
+      id: feeding.id || `feed-legacy-${Math.abs(hashString(feedingIdentity(feeding)))}`,
+      at: feeding.at,
+      type: feeding.type || "breast",
+      side: feeding.side || "",
+      babyAge: Number.isFinite(Number(feeding.babyAge)) ? Number(feeding.babyAge) : loaded.babyAge,
+      dayStart: normalizeTimeField(feeding.dayStart) || loaded.dayStart,
+      synced: Boolean(feeding.synced)
+    })).filter((feeding) => !Number.isNaN(new Date(feeding.at).getTime())))
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
+  if (loaded.nights[0]) {
       const latestNightStart = new Date(loaded.nights[0].start);
       const latestNightEnd = new Date(loaded.nights[0].end);
       if (!Number.isNaN(latestNightEnd.getTime())) {
         loaded.cycleStartAt = latestNightEnd.toISOString();
         loaded.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
-        loaded.lastWake = loaded.dayStart;
+        if (!loaded.naps.length) {
+          loaded.lastWake = loaded.dayStart;
+        }
       }
       if (!Number.isNaN(latestNightStart.getTime())) {
         loaded.bedtime = normalizeTimeField(loaded.nights[0].bedtime) || minutesToTime(dateToDayMinutes(latestNightStart));
+      }
+    }
+    if (loaded.naps.length) {
+      const latestNap = loaded.naps.slice().sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+      const latestWake = new Date(latestNap.end);
+      if (!Number.isNaN(latestWake.getTime())) {
+        loaded.lastWake = minutesToTime(dateToDayMinutes(latestWake));
       }
     }
     return loaded;
@@ -1484,6 +1853,66 @@ function toggleManualNapSheet(open) {
   els.manualNapSheet.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
+function openFeedingSheet(manual = false) {
+  renderFeedingTypeOptions();
+  els.feedingTitle.textContent = manual ? "Adicionar mamada anterior" : "Registrar mamada";
+  const fedAt = new Date();
+  if (manual) fedAt.setMinutes(fedAt.getMinutes() - 60);
+  els.feedingTime.value = toDateTimeLocalValue(fedAt);
+  els.feedingNote.value = "";
+  selectFeedSide(selectedFeedSide || "left");
+  updateFeedingSideVisibility();
+  showFeedingError("");
+  toggleFeedingSheet(true);
+}
+
+function toggleFeedingSheet(open) {
+  els.feedingSheet.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function renderFeedingTypeOptions() {
+  const current = els.feedingType.value;
+  const options = availableFeedingTypes();
+  els.feedingType.innerHTML = options
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+  els.feedingType.value = options.some((option) => option.value === current) ? current : options[0].value;
+  updateFeedingSideVisibility();
+}
+
+function selectFeedSide(side) {
+  selectedFeedSide = side || "left";
+  document.querySelectorAll("[data-feed-side]").forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.feedSide === selectedFeedSide);
+  });
+}
+
+function updateFeedingSideVisibility() {
+  els.feedingSideGroup.hidden = els.feedingType.value !== "breast";
+}
+
+function saveFeeding() {
+  if (els.saveFeeding.disabled) return;
+  els.saveFeeding.disabled = true;
+  const fedAt = new Date(els.feedingTime.value);
+  if (!els.feedingTime.value || Number.isNaN(fedAt.getTime())) {
+    showFeedingError("Informe o horario da mamada.");
+    els.saveFeeding.disabled = false;
+    return;
+  }
+
+  const type = els.feedingType.value || "breast";
+  const feeding = createFeedingRecord(fedAt, type, selectedFeedSide, els.feedingNote.value.trim());
+  addFeedingRecord(feeding);
+  toggleFeedingSheet(false);
+  els.saveFeeding.disabled = false;
+  render();
+}
+
+function showFeedingError(message) {
+  els.feedingError.textContent = message;
+}
+
 function selectManualMood(mood) {
   manualMood = mood || "";
   document.querySelectorAll("[data-manual-mood]").forEach((button) => {
@@ -1510,6 +1939,102 @@ function moodKeyFromLabel(value) {
   if (normalized.includes("neutro")) return "neutral";
   if (normalized.includes("mau")) return "upset";
   return "";
+}
+
+function normalizedFeedingOptions() {
+  return {
+    breast: state.feedingOptions?.breast !== false,
+    bottle: state.feedingOptions?.bottle !== false,
+    formula: state.feedingOptions?.formula !== false
+  };
+}
+
+function inferredFeedingOptions() {
+  const recentTypes = new Set(
+    dedupeFeedings(state.feedings || [])
+      .sort((a, b) => new Date(b.at) - new Date(a.at))
+      .slice(0, 20)
+      .map((feeding) => feeding.type || "breast")
+  );
+
+  if (!recentTypes.size) return normalizedFeedingOptions();
+
+  return {
+    breast: recentTypes.has("breast"),
+    bottle: recentTypes.has("bottle"),
+    formula: recentTypes.has("formula")
+  };
+}
+
+function availableFeedingTypes() {
+  const options = inferredFeedingOptions();
+  const types = [];
+  if (options.breast) types.push({ value: "breast", label: "Leite materno" });
+  if (options.bottle) types.push({ value: "bottle", label: "Mamadeira" });
+  if (options.formula) types.push({ value: "formula", label: "Fórmula" });
+  return types.length ? types : [{ value: "breast", label: "Leite materno" }];
+}
+
+function feedingLabel(feeding) {
+  const labels = {
+    breast: "Leite materno",
+    bottle: "Mamadeira",
+    formula: "Fórmula"
+  };
+  return labels[feeding.type] || "Mamada";
+}
+
+function feedingSideLabel(side) {
+  const labels = {
+    left: "Esquerdo",
+    right: "Direito",
+    both: "Ambos"
+  };
+  return labels[side] || "-";
+}
+
+function feedingIdentity(feeding) {
+  return feeding.id || `${feeding.at}|${feeding.type}|${feeding.side || ""}|${feeding.note || ""}`;
+}
+
+function feedingSignature(feeding) {
+  const date = new Date(feeding.at);
+  const minuteKey = Number.isNaN(date.getTime())
+    ? String(feeding.at || "")
+    : `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
+  return [
+    minuteKey,
+    feeding.type || "breast",
+    feeding.side || "",
+    String(feeding.note || "").trim().toLowerCase()
+  ].join("|");
+}
+
+function dedupeFeedings(feedings) {
+  const bySignature = new Map();
+
+  feedings.forEach((feeding) => {
+    const signature = feedingSignature(feeding);
+    const current = bySignature.get(signature);
+    if (!current) {
+      bySignature.set(signature, feeding);
+      return;
+    }
+
+    if (!current.synced && feeding.synced) {
+      bySignature.set(signature, feeding);
+      return;
+    }
+
+    const currentTime = new Date(current.at).getTime();
+    const candidateTime = new Date(feeding.at).getTime();
+    if (!feeding.synced && current.synced) return;
+    if (Number.isFinite(candidateTime) && (!Number.isFinite(currentTime) || candidateTime > currentTime)) {
+      bySignature.set(signature, feeding);
+    }
+  });
+
+  return Array.from(bySignature.values());
 }
 
 function timeToMinutes(value) {
