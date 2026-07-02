@@ -774,7 +774,7 @@ input {
   inset: 0;
   display: none;
   align-items: flex-end;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
   background: rgba(2, 8, 18, 0.68);
   z-index: 10;
 }
@@ -791,18 +791,18 @@ input {
   border-radius: 8px;
   background: #181f43;
   box-shadow: var(--shadow);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .profile-sheet-card {
   width: min(720px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow: auto;
 }
 
 .report-sheet-card {
   width: min(760px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow: auto;
 }
 
 .report-grid {
@@ -937,14 +937,21 @@ input {
 }
 
 .close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  float: right;
+  margin: -6px -6px 8px 10px;
   width: 34px;
   height: 34px;
   background: rgba(184, 181, 255, 0.18);
   color: var(--ink);
   font-size: 1rem;
+  box-shadow: 0 8px 18px rgba(3, 8, 24, 0.24);
+}
+
+.sheet-card > .label {
+  clear: both;
 }
 
 .mood-options {
@@ -1038,6 +1045,31 @@ input {
 }
 
 @media (max-width: 560px) {
+  .sheet {
+    align-items: flex-end;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .sheet-card {
+    width: 100%;
+    max-height: min(84vh, calc(100vh - 24px));
+    padding: 16px;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  .profile-sheet-card,
+  .report-sheet-card {
+    max-height: min(84vh, calc(100vh - 24px));
+  }
+
+  .close {
+    width: 40px;
+    height: 40px;
+    margin: -4px -4px 10px 10px;
+    background: rgba(213, 225, 255, 0.22);
+  }
+
   .app-shell {
     padding-left: 12px;
     padding-right: 12px;
@@ -1066,5 +1098,19 @@ input {
 
   .pill {
     max-width: 44%;
+  }
+}
+
+@supports (height: 100dvh) {
+  .sheet-card {
+    max-height: calc(100dvh - 32px);
+  }
+
+  @media (max-width: 560px) {
+    .sheet-card,
+    .profile-sheet-card,
+    .report-sheet-card {
+      max-height: min(84dvh, calc(100dvh - 24px));
+    }
   }
 }
