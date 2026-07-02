@@ -513,6 +513,11 @@ h2 {
     var(--surface-strong);
 }
 
+.timer-panel.is-idle .timer,
+.timer-panel.is-idle .nap-detail-grid {
+  display: none;
+}
+
 .pill {
   flex: 0 0 auto;
   max-width: 48%;
@@ -564,6 +569,22 @@ h2 {
 
 .button-row {
   gap: 10px;
+}
+
+.start-compact {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.start-main {
+  min-height: 62px;
+  font-size: 1.2rem;
+}
+
+.start-compact .secondary[disabled] {
+  display: none;
 }
 
 .night-controls {
@@ -1075,6 +1096,17 @@ select {
 .manual-card-button.night {
   border-color: rgba(203, 183, 247, 0.26);
   background: rgba(203, 183, 247, 0.12);
+}
+
+.manual-card-button.feeding {
+  border-color: rgba(138, 63, 252, 0.28);
+  background: rgba(138, 63, 252, 0.13);
+}
+
+.start-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .manual-card-button strong {

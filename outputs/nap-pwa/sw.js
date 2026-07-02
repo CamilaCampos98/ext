@@ -1,9 +1,9 @@
-const CACHE_NAME = "soneca-pwa-v49";
+const CACHE_NAME = "soneca-pwa-v51";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=24",
-  "./app.js?v=49",
+  "./styles.css?v=25",
+  "./app.js?v=51",
   "./manifest.webmanifest",
   "./icon.svg"
 ];

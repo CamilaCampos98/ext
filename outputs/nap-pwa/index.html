@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=24">
+    <link rel="stylesheet" href="styles.css?v=25">
   </head>
   <body>
     <div class="app-shell">
@@ -98,9 +98,9 @@
               <strong id="currentMood">-</strong>
             </div>
           </div>
-          <div class="button-row">
-            <button class="primary" id="startNap">Iniciar soneca</button>
-            <button class="secondary" id="endNap">Encerrar</button>
+          <div class="start-compact">
+            <button class="primary start-main" id="openStartSheet" type="button">Start</button>
+            <button class="secondary" id="endNap">Encerrar soneca</button>
           </div>
           <div class="button-row night-controls">
             <button class="secondary night-button" id="startNight">Iniciar sono noturno</button>
@@ -115,10 +115,6 @@
               <strong>Sono noturno anterior</strong>
               <span>Registrar a noite passada sem cronômetro</span>
             </button>
-          </div>
-          <div class="feeding-actions">
-            <button class="primary feed-button" id="openFeeding" type="button">Registrar mamada</button>
-            <button class="secondary feed-button" id="openManualFeeding" type="button">Mamada anterior</button>
           </div>
           <p class="fineprint" id="activeNapHint">Ao encerrar, registre como o bebê acordou para melhorar a leitura da rotina.</p>
         </section>
@@ -145,11 +141,8 @@
               <input id="babyName" autocomplete="off" placeholder="Bebê">
             </label>
             <label>
-              Idade
-              <div class="inline-input">
-                <input id="babyAge" type="number" inputmode="numeric" min="0" max="36" value="6">
-                <span>meses</span>
-              </div>
+              Nascimento
+              <input id="babyBirthDate" type="date">
             </label>
             <label>
               Início do dia
@@ -306,6 +299,24 @@
       </div>
     </div>
 
+    <div class="sheet" id="startSheet" aria-hidden="true">
+      <div class="sheet-card">
+        <button class="icon-button close" id="closeStartSheet" aria-label="Fechar">x</button>
+        <p class="label">Start</p>
+        <h2>O que vai começar agora?</h2>
+        <div class="start-options">
+          <button class="manual-card-button" id="startNap" type="button">
+            <strong>Soneca</strong>
+            <span>Inicia o cronômetro com o horário atual</span>
+          </button>
+          <button class="manual-card-button feeding" id="openFeeding" type="button">
+            <strong>Mamada</strong>
+            <span>Registra com o horário atual</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="sheet" id="manualNapSheet" aria-hidden="true">
       <div class="sheet-card">
         <button class="icon-button close" id="closeManualNap" aria-label="Fechar">x</button>
@@ -369,6 +380,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=49" defer></script>
+    <script src="app.js?v=51" defer></script>
   </body>
 </html>

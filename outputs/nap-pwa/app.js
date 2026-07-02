@@ -21,6 +21,7 @@ const wakeWindows = [
 const defaultState = {
   babyName: "",
   babyAge: 6,
+  babyBirthDate: "",
   dayStart: DEFAULT_DAY_START,
   lastWake: "",
   bedtime: "19:30",
@@ -54,12 +55,16 @@ const els = {
   bedtimeReason: document.querySelector("#bedtimeReason"),
   sleepPressureRing: document.querySelector("#sleepPressureRing"),
   sleepPressure: document.querySelector("#sleepPressure"),
+  timerPanel: document.querySelector(".timer-panel"),
   napStatus: document.querySelector("#napStatus"),
   notificationState: document.querySelector("#notificationState"),
   timer: document.querySelector("#timer"),
   currentStart: document.querySelector("#currentStart"),
   currentEnd: document.querySelector("#currentEnd"),
   currentMood: document.querySelector("#currentMood"),
+  openStartSheet: document.querySelector("#openStartSheet"),
+  startSheet: document.querySelector("#startSheet"),
+  closeStartSheet: document.querySelector("#closeStartSheet"),
   startNap: document.querySelector("#startNap"),
   endNap: document.querySelector("#endNap"),
   startNight: document.querySelector("#startNight"),
@@ -70,7 +75,7 @@ const els = {
   openManualFeeding: document.querySelector("#openManualFeeding"),
   activeNapHint: document.querySelector("#activeNapHint"),
   babyName: document.querySelector("#babyName"),
-  babyAge: document.querySelector("#babyAge"),
+  babyBirthDate: document.querySelector("#babyBirthDate"),
   dayStart: document.querySelector("#dayStart"),
   lastWake: document.querySelector("#lastWake"),
   bedtime: document.querySelector("#bedtime"),
@@ -157,7 +162,7 @@ function hydrateForm() {
   repairDayStartIfItHidesTodayNaps();
   applyLastWakeFromLatestNap();
   els.babyName.value = state.babyName;
-  els.babyAge.value = state.babyAge;
+  els.babyBirthDate.value = state.babyBirthDate || "";
   els.dayStart.value = state.dayStart || DEFAULT_DAY_START;
   els.lastWake.value = state.lastWake || minutesToTime(nowMinutes());
   els.bedtime.value = state.bedtime;
@@ -193,7 +198,7 @@ function repairDayStartIfItHidesTodayNaps() {
 function bindEvents() {
   ["input", "change"].forEach((eventName) => {
     els.babyName.addEventListener(eventName, updateProfile);
-    els.babyAge.addEventListener(eventName, updateProfile);
+    els.babyBirthDate.addEventListener(eventName, updateProfile);
     els.dayStart.addEventListener(eventName, updateProfile);
     els.lastWake.addEventListener(eventName, updateProfile);
     els.bedtime.addEventListener(eventName, updateProfile);
@@ -202,14 +207,21 @@ function bindEvents() {
     input.addEventListener("change", updateFeedingOptions);
   });
 
+  els.openStartSheet.addEventListener("click", () => toggleStartSheet(true));
+  els.closeStartSheet.addEventListener("click", () => toggleStartSheet(false));
   els.startNap.addEventListener("click", startNap);
   els.endNap.addEventListener("click", () => toggleMoodSheet(true));
   els.startNight.addEventListener("click", startNightSleep);
   els.endNight.addEventListener("click", completeNightSleep);
   els.openManualNap.addEventListener("click", () => openManualRecordSheet("nap"));
   els.openManualNight.addEventListener("click", () => openManualRecordSheet("night"));
-  els.openFeeding.addEventListener("click", () => openFeedingSheet(false));
-  els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
+  els.openFeeding.addEventListener("click", () => {
+    toggleStartSheet(false);
+    openFeedingSheet(false);
+  });
+  if (els.openManualFeeding) {
+    els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
+  }
   els.requestNotifications.addEventListener("click", requestNotificationPermission);
   els.clearHistory.addEventListener("click", clearHistory);
   els.historyDate.addEventListener("change", renderHistory);
@@ -257,6 +269,9 @@ function bindEvents() {
   els.moodSheet.addEventListener("click", (event) => {
     if (event.target === els.moodSheet) toggleMoodSheet(false);
   });
+  els.startSheet.addEventListener("click", (event) => {
+    if (event.target === els.startSheet) toggleStartSheet(false);
+  });
   els.manualNapSheet.addEventListener("click", (event) => {
     if (event.target === els.manualNapSheet) toggleManualNapSheet(false);
   });
@@ -279,7 +294,8 @@ function mountProfilePanel() {
 
 function updateProfile() {
   state.babyName = els.babyName.value.trim();
-  state.babyAge = clamp(Number(els.babyAge.value || 0), 0, 36);
+  state.babyBirthDate = els.babyBirthDate.value;
+  state.babyAge = currentBabyAgeMonths();
   state.dayStart = els.dayStart.value;
   state.lastWake = els.lastWake.value;
   state.bedtime = els.bedtime.value;
@@ -314,6 +330,7 @@ function updateFeedingOptions() {
 
 function startNap() {
   if (state.activeNapStart || state.activeNightStart) return;
+  toggleStartSheet(false);
   state.activeNapStart = new Date().toISOString();
   saveState();
   scheduleActiveNapNotifications();
@@ -412,7 +429,7 @@ function createNapRecord(startedAt, endedAt, mood) {
     id: `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     type: "nap",
     babyName: state.babyName || "",
-    babyAge: state.babyAge,
+    babyAge: currentBabyAgeMonths(),
     dayStart: state.dayStart,
     bedtime: state.bedtime,
     lastWake: state.lastWake,
@@ -429,7 +446,7 @@ function createNightRecord(startedAt, endedAt) {
     id: `night-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     type: "night",
     babyName: state.babyName || "",
-    babyAge: state.babyAge,
+    babyAge: currentBabyAgeMonths(),
     dayStart: minutesToTime(dateToDayMinutes(endedAt)),
     bedtime: minutesToTime(dateToDayMinutes(startedAt)),
     lastWake: minutesToTime(dateToDayMinutes(endedAt)),
@@ -445,7 +462,7 @@ function createFeedingRecord(fedAt, type, side, note) {
   return {
     id: `feed-${fedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     babyName: state.babyName || "",
-    babyAge: state.babyAge,
+    babyAge: currentBabyAgeMonths(),
     at: fedAt.toISOString(),
     type,
     side: type === "breast" ? side : "",
@@ -461,7 +478,7 @@ function addNapRecord(nap) {
   state.naps = state.naps.slice(0, 80);
   applyLastWakeFromLatestNap();
   nap.babyName = state.babyName || "";
-  nap.babyAge = state.babyAge;
+  nap.babyAge = currentBabyAgeMonths();
   nap.dayStart = state.dayStart;
   nap.bedtime = state.bedtime;
   nap.lastWake = state.lastWake;
@@ -621,7 +638,7 @@ function render() {
 
 function renderProfile() {
   const name = state.babyName || "Bebê";
-  const age = Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
+  const age = currentBabyAgeMonths();
   const ageLabel = `${age} ${age === 1 ? "mês" : "meses"}`;
   const dayStart = state.dayStart || state.lastWake || "--:--";
 
@@ -632,7 +649,7 @@ function renderProfile() {
 }
 
 function calculatePrediction() {
-  const age = Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
+  const age = currentBabyAgeMonths();
   const profile = wakeWindowForAge(age);
   const today = napsToday();
   const recent = state.naps.slice(0, 7);
@@ -828,7 +845,7 @@ function calculateNightSuggestion(prediction) {
 
   let adjustment = 0;
   if (lastNap && lastNap.duration < 35) adjustment -= 25;
-  if (napSleepToday < 90 && state.babyAge >= 4) adjustment -= 20;
+  if (napSleepToday < 90 && currentBabyAgeMonths() >= 4) adjustment -= 20;
   if (today.length > expectedNaps) adjustment -= 15;
   if (today.length < expectedNaps && nowMinutes() > 15 * 60) adjustment -= 10;
 
@@ -861,6 +878,9 @@ function effectiveLastWakeMinutes(today = napsToday()) {
 function renderTimer() {
   const active = Boolean(state.activeNapStart);
   const nightActive = Boolean(state.activeNightStart);
+  els.timerPanel.classList.toggle("is-idle", !active && !nightActive);
+  els.timerPanel.classList.toggle("is-active", active || nightActive);
+  els.openStartSheet.disabled = active || nightActive;
   els.startNap.disabled = active || nightActive;
   els.endNap.disabled = !active;
   els.startNight.disabled = active || nightActive;
@@ -1189,7 +1209,7 @@ function mergeNights(remoteNights) {
 
   if (state.nights.length) {
     if (state.nights[0].babyName) state.babyName = state.nights[0].babyName;
-    if (Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
+    if (!state.babyBirthDate && Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
     if (state.nights[0].bedtime) state.bedtime = state.nights[0].bedtime;
     const latestNightEnd = new Date(state.nights[0].end);
     if (!Number.isNaN(latestNightEnd.getTime())) {
@@ -1199,7 +1219,7 @@ function mergeNights(remoteNights) {
       els.dayStart.value = state.dayStart;
       els.lastWake.value = state.lastWake;
       els.babyName.value = state.babyName;
-      els.babyAge.value = state.babyAge;
+      els.babyBirthDate.value = state.babyBirthDate || "";
       els.bedtime.value = state.bedtime;
     }
   }
@@ -1220,12 +1240,12 @@ function applyProfileFromLatestNap() {
   if (!latest) return;
 
   if (latest.babyName) state.babyName = latest.babyName;
-  if (Number(latest.babyAge) > 0) state.babyAge = clamp(Number(latest.babyAge), 0, 36);
+  if (!state.babyBirthDate && Number(latest.babyAge) > 0) state.babyAge = clamp(Number(latest.babyAge), 0, 36);
   if (!state.nights.length && latest.dayStart) state.dayStart = latest.dayStart;
   if (!state.nights.length && latest.bedtime) state.bedtime = latest.bedtime;
 
   els.babyName.value = state.babyName;
-  els.babyAge.value = state.babyAge;
+  els.babyBirthDate.value = state.babyBirthDate || "";
   els.dayStart.value = state.dayStart;
   els.bedtime.value = state.bedtime;
   els.lastWake.value = state.lastWake;
@@ -1279,7 +1299,7 @@ function sheetPayloadForNap(nap) {
   const startedAt = new Date(nap.start);
   const endedAt = new Date(nap.end);
   const babyName = nap.babyName || state.babyName || "Bebê";
-  const babyAge = Number(nap.babyAge || state.babyAge || 0);
+  const babyAge = Number(nap.babyAge || currentBabyAgeMonths() || 0);
   const dayStart = normalizeTimeField(nap.dayStart || state.dayStart || state.lastWake);
   const bedtime = recordType === "night" ? minutesToTime(dateToDayMinutes(startedAt)) : normalizeTimeField(nap.bedtime || state.bedtime);
   const lastWake = recordType === "night" ? minutesToTime(dateToDayMinutes(endedAt)) : normalizeTimeField(state.lastWake || nap.lastWake);
@@ -1376,7 +1396,7 @@ function sheetPayloadForFeeding(feeding) {
   return {
     id: feeding.id || feedingIdentity(feeding),
     babyName: feeding.babyName || state.babyName || "Bebê",
-    babyAge: Number(feeding.babyAge || state.babyAge || 0),
+    babyAge: Number(feeding.babyAge || currentBabyAgeMonths() || 0),
     at: toLocalDateTimeValue(fedAt),
     type: feeding.type || "breast",
     typeLabel: feedingLabel(feeding),
@@ -1735,7 +1755,11 @@ function loadState() {
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
+    loaded.babyBirthDate = normalizeDateInputValue(loaded.babyBirthDate);
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
+    if (loaded.babyBirthDate) {
+      loaded.babyAge = ageMonthsFromBirthDate(loaded.babyBirthDate);
+    }
     loaded.naps = (loaded.naps || []).map((nap) => ({
       ...nap,
       id: nap.id || stableNapId(nap),
@@ -1818,6 +1842,11 @@ function toggleReportSheet(open) {
 function toggleMoodSheet(open) {
   if (open && !state.activeNapStart) return;
   els.moodSheet.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function toggleStartSheet(open) {
+  if (open && (state.activeNapStart || state.activeNightStart)) return;
+  els.startSheet.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
 function openManualRecordSheet(type = "nap") {
@@ -1939,6 +1968,38 @@ function moodKeyFromLabel(value) {
   if (normalized.includes("neutro")) return "neutral";
   if (normalized.includes("mau")) return "upset";
   return "";
+}
+
+function currentBabyAgeMonths() {
+  if (state.babyBirthDate) {
+    return ageMonthsFromBirthDate(state.babyBirthDate);
+  }
+
+  return Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
+}
+
+function ageMonthsFromBirthDate(value) {
+  const normalized = normalizeDateInputValue(value);
+  if (!normalized) return Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
+
+  const birth = new Date(`${normalized}T00:00:00`);
+  const today = new Date();
+  if (Number.isNaN(birth.getTime()) || birth > today) return 0;
+
+  let months = (today.getFullYear() - birth.getFullYear()) * 12 + today.getMonth() - birth.getMonth();
+  if (today.getDate() < birth.getDate()) months -= 1;
+  return clamp(months, 0, 36);
+}
+
+function normalizeDateInputValue(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return dateInputValue(value);
+  }
+
+  const text = String(value);
+  const match = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
 }
 
 function normalizedFeedingOptions() {
