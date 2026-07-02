@@ -2,7 +2,7 @@ const STORAGE_KEY = "soneca-pwa-state-v1";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY = "";
 const PUSH_SUBSCRIBE_ENDPOINT = "";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx7j5ou2awvZ6qgMuiv1bDemwCpn3u2NwsG2i5ei4IfbIyuEOxKtJzNHD__kQVwnkRbow/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzFAKiVT3iymE1aR_0jzBfqzZ8-cNOL0rEVh1RuxBF1bYLeM7t19VdyDiXJDupF8txlig/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 
@@ -25,7 +25,10 @@ const defaultState = {
   lastWake: "",
   bedtime: "19:30",
   activeNapStart: null,
-  naps: []
+  activeNightStart: null,
+  cycleStartAt: null,
+  naps: [],
+  nights: []
 };
 
 let state = loadState();
@@ -51,7 +54,10 @@ const els = {
   currentMood: document.querySelector("#currentMood"),
   startNap: document.querySelector("#startNap"),
   endNap: document.querySelector("#endNap"),
+  startNight: document.querySelector("#startNight"),
+  endNight: document.querySelector("#endNight"),
   openManualNap: document.querySelector("#openManualNap"),
+  openManualNight: document.querySelector("#openManualNight"),
   activeNapHint: document.querySelector("#activeNapHint"),
   babyName: document.querySelector("#babyName"),
   babyAge: document.querySelector("#babyAge"),
@@ -65,10 +71,31 @@ const els = {
   wakeWindowUsed: document.querySelector("#wakeWindowUsed"),
   sleep24h: document.querySelector("#sleep24h"),
   napCount: document.querySelector("#napCount"),
+  nightSleep: document.querySelector("#nightSleep"),
   notificationHelpText: document.querySelector("#notificationHelpText"),
   history: document.querySelector("#history"),
+  historyDate: document.querySelector("#historyDate"),
+  todayHistory: document.querySelector("#todayHistory"),
   requestNotifications: document.querySelector("#requestNotifications"),
   clearHistory: document.querySelector("#clearHistory"),
+  profileMenu: document.querySelector("#profileMenu"),
+  reportMenu: document.querySelector("#reportMenu"),
+  profileSheet: document.querySelector("#profileSheet"),
+  closeProfile: document.querySelector("#closeProfile"),
+  reportSheet: document.querySelector("#reportSheet"),
+  closeReport: document.querySelector("#closeReport"),
+  avgNapCount: document.querySelector("#avgNapCount"),
+  avgDaySleep: document.querySelector("#avgDaySleep"),
+  avgNightSleep: document.querySelector("#avgNightSleep"),
+  avgTotalSleep: document.querySelector("#avgTotalSleep"),
+  sleepReportChart: document.querySelector("#sleepReportChart"),
+  reportSummary: document.querySelector("#reportSummary"),
+  reportWeekLabel: document.querySelector("#reportWeekLabel"),
+  previousWeek: document.querySelector("#previousWeek"),
+  currentWeek: document.querySelector("#currentWeek"),
+  nextWeek: document.querySelector("#nextWeek"),
+  profilePanel: document.querySelector("#profilePanel"),
+  profileSheetMount: document.querySelector("#profileSheetMount"),
   installHelp: document.querySelector("#installHelp"),
   installSheet: document.querySelector("#installSheet"),
   closeInstall: document.querySelector("#closeInstall"),
@@ -79,15 +106,20 @@ const els = {
   closeManualNap: document.querySelector("#closeManualNap"),
   manualStart: document.querySelector("#manualStart"),
   manualEnd: document.querySelector("#manualEnd"),
+  manualTitle: document.querySelector("#manualTitle"),
+  manualMoodOptions: document.querySelector("#manualMoodOptions"),
   saveManualNap: document.querySelector("#saveManualNap"),
   manualNapError: document.querySelector("#manualNapError")
 };
 
 let manualMood = "";
+let manualRecordType = "nap";
+let reportWeekStart = startOfWeek(new Date());
 
 init();
 
 function init() {
+  mountProfilePanel();
   hydrateForm();
   bindEvents();
   registerServiceWorker();
@@ -104,6 +136,9 @@ function hydrateForm() {
   els.dayStart.value = state.dayStart || DEFAULT_DAY_START;
   els.lastWake.value = state.lastWake || minutesToTime(nowMinutes());
   els.bedtime.value = state.bedtime;
+  if (!els.historyDate.value) {
+    els.historyDate.value = dateInputValue(new Date());
+  }
   if (!state.dayStart) {
     state.dayStart = DEFAULT_DAY_START;
   }
@@ -140,10 +175,28 @@ function bindEvents() {
 
   els.startNap.addEventListener("click", startNap);
   els.endNap.addEventListener("click", () => toggleMoodSheet(true));
-  els.openManualNap.addEventListener("click", openManualNapSheet);
+  els.startNight.addEventListener("click", startNightSleep);
+  els.endNight.addEventListener("click", completeNightSleep);
+  els.openManualNap.addEventListener("click", () => openManualRecordSheet("nap"));
+  els.openManualNight.addEventListener("click", () => openManualRecordSheet("night"));
   els.requestNotifications.addEventListener("click", requestNotificationPermission);
   els.clearHistory.addEventListener("click", clearHistory);
+  els.historyDate.addEventListener("change", renderHistory);
+  els.todayHistory.addEventListener("click", () => {
+    els.historyDate.value = dateInputValue(new Date());
+    renderHistory();
+  });
+  els.profileMenu.addEventListener("click", () => toggleProfileSheet(true));
+  els.reportMenu.addEventListener("click", () => toggleReportSheet(true));
+  els.previousWeek.addEventListener("click", () => shiftReportWeek(-1));
+  els.currentWeek.addEventListener("click", () => {
+    reportWeekStart = startOfWeek(new Date());
+    renderReport();
+  });
+  els.nextWeek.addEventListener("click", () => shiftReportWeek(1));
   els.installHelp.addEventListener("click", () => toggleInstallSheet(true));
+  els.closeProfile.addEventListener("click", () => toggleProfileSheet(false));
+  els.closeReport.addEventListener("click", () => toggleReportSheet(false));
   els.closeInstall.addEventListener("click", () => toggleInstallSheet(false));
   els.closeMood.addEventListener("click", () => toggleMoodSheet(false));
   els.skipMood.addEventListener("click", () => completeNap(""));
@@ -158,6 +211,12 @@ function bindEvents() {
   els.installSheet.addEventListener("click", (event) => {
     if (event.target === els.installSheet) toggleInstallSheet(false);
   });
+  els.profileSheet.addEventListener("click", (event) => {
+    if (event.target === els.profileSheet) toggleProfileSheet(false);
+  });
+  els.reportSheet.addEventListener("click", (event) => {
+    if (event.target === els.reportSheet) toggleReportSheet(false);
+  });
   els.moodSheet.addEventListener("click", (event) => {
     if (event.target === els.moodSheet) toggleMoodSheet(false);
   });
@@ -168,6 +227,12 @@ function bindEvents() {
     const button = event.target.closest("[data-delete-nap]");
     if (button) removeNapRecord(button.dataset.deleteNap);
   });
+}
+
+function mountProfilePanel() {
+  if (!els.profilePanel || !els.profileSheetMount) return;
+  els.profileSheetMount.appendChild(els.profilePanel);
+  els.profilePanel.classList.add("is-in-sheet");
 }
 
 function updateProfile() {
@@ -182,10 +247,40 @@ function updateProfile() {
 }
 
 function startNap() {
-  if (state.activeNapStart) return;
+  if (state.activeNapStart || state.activeNightStart) return;
   state.activeNapStart = new Date().toISOString();
   saveState();
   scheduleActiveNapNotifications();
+  render();
+}
+
+function startNightSleep() {
+  if (state.activeNapStart || state.activeNightStart) return;
+  state.activeNightStart = new Date().toISOString();
+  clearNotificationTimers();
+  saveState();
+  render();
+}
+
+function completeNightSleep() {
+  if (!state.activeNightStart) return;
+  const startedAt = new Date(state.activeNightStart);
+  const endedAt = new Date();
+
+  if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
+    state.activeNightStart = null;
+    saveState();
+    render();
+    return;
+  }
+
+  const night = createNightRecord(startedAt, endedAt);
+  addNightRecord(night);
+  state.activeNightStart = null;
+  applyNightAsCycleStartIfLatest(night);
+  saveState();
+  syncNightToSheet(night);
+  scheduleUpcomingNotifications();
   render();
 }
 
@@ -207,7 +302,7 @@ function saveManualNap() {
   const endedAt = new Date(els.manualEnd.value);
 
   if (!els.manualStart.value || !els.manualEnd.value) {
-    showManualError("Informe início e fim da soneca.");
+    showManualError(manualRecordType === "night" ? "Informe início e fim do sono noturno." : "Informe início e fim da soneca.");
     return;
   }
 
@@ -221,13 +316,27 @@ function saveManualNap() {
     return;
   }
 
-  if ((endedAt - startedAt) / 60000 > 240) {
-    showManualError("Confira os horários: a soneca ficou maior que 4 horas.");
+  const durationMinutes = (endedAt - startedAt) / 60000;
+  const maxDuration = manualRecordType === "night" ? 16 * 60 : 240;
+
+  if (durationMinutes > maxDuration) {
+    showManualError(manualRecordType === "night"
+      ? "Confira os horários: o sono noturno ficou maior que 16 horas."
+      : "Confira os horários: a soneca ficou maior que 4 horas."
+    );
     return;
   }
 
-  const nap = createNapRecord(startedAt, endedAt, manualMood);
-  addNapRecord(nap);
+  if (manualRecordType === "night") {
+    const night = createNightRecord(startedAt, endedAt);
+    addNightRecord(night);
+    applyNightAsCycleStartIfLatest(night);
+    syncNightToSheet(night);
+  } else {
+    const nap = createNapRecord(startedAt, endedAt, manualMood);
+    addNapRecord(nap);
+  }
+
   toggleManualNapSheet(false);
   render();
 }
@@ -235,6 +344,7 @@ function saveManualNap() {
 function createNapRecord(startedAt, endedAt, mood) {
   return {
     id: `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: "nap",
     babyName: state.babyName || "",
     babyAge: state.babyAge,
     dayStart: state.dayStart,
@@ -244,6 +354,23 @@ function createNapRecord(startedAt, endedAt, mood) {
     end: endedAt.toISOString(),
     duration: Math.max(1, Math.round((endedAt - startedAt) / 60000)),
     mood,
+    synced: false
+  };
+}
+
+function createNightRecord(startedAt, endedAt) {
+  return {
+    id: `night-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: "night",
+    babyName: state.babyName || "",
+    babyAge: state.babyAge,
+    dayStart: minutesToTime(dateToDayMinutes(endedAt)),
+    bedtime: minutesToTime(dateToDayMinutes(startedAt)),
+    lastWake: minutesToTime(dateToDayMinutes(endedAt)),
+    start: startedAt.toISOString(),
+    end: endedAt.toISOString(),
+    duration: Math.max(1, Math.round((endedAt - startedAt) / 60000)),
+    mood: "",
     synced: false
   };
 }
@@ -264,9 +391,31 @@ function addNapRecord(nap) {
   syncNapToSheet(nap);
 }
 
+function addNightRecord(night) {
+  state.nights.unshift(night);
+  state.nights.sort((a, b) => new Date(b.end) - new Date(a.end));
+  state.nights = state.nights.slice(0, 80);
+}
+
+function applyNightAsCycleStartIfLatest(night) {
+  const endedAt = new Date(night.end);
+  if (Number.isNaN(endedAt.getTime())) return;
+
+  const currentCycle = new Date(state.cycleStartAt || "");
+  if (!Number.isNaN(currentCycle.getTime()) && endedAt < currentCycle) return;
+
+  state.cycleStartAt = endedAt.toISOString();
+  state.dayStart = minutesToTime(dateToDayMinutes(endedAt));
+  state.lastWake = state.dayStart;
+  els.dayStart.value = state.dayStart;
+  els.lastWake.value = state.lastWake;
+}
+
 function removeNapRecord(napKey) {
   const nap = state.naps.find((item) => napIdentity(item) === napKey);
+  const night = state.nights.find((item) => napIdentity(item) === napKey);
   state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
+  state.nights = state.nights.filter((item) => napIdentity(item) !== napKey);
 
   if (state.naps.length) {
     const latestWake = new Date(state.naps[0].end);
@@ -278,11 +427,14 @@ function removeNapRecord(napKey) {
   els.lastWake.value = state.lastWake;
   saveState();
   if (nap && nap.id) deleteNapFromSheet(nap.id);
+  if (night && night.id) deleteNapFromSheet(night.id);
   render();
 }
 
 function clearHistory() {
   state.naps = [];
+  state.nights = [];
+  state.cycleStartAt = null;
   saveState();
   render();
 }
@@ -346,6 +498,7 @@ function render() {
   renderTimer();
   renderInsights(prediction);
   renderHistory();
+  renderReport();
 }
 
 function renderProfile() {
@@ -422,6 +575,12 @@ function renderPrediction(prediction) {
     return;
   }
 
+  if (state.activeNightStart) {
+    els.nextWindow.textContent = "Sono noturno";
+    els.nextHint.textContent = "O novo ciclo do dia começa quando o sono noturno for encerrado.";
+    return;
+  }
+
   if (nowMinutes() > prediction.end) {
     const name = state.babyName || "bebê";
     els.nextWindow.textContent = "Janela aberta";
@@ -449,7 +608,13 @@ function renderDayPlanner(prediction) {
     });
   });
 
-  if (state.activeNapStart) {
+  if (state.activeNightStart) {
+    segments.push({
+      type: "night",
+      start: dateToDayMinutes(new Date(state.activeNightStart)),
+      end: now
+    });
+  } else if (state.activeNapStart) {
     segments.push({
       type: "nap",
       start: dateToDayMinutes(new Date(state.activeNapStart)),
@@ -463,11 +628,13 @@ function renderDayPlanner(prediction) {
     });
   }
 
-  segments.push({
-    type: "night",
-    start: night.start,
-    end: night.start + 120
-  });
+  if (!state.activeNightStart) {
+    segments.push({
+      type: "night",
+      start: night.start,
+      end: night.start + 120
+    });
+  }
 
   els.daySegments.innerHTML = segments
     .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end))
@@ -532,8 +699,22 @@ function effectiveLastWakeMinutes(today = napsToday()) {
 
 function renderTimer() {
   const active = Boolean(state.activeNapStart);
-  els.startNap.disabled = active;
+  const nightActive = Boolean(state.activeNightStart);
+  els.startNap.disabled = active || nightActive;
   els.endNap.disabled = !active;
+  els.startNight.disabled = active || nightActive;
+  els.endNight.disabled = !nightActive;
+
+  if (nightActive) {
+    const startedAt = new Date(state.activeNightStart);
+    els.timer.textContent = "noite";
+    els.napStatus.textContent = "Sono noturno em andamento";
+    els.currentStart.textContent = timeLabel(startedAt);
+    els.currentEnd.textContent = "ao acordar";
+    els.currentMood.textContent = "Noite";
+    return;
+  }
+
   if (!active) {
     const lastNap = state.naps[0];
     els.timer.textContent = "00:00";
@@ -554,20 +735,108 @@ function renderTimer() {
 }
 
 function renderInsights(prediction) {
-  els.sleep24h.textContent = formatDuration(prediction.sleep24);
+  els.sleep24h.textContent = formatDuration(dayNapSleepMinutes());
   els.napCount.textContent = String(napsToday().length);
+  els.nightSleep.textContent = formatDuration(nightSleepInLast24Hours());
 }
 
 function renderHistory() {
-  if (!state.naps.length) {
-    els.history.innerHTML = `<li><span>Nenhum registro ainda</span><strong>-</strong></li>`;
+  if (!els.historyDate.value) {
+    els.historyDate.value = dateInputValue(new Date());
+  }
+
+  const records = [...state.naps.map((record) => ({ ...record, type: "nap" })), ...state.nights.map((record) => ({ ...record, type: "night" }))]
+    .filter((record) => recordDateInputValue(record) === els.historyDate.value)
+    .sort((a, b) => new Date(b.end) - new Date(a.end));
+
+  if (!records.length) {
+    els.history.innerHTML = `<li><span>Nenhum registro nesta data</span><strong>-</strong></li>`;
     return;
   }
-  els.history.innerHTML = state.naps.slice(0, 10).map((nap) => {
-    const start = new Date(nap.start);
-    const end = new Date(nap.end);
-    return `<li><div><span>${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)} - ${timeLabel(end)}</b><b>${formatDuration(safeDuration(nap))}</b></div></div><div class="history-actions"><div class="history-mood">${moodLabel(nap.mood)}</div><button class="delete-nap" data-delete-nap="${napIdentity(nap)}" aria-label="Excluir soneca" title="Excluir soneca">×</button></div></li>`;
+  els.history.innerHTML = records.map((record) => {
+    const start = new Date(record.start);
+    const end = new Date(record.end);
+    const label = record.type === "night" ? "Sono noturno" : moodLabel(record.mood);
+    const typeLabel = record.type === "night" ? "Noite" : "Soneca";
+    return `<li><div><span>${typeLabel} · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)} - ${timeLabel(end)}</b><b>${formatDuration(safeDuration(record))}</b></div></div><div class="history-actions"><div class="history-mood">${label}</div><button class="delete-nap" data-delete-nap="${napIdentity(record)}" aria-label="Excluir registro" title="Excluir registro">×</button></div></li>`;
   }).join("");
+}
+
+function renderReport() {
+  const days = reportWeekDays(reportWeekStart);
+  const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep);
+  const divisor = activeDays.length || 1;
+  const avgNapCount = activeDays.reduce((sum, day) => sum + day.napCount, 0) / divisor;
+  const avgDaySleep = activeDays.reduce((sum, day) => sum + day.daySleep, 0) / divisor;
+  const avgNightSleep = activeDays.reduce((sum, day) => sum + day.nightSleep, 0) / divisor;
+  const avgTotalSleep = activeDays.reduce((sum, day) => sum + day.totalSleep, 0) / divisor;
+  const weekEnd = addDays(reportWeekStart, 6);
+
+  els.reportWeekLabel.textContent = `${shortDateLabel(reportWeekStart)} - ${shortDateLabel(weekEnd)}`;
+  els.avgNapCount.textContent = activeDays.length ? avgNapCount.toFixed(1).replace(".", ",") : "0";
+  els.avgDaySleep.textContent = formatDuration(Math.round(avgDaySleep));
+  els.avgNightSleep.textContent = formatDuration(Math.round(avgNightSleep));
+  els.avgTotalSleep.textContent = formatDuration(Math.round(avgTotalSleep));
+  els.reportSummary.textContent = activeDays.length
+    ? `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.`
+    : "Sem registros suficientes para calcular a media.";
+
+  renderSleepReportChart(days);
+}
+
+function reportWeekDays(startDate) {
+  const days = [];
+
+  for (let offset = 0; offset < 7; offset += 1) {
+    const date = addDays(startDate, offset);
+    const key = dateInputValue(date);
+    const naps = state.naps.filter((nap) => recordDateInputValue(nap) === key);
+    const nights = state.nights.filter((night) => recordDateInputValue({ ...night, start: night.end }) === key);
+    const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
+    const nightSleep = nights.reduce((sum, night) => sum + safeDuration(night), 0);
+
+    days.push({
+      key,
+      label: shortWeekdayLabel(date),
+      napCount: naps.length,
+      daySleep,
+      nightSleep,
+      totalSleep: daySleep + nightSleep
+    });
+  }
+
+  return days;
+}
+
+function shiftReportWeek(direction) {
+  reportWeekStart = addDays(reportWeekStart, direction * 7);
+  renderReport();
+}
+
+function renderSleepReportChart(days) {
+  if (!els.sleepReportChart) return;
+
+  const width = 640;
+  const height = 260;
+  const padding = { top: 18, right: 18, bottom: 34, left: 42 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxValue = Math.max(60, ...days.flatMap((day) => [day.daySleep, day.nightSleep, day.totalSleep]));
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
+  const pathFor = (selector) => days.map((day, index) => `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(selector(day)))}`).join(" ");
+  const tickValues = [0, Math.round(maxValue / 2), maxValue];
+  const labelIndexes = [0, Math.floor((days.length - 1) / 2), days.length - 1];
+
+  els.sleepReportChart.innerHTML = `
+    <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+    ${tickValues.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="8" y="${roundSvg(scaleY(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+    <path class="chart-line day" d="${pathFor((day) => day.daySleep)}"></path>
+    <path class="chart-line night" d="${pathFor((day) => day.nightSleep)}"></path>
+    <path class="chart-line total" d="${pathFor((day) => day.totalSleep)}"></path>
+    ${days.map((day, index) => day.totalSleep ? `<circle class="chart-point total" cx="${roundSvg(scaleX(index))}" cy="${roundSvg(scaleY(day.totalSleep))}" r="3"></circle>` : "").join("")}
+    ${labelIndexes.map((index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${days[index] ? days[index].label : ""}</text>`).join("")}
+  `;
 }
 
 function napIdentity(nap) {
@@ -592,10 +861,15 @@ async function syncNapToSheet(nap) {
   return syncNapsToSheet([nap], "Registro salvo no aparelho. Enviando para o Google Sheets...");
 }
 
+async function syncNightToSheet(night) {
+  if (!SHEETS_WEB_APP_URL || !night) return;
+  return syncNapsToSheet([night], "Sono noturno salvo no aparelho. Enviando para o Google Sheets...");
+}
+
 async function syncPendingNapsToSheet() {
-  const pending = state.naps.filter((nap) => !nap.synced);
+  const pending = [...state.naps, ...state.nights].filter((record) => !record.synced);
   if (!pending.length) return;
-  await syncNapsToSheet(pending, "Sincronizando sonecas pendentes com o Google Sheets...");
+  await syncNapsToSheet(pending, "Sincronizando registros pendentes com o Google Sheets...");
 }
 
 async function syncFromSheetThenPending() {
@@ -613,15 +887,21 @@ async function loadNapsFromSheet() {
     if (!result.ok) throw new Error(result.error || "Falha ao carregar planilha.");
 
     const remoteNaps = (result.records || [])
+      .filter((record) => record.type !== "night")
       .map(sheetRecordToNap)
       .filter(Boolean);
+    const remoteNights = (result.records || [])
+      .filter((record) => record.type === "night")
+      .map(sheetRecordToNight)
+      .filter(Boolean);
 
-    if (!remoteNaps.length) return;
+    if (!remoteNaps.length && !remoteNights.length) return;
 
     mergeNaps(remoteNaps);
+    mergeNights(remoteNights);
     saveState();
     render();
-    setHint(`Google Sheets carregado: ${remoteNaps.length} registro(s) encontrados.`);
+    setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
   } catch (error) {
     setHint(`Não consegui carregar o Google Sheets: ${error.message}`);
   }
@@ -634,15 +914,37 @@ function sheetRecordToNap(record) {
   if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return null;
   return {
     id: String(record.id),
+    type: "nap",
     babyName: record.babyName || "",
     babyAge: Number(record.babyAge || 0),
-    dayStart: record.dayStart || "",
-    bedtime: record.bedtime || "",
-    lastWake: record.lastWake || "",
+    dayStart: normalizeTimeField(record.dayStart),
+    bedtime: normalizeTimeField(record.bedtime),
+    lastWake: normalizeTimeField(record.lastWake),
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
     duration: safeDuration({ ...record, start: startedAt.toISOString(), end: endedAt.toISOString() }),
     mood: moodKeyFromLabel(record.mood),
+    synced: true
+  };
+}
+
+function sheetRecordToNight(record) {
+  if (!record.id || !record.start || !record.end) return null;
+  const startedAt = new Date(record.start);
+  const endedAt = new Date(record.end);
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return null;
+  return {
+    id: String(record.id),
+    type: "night",
+    babyName: record.babyName || "",
+    babyAge: Number(record.babyAge || 0),
+    dayStart: normalizeTimeField(record.dayStart) || minutesToTime(dateToDayMinutes(endedAt)),
+    bedtime: normalizeTimeField(record.bedtime) || minutesToTime(dateToDayMinutes(startedAt)),
+    lastWake: normalizeTimeField(record.lastWake) || minutesToTime(dateToDayMinutes(endedAt)),
+    start: startedAt.toISOString(),
+    end: endedAt.toISOString(),
+    duration: safeDuration({ ...record, start: startedAt.toISOString(), end: endedAt.toISOString() }),
+    mood: "",
     synced: true
   };
 }
@@ -662,14 +964,40 @@ function mergeNaps(remoteNaps) {
   }
 }
 
+function mergeNights(remoteNights) {
+  const byId = new Map();
+  state.nights.forEach((night) => byId.set(String(night.id || napIdentity(night)), night));
+  remoteNights.forEach((night) => byId.set(String(night.id), night));
+  state.nights = Array.from(byId.values())
+    .sort((a, b) => new Date(b.end) - new Date(a.end))
+    .slice(0, 80);
+
+  if (state.nights.length) {
+    if (state.nights[0].babyName) state.babyName = state.nights[0].babyName;
+    if (Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
+    if (state.nights[0].bedtime) state.bedtime = state.nights[0].bedtime;
+    const latestNightEnd = new Date(state.nights[0].end);
+    if (!Number.isNaN(latestNightEnd.getTime())) {
+      state.cycleStartAt = latestNightEnd.toISOString();
+      state.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
+      state.lastWake = state.dayStart;
+      els.dayStart.value = state.dayStart;
+      els.lastWake.value = state.lastWake;
+      els.babyName.value = state.babyName;
+      els.babyAge.value = state.babyAge;
+      els.bedtime.value = state.bedtime;
+    }
+  }
+}
+
 function applyProfileFromLatestNap() {
   const latest = state.naps[0];
   if (!latest) return;
 
   if (latest.babyName) state.babyName = latest.babyName;
   if (Number(latest.babyAge) > 0) state.babyAge = clamp(Number(latest.babyAge), 0, 36);
-  if (latest.dayStart) state.dayStart = latest.dayStart;
-  if (latest.bedtime) state.bedtime = latest.bedtime;
+  if (!state.nights.length && latest.dayStart) state.dayStart = latest.dayStart;
+  if (!state.nights.length && latest.bedtime) state.bedtime = latest.bedtime;
 
   els.babyName.value = state.babyName;
   els.babyAge.value = state.babyAge;
@@ -703,6 +1031,9 @@ async function syncNapsToSheet(naps, statusMessage) {
     state.naps = state.naps.map((nap) => (
       syncedIds.has(String(nap.id || napIdentity(nap))) ? { ...nap, synced: true } : nap
     ));
+    state.nights = state.nights.map((night) => (
+      syncedIds.has(String(night.id || napIdentity(night))) ? { ...night, synced: true } : night
+    ));
     saveState();
 
     const inserted = (result.inserted || []).length;
@@ -719,27 +1050,31 @@ async function syncNapsToSheet(naps, statusMessage) {
 function sheetPayloadForNap(nap) {
   const prediction = calculatePrediction();
   const night = calculateNightSuggestion(prediction);
+  const recordType = nap.type || "nap";
+  const startedAt = new Date(nap.start);
+  const endedAt = new Date(nap.end);
   const babyName = nap.babyName || state.babyName || "Bebê";
   const babyAge = Number(nap.babyAge || state.babyAge || 0);
-  const dayStart = nap.dayStart || state.dayStart || state.lastWake;
-  const bedtime = nap.bedtime || state.bedtime;
-  const lastWake = state.lastWake || nap.lastWake;
+  const dayStart = normalizeTimeField(nap.dayStart || state.dayStart || state.lastWake);
+  const bedtime = recordType === "night" ? minutesToTime(dateToDayMinutes(startedAt)) : normalizeTimeField(nap.bedtime || state.bedtime);
+  const lastWake = recordType === "night" ? minutesToTime(dateToDayMinutes(endedAt)) : normalizeTimeField(state.lastWake || nap.lastWake);
   const payload = {
     id: nap.id || napIdentity(nap),
+    type: recordType,
     babyName,
     babyAge,
     dayStart,
-    start: new Date(nap.start).toISOString(),
-    end: new Date(nap.end).toISOString(),
+    start: toLocalDateTimeValue(startedAt),
+    end: toLocalDateTimeValue(endedAt),
     duration: safeDuration(nap),
-    mood: moodLabel(nap.mood),
+    mood: recordType === "night" ? "Sono noturno" : moodLabel(nap.mood),
     lastWake,
     bedtime,
     sleep24: prediction.sleep24,
     napCount: napsToday().length,
     wakeWindow: `${formatDuration(prediction.minWindow)} - ${formatDuration(prediction.maxWindow)}`,
     nextWindow: `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`,
-    nightSuggestion: minutesToTime(night.start),
+    nightSuggestion: recordType === "night" ? bedtime : minutesToTime(night.start),
     note: ""
   };
   return payload;
@@ -768,7 +1103,7 @@ async function deleteNapFromSheet(id) {
 
 function scheduleUpcomingNotifications() {
   clearNotificationTimers();
-  if (!canNotify() || state.activeNapStart) return;
+  if (!canNotify() || state.activeNapStart || state.activeNightStart) return;
   const prediction = calculatePrediction();
   const now = nowMinutes();
   const reminders = [
@@ -921,10 +1256,27 @@ function averageRecentWakeWindow(naps) {
 }
 
 function sleepInLast24Hours() {
-  const dayStart = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
-  const bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
-  const napSleep = napsInCurrentDay().reduce((sum, nap) => sum + safeDuration(nap), 0);
-  return clamp(napSleep + estimateNightSleepMinutes(bedtime, dayStart), 0, 24 * 60);
+  return clamp(dayNapSleepMinutes() + latestNightSleepMinutes(), 0, 24 * 60);
+}
+
+function dayNapSleepMinutes() {
+  return napsInCurrentDay().reduce((sum, nap) => sum + safeDuration(nap), 0);
+}
+
+function nightSleepInLast24Hours() {
+  return latestNightSleepMinutes();
+}
+
+function latestNightSleepMinutes() {
+  const latestNight = state.nights
+    .filter((night) => {
+      const start = new Date(night.start).getTime();
+      const end = new Date(night.end).getTime();
+      return Number.isFinite(start) && Number.isFinite(end) && end > start;
+    })
+    .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+
+  return latestNight ? safeDuration(latestNight) : 0;
 }
 
 function estimateNightSleepMinutes(bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30), morning = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60)) {
@@ -945,6 +1297,19 @@ function napsInCurrentDay() {
 }
 
 function operationalDayNaps() {
+  const start = currentCycleStartDate();
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+
+  return state.naps.filter((nap) => {
+    const napStart = new Date(nap.start);
+    return !Number.isNaN(napStart.getTime()) && napStart >= start && napStart <= end;
+  });
+}
+
+function currentCycleStartDate() {
+  const savedStart = new Date(state.cycleStartAt || "");
+  if (!Number.isNaN(savedStart.getTime())) return savedStart;
+
   const now = new Date();
   const startMinutes = safeTimeToMinutes(state.dayStart, 7 * 60);
   const start = new Date(now);
@@ -954,15 +1319,7 @@ function operationalDayNaps() {
     start.setDate(start.getDate() - 1);
   }
 
-  const bedtimeMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
-  const end = new Date(start);
-  end.setHours(Math.floor(bedtimeMinutes / 60), bedtimeMinutes % 60, 0, 0);
-  if (end <= start) end.setDate(end.getDate() + 1);
-
-  return state.naps.filter((nap) => {
-    const napStart = new Date(nap.start);
-    return !Number.isNaN(napStart.getTime()) && napStart >= start && napStart <= end;
-  });
+  return start;
 }
 
 function calendarDayNaps(date = new Date()) {
@@ -1026,16 +1383,46 @@ function registerServiceWorker() {
 function loadState() {
   try {
     const loaded = { ...defaultState, ...JSON.parse(localStorage.getItem(STORAGE_KEY)) };
-    loaded.dayStart = loaded.dayStart || DEFAULT_DAY_START;
+    loaded.dayStart = normalizeTimeField(loaded.dayStart) || DEFAULT_DAY_START;
+    loaded.lastWake = normalizeTimeField(loaded.lastWake);
+    loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
     loaded.naps = (loaded.naps || []).map((nap) => ({
       ...nap,
       id: nap.id || stableNapId(nap),
-      dayStart: nap.dayStart || loaded.dayStart,
+      dayStart: normalizeTimeField(nap.dayStart) || loaded.dayStart,
+      bedtime: normalizeTimeField(nap.bedtime) || loaded.bedtime,
+      lastWake: normalizeTimeField(nap.lastWake),
       babyAge: Number.isFinite(Number(nap.babyAge)) ? Number(nap.babyAge) : loaded.babyAge,
       duration: safeDuration(nap),
       synced: Boolean(nap.synced)
     }));
+    loaded.nights = (loaded.nights || []).map((night) => ({
+      ...night,
+      type: "night",
+      id: night.id || stableNapId(night),
+      dayStart: normalizeTimeField(night.dayStart) || loaded.dayStart,
+      bedtime: normalizeTimeField(night.bedtime) || loaded.bedtime,
+      lastWake: normalizeTimeField(night.lastWake),
+      babyAge: Number.isFinite(Number(night.babyAge)) ? Number(night.babyAge) : loaded.babyAge,
+      duration: safeDuration(night),
+      synced: Boolean(night.synced)
+    })).sort((a, b) => new Date(b.end) - new Date(a.end));
+    if (!loaded.cycleStartAt && loaded.nights[0]) {
+      loaded.cycleStartAt = loaded.nights[0].end;
+    }
+    if (loaded.nights[0]) {
+      const latestNightStart = new Date(loaded.nights[0].start);
+      const latestNightEnd = new Date(loaded.nights[0].end);
+      if (!Number.isNaN(latestNightEnd.getTime())) {
+        loaded.cycleStartAt = latestNightEnd.toISOString();
+        loaded.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
+        loaded.lastWake = loaded.dayStart;
+      }
+      if (!Number.isNaN(latestNightStart.getTime())) {
+        loaded.bedtime = normalizeTimeField(loaded.nights[0].bedtime) || minutesToTime(dateToDayMinutes(latestNightStart));
+      }
+    }
     return loaded;
   } catch {
     return { ...defaultState };
@@ -1050,19 +1437,47 @@ function toggleInstallSheet(open) {
   els.installSheet.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
+function toggleProfileSheet(open) {
+  els.profileSheet.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function toggleReportSheet(open) {
+  els.reportSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  if (open) renderReport();
+}
+
 function toggleMoodSheet(open) {
   if (open && !state.activeNapStart) return;
   els.moodSheet.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
-function openManualNapSheet() {
-  const end = new Date();
-  const start = new Date(end.getTime() - 45 * 60000);
+function openManualRecordSheet(type = "nap") {
+  manualRecordType = type;
+  const end = type === "night" ? defaultManualNightEnd() : new Date();
+  const start = type === "night" ? defaultManualNightStart(end) : new Date(end.getTime() - 45 * 60000);
+
+  els.manualTitle.textContent = type === "night" ? "Adicionar sono noturno anterior" : "Adicionar soneca anterior";
+  els.saveManualNap.textContent = type === "night" ? "Salvar sono noturno" : "Salvar soneca";
+  els.manualMoodOptions.hidden = type === "night";
   els.manualStart.value = toDateTimeLocalValue(start);
   els.manualEnd.value = toDateTimeLocalValue(end);
   showManualError("");
   selectManualMood("");
   toggleManualNapSheet(true);
+}
+
+function defaultManualNightEnd() {
+  const end = new Date();
+  end.setHours(6, 10, 0, 0);
+  if (new Date() < end) end.setDate(end.getDate() - 1);
+  return end;
+}
+
+function defaultManualNightStart(end) {
+  const start = new Date(end);
+  start.setDate(start.getDate() - 1);
+  start.setHours(21, 0, 0, 0);
+  return start;
 }
 
 function toggleManualNapSheet(open) {
@@ -1103,10 +1518,29 @@ function timeToMinutes(value) {
 }
 
 function safeTimeToMinutes(value, fallback) {
+  value = normalizeTimeField(value);
   if (typeof value !== "string" || !value.includes(":")) return fallback;
   const [hours, minutes] = value.split(":").map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return fallback;
   return clamp(hours * 60 + minutes, 0, 23 * 60 + 59);
+}
+
+function normalizeTimeField(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return minutesToTime(dateToDayMinutes(value));
+  }
+
+  const text = String(value);
+  if (/^1899-12-(30|31)/.test(text)) return "";
+
+  const isoTime = text.match(/T(\d{2}):(\d{2})/);
+  if (isoTime) return `${isoTime[1]}:${isoTime[2]}`;
+
+  const plainTime = text.match(/(\d{1,2}):(\d{2})/);
+  if (plainTime) return `${String(Number(plainTime[1])).padStart(2, "0")}:${plainTime[2]}`;
+
+  return text;
 }
 
 function nowMinutes() {
@@ -1146,6 +1580,45 @@ function toDateTimeLocalValue(date) {
   const offset = date.getTimezoneOffset();
   const local = new Date(date.getTime() - offset * 60000);
   return local.toISOString().slice(0, 16);
+}
+
+function toLocalDateTimeValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:00`;
+}
+
+function dateInputValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function recordDateInputValue(record) {
+  const date = new Date(record.start);
+  return dateInputValue(date);
+}
+
+function startOfWeek(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  return start;
+}
+
+function addDays(date, amount) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function shortDateLabel(date) {
+  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shortWeekdayLabel(date) {
+  const labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
+  return labels[date.getDay()];
 }
 
 function dateLabel(date) {

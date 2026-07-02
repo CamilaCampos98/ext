@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=14">
   </head>
   <body>
     <div class="app-shell">
@@ -21,9 +21,13 @@
           <p class="eyebrow">Soneca</p>
           <h1>Rotina de sono</h1>
         </div>
-        <button class="icon-button" id="installHelp" aria-label="Instalar no iPhone" title="Instalar">
-          <span aria-hidden="true">+</span>
-        </button>
+        <div class="top-actions">
+          <button class="top-button" id="profileMenu" type="button">Perfil</button>
+          <button class="top-button" id="reportMenu" type="button">Relatório</button>
+          <button class="icon-button" id="installHelp" aria-label="Instalar no iPhone" title="Instalar">
+            <span aria-hidden="true">+</span>
+          </button>
+        </div>
       </header>
 
       <main>
@@ -96,11 +100,24 @@
             <button class="primary" id="startNap">Iniciar soneca</button>
             <button class="secondary" id="endNap">Encerrar</button>
           </div>
-          <button class="text-button manual-link" id="openManualNap">Adicionar soneca anterior</button>
+          <div class="button-row night-controls">
+            <button class="secondary night-button" id="startNight">Iniciar sono noturno</button>
+            <button class="secondary night-button" id="endNight">Encerrar sono noturno</button>
+          </div>
+          <div class="manual-actions">
+            <button class="manual-card-button" id="openManualNap" type="button">
+              <strong>Soneca anterior</strong>
+              <span>Corrigir ou preencher uma soneca esquecida</span>
+            </button>
+            <button class="manual-card-button night" id="openManualNight" type="button">
+              <strong>Sono noturno anterior</strong>
+              <span>Registrar a noite passada sem cronômetro</span>
+            </button>
+          </div>
           <p class="fineprint" id="activeNapHint">Ao encerrar, registre como o bebê acordou para melhorar a leitura da rotina.</p>
         </section>
 
-        <section class="panel">
+        <section class="panel profile-panel" id="profilePanel">
           <div class="section-head">
             <div>
               <p class="label">Perfil</p>
@@ -147,12 +164,16 @@
               <strong id="wakeWindowUsed">-</strong>
             </div>
             <div>
-              <span>Sono em 24h</span>
+              <span>Sono diurno</span>
               <strong id="sleep24h">0h</strong>
             </div>
             <div>
               <span>Sonecas hoje</span>
               <strong id="napCount">0</strong>
+            </div>
+            <div>
+              <span>Última noite</span>
+              <strong id="nightSleep">0h</strong>
             </div>
           </div>
           <div class="notice-card" id="notificationHelp">
@@ -168,6 +189,13 @@
               <h2>Últimas sonecas</h2>
             </div>
             <button class="text-button danger" id="clearHistory">Limpar</button>
+          </div>
+          <div class="history-filter">
+            <label>
+              Data
+              <input id="historyDate" type="date">
+            </label>
+            <button class="secondary compact-button" id="todayHistory" type="button">Hoje</button>
           </div>
           <ol class="history" id="history"></ol>
         </section>
@@ -185,6 +213,59 @@
         <h2>Instalar no iPhone</h2>
         <p>No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início". Depois abra por esse ícone para usar como app.</p>
         <p class="fineprint">No iOS, notificações web dependem do suporte do Safari e da permissão do usuário. Sem backend, os avisos são confiáveis enquanto o app está aberto ou em segundo plano recente.</p>
+      </div>
+    </div>
+
+    <div class="sheet" id="profileSheet" aria-hidden="true">
+      <div class="sheet-card profile-sheet-card">
+        <button class="icon-button close" id="closeProfile" aria-label="Fechar">x</button>
+        <p class="label">Perfil</p>
+        <h2>Dados da rotina</h2>
+        <div id="profileSheetMount"></div>
+      </div>
+    </div>
+
+    <div class="sheet" id="reportSheet" aria-hidden="true">
+      <div class="sheet-card report-sheet-card">
+        <button class="icon-button close" id="closeReport" aria-label="Fechar">x</button>
+        <p class="label">Relatório</p>
+        <h2>Semana</h2>
+        <div class="report-filter">
+          <button class="secondary compact-button" id="previousWeek" type="button">Anterior</button>
+          <div>
+            <span>Período</span>
+            <strong id="reportWeekLabel">--/-- - --/--</strong>
+          </div>
+          <button class="secondary compact-button" id="currentWeek" type="button">Atual</button>
+          <button class="secondary compact-button" id="nextWeek" type="button">Próxima</button>
+        </div>
+        <div class="report-grid">
+          <div>
+            <span>Média sonecas/dia</span>
+            <strong id="avgNapCount">0</strong>
+          </div>
+          <div>
+            <span>Média sono diurno</span>
+            <strong id="avgDaySleep">0h</strong>
+          </div>
+          <div>
+            <span>Média sono noturno</span>
+            <strong id="avgNightSleep">0h</strong>
+          </div>
+          <div>
+            <span>Média total</span>
+            <strong id="avgTotalSleep">0h</strong>
+          </div>
+        </div>
+        <div class="report-chart-wrap">
+          <svg id="sleepReportChart" class="report-chart" viewBox="0 0 640 260" role="img" aria-label="Progressão do sono na semana"></svg>
+        </div>
+        <div class="dashboard-legend report-legend">
+          <span class="legend-item"><i class="legend-dot nap"></i>Diurno</span>
+          <span class="legend-item"><i class="legend-dot night"></i>Noturno</span>
+          <span class="legend-item"><i class="legend-dot total"></i>Total</span>
+        </div>
+        <p class="fineprint" id="reportSummary">Sem registros suficientes para calcular a média.</p>
       </div>
     </div>
 
@@ -215,7 +296,7 @@
       <div class="sheet-card">
         <button class="icon-button close" id="closeManualNap" aria-label="Fechar">x</button>
         <p class="label">Registro manual</p>
-        <h2>Adicionar soneca anterior</h2>
+        <h2 id="manualTitle">Adicionar soneca anterior</h2>
         <div class="form-grid manual-form">
           <label>
             Início
@@ -226,7 +307,7 @@
             <input id="manualEnd" type="datetime-local">
           </label>
         </div>
-        <div class="mood-options compact" role="group" aria-label="Humor ao acordar">
+        <div class="mood-options compact" id="manualMoodOptions" role="group" aria-label="Humor ao acordar">
           <button class="mood-option happy" data-manual-mood="happy">
             <span></span>
             Bem humorado
@@ -245,6 +326,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=23" defer></script>
+    <script src="app.js?v=36" defer></script>
   </body>
 </html>
