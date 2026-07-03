@@ -1461,7 +1461,8 @@ function scheduleUpcomingNotifications() {
       at: prediction.start - 15,
       title: "Janela chegando",
       body: `Próxima soneca provável entre ${minutesToTime(prediction.start)} e ${minutesToTime(prediction.end)}.`,
-      tag: "soneca-janela-chegando"
+      tag: "soneca-janela-chegando",
+      catchUpUntil: prediction.start
     },
     {
       at: prediction.start,
@@ -1479,7 +1480,8 @@ function scheduleUpcomingNotifications() {
       at: night.start - 30,
       title: "Sono noturno chegando",
       body: `Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`,
-      tag: "soneca-noite-chegando"
+      tag: "soneca-noite-chegando",
+      catchUpUntil: night.start
     },
     {
       at: night.start,
@@ -1513,7 +1515,17 @@ function scheduleActiveNapNotifications() {
 
 function scheduleReminder(reminder, now = nowMinutes()) {
   const delayMinutes = minutesUntilReminder(reminder.at, now);
-  if (!Number.isFinite(delayMinutes) || delayMinutes <= 0 || delayMinutes > 18 * 60) return;
+  if (!Number.isFinite(delayMinutes)) return;
+
+  if (reminder.catchUpUntil && isClockMinuteBetween(now, reminder.at, reminder.catchUpUntil)) {
+    notificationTimers.push(setTimeout(() => {
+      if (state.activeNapStart || state.activeNightStart) return;
+      notify(reminder.title, reminder.body, reminder.tag);
+    }, 1200));
+    return;
+  }
+
+  if (delayMinutes <= 0 || delayMinutes > 18 * 60) return;
   notificationTimers.push(setTimeout(() => {
     if (state.activeNapStart || state.activeNightStart) return;
     notify(reminder.title, reminder.body, reminder.tag);
@@ -1525,6 +1537,14 @@ function minutesUntilReminder(targetMinutes, now = nowMinutes()) {
   let diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
   if (diff <= 0) diff += 24 * 60;
   return diff;
+}
+
+function isClockMinuteBetween(value, start, end) {
+  const current = normalizeDayMinutes(value);
+  start = normalizeDayMinutes(start);
+  end = normalizeDayMinutes(end);
+  if (start <= end) return current >= start && current < end;
+  return current >= start || current < end;
 }
 
 function clearNotificationTimers() {
