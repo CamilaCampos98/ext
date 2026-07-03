@@ -300,7 +300,7 @@ h2 {
 .day-marker-group.feed .marker-orb {
   stroke: var(--feed);
   fill: transparent;
-  stroke-width: 1.8;
+  stroke-width: 2;
 }
 
 .day-marker-group.next .marker-orb {
@@ -345,7 +345,6 @@ h2 {
 
 .day-marker-group.feed .marker-icon {
   fill: var(--feed);
-  font-size: 10px;
 }
 
 .day-marker-group.day-start .marker-icon {

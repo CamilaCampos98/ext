@@ -1199,14 +1199,38 @@ async function syncPendingNapsToSheet() {
 }
 
 async function syncFromSheetThenPending() {
-  await loadNapsFromSheet();
-  await loadFeedingsFromSheet();
-  await syncPendingNapsToSheet();
-  await syncPendingFeedingsToSheet();
+  const [sleepLoad, feedingLoad] = await Promise.allSettled([
+    loadNapsFromSheet({ deferRender: true }),
+    loadFeedingsFromSheet({ deferRender: true })
+  ]);
+
+  const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
+  const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
+  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0);
+  const errors = [loadedSleep, loadedFeedings]
+    .filter((result) => result && result.error)
+    .map((result) => result.error);
+
+  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed) {
+    saveState();
+    render();
+  }
+
+  if (errors.length) {
+    setHint(errors.join(" "));
+  } else if (loadedCount) {
+    setHint(`Google Sheets carregado: ${loadedCount} registro(s) encontrados.`);
+  }
+
+  await Promise.allSettled([
+    syncPendingNapsToSheet(),
+    syncPendingFeedingsToSheet()
+  ]);
 }
 
-async function loadNapsFromSheet() {
-  if (!SHEETS_WEB_APP_URL) return;
+async function loadNapsFromSheet(options = {}) {
+  const { deferRender = false } = options;
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=list&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
@@ -1223,15 +1247,20 @@ async function loadNapsFromSheet() {
       .map(sheetRecordToNight)
       .filter(Boolean);
 
-    if (!remoteNaps.length && !remoteNights.length) return;
+    if (!remoteNaps.length && !remoteNights.length) return { count: 0, changed: false };
 
     mergeNaps(remoteNaps);
     mergeNights(remoteNights);
-    saveState();
-    render();
-    setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
+    if (!deferRender) {
+      saveState();
+      render();
+      setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
+    }
+    return { count: remoteNaps.length + remoteNights.length, changed: true };
   } catch (error) {
-    setHint(`Não consegui carregar o Google Sheets: ${error.message}`);
+    const message = `Não consegui carregar o Google Sheets: ${error.message}`;
+    if (!deferRender) setHint(message);
+    return { count: 0, changed: false, error: message };
   }
 }
 
@@ -1277,8 +1306,9 @@ function sheetRecordToNight(record) {
   };
 }
 
-async function loadFeedingsFromSheet() {
-  if (!SHEETS_WEB_APP_URL) return;
+async function loadFeedingsFromSheet(options = {}) {
+  const { deferRender = false } = options;
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listFeedings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
@@ -1287,7 +1317,7 @@ async function loadFeedingsFromSheet() {
     if (!result.ok) throw new Error(result.error || "Falha ao carregar mamadas.");
     if (!Array.isArray(result.records)) {
       feedingSheetSupport = false;
-      return;
+      return { count: 0, changed: false };
     }
     feedingSheetSupport = true;
 
@@ -1295,14 +1325,19 @@ async function loadFeedingsFromSheet() {
       .map(sheetRecordToFeeding)
       .filter(Boolean);
 
-    if (!remoteFeedings.length) return;
+    if (!remoteFeedings.length) return { count: 0, changed: false };
 
     mergeFeedings(remoteFeedings);
-    saveState();
-    render();
-    setHint(`Google Sheets carregado: ${remoteFeedings.length} mamada(s) encontrada(s).`);
+    if (!deferRender) {
+      saveState();
+      render();
+      setHint(`Google Sheets carregado: ${remoteFeedings.length} mamada(s) encontrada(s).`);
+    }
+    return { count: remoteFeedings.length, changed: true };
   } catch (error) {
-    setHint(`Nao consegui carregar as mamadas do Google Sheets: ${error.message}`);
+    const message = `Nao consegui carregar as mamadas do Google Sheets: ${error.message}`;
+    if (!deferRender) setHint(message);
+    return { count: 0, changed: false, error: message };
   }
 }
 
@@ -2116,9 +2151,8 @@ function arcPath(startMinutes, endMinutes, type) {
 }
 
 function markerSvg(marker) {
-  const point = pointOnCircle(marker.at, markerRadius(marker.type));
+  const point = pointOnCircle(marker.at, 92);
   const icon = markerIcon(marker.type);
-  const orbRadius = marker.type === "feed" ? 7.5 : 10;
 
   if (marker.type === "next") {
     return `
@@ -2144,15 +2178,10 @@ function markerSvg(marker) {
 
   return `
     <g class="day-marker-group ${marker.type}" ${marker.id ? `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"` : ""} transform="translate(${point.x} ${point.y})">
-      <circle class="marker-orb" cx="0" cy="0" r="${orbRadius}"></circle>
+      <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
       <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
     </g>
   `;
-}
-
-function markerRadius(type) {
-  if (type === "feed") return 74;
-  return 92;
 }
 
 function markerTimeText(label, at, type) {
