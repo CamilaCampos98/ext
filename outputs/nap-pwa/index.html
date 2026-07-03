@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=30">
+    <link rel="stylesheet" href="styles.css?v=43">
   </head>
   <body>
     <div class="app-shell">
@@ -23,6 +23,7 @@
         </div>
         <div class="top-actions">
           <button class="top-button" id="profileMenu" type="button">Perfil</button>
+          <button class="top-button" id="historyMenu" type="button">Histórico</button>
           <button class="top-button" id="reportMenu" type="button">Relatório</button>
           <button class="icon-button" id="installHelp" aria-label="Instalar no iPhone" title="Instalar">
             <span aria-hidden="true">+</span>
@@ -32,6 +33,10 @@
 
       <main>
         <section class="hero sleep-dashboard">
+          <div class="home-assistant-card">
+            <span>Assistente</span>
+            <p id="assistantInsight">Registre as sonecas para receber uma sugestão da rotina.</p>
+          </div>
           <div class="day-ring-wrap">
             <svg class="day-ring" viewBox="0 0 240 240" aria-label="Linha do tempo circular das sonecas do dia" role="img">
               <path class="day-ring-track" d="M 54.95 185.05 A 92 92 0 1 1 185.05 185.05"></path>
@@ -40,10 +45,11 @@
               <line class="day-ring-now" id="dayNowHand" x1="120" y1="120" x2="120" y2="30"></line>
               <circle class="day-ring-core" cx="120" cy="120" r="58"></circle>
             </svg>
+            <div class="nap-detail-card" id="napDetailCard" hidden></div>
             <div class="day-ring-center">
-              <span aria-hidden="true"></span>
-              <strong id="dayCenterTime">--:--</strong>
               <small id="dayCenterLabel">dia de sono</small>
+              <strong id="dayCenterTime">--:--</strong>
+              <span id="dayCenterHint" aria-live="polite"></span>
             </div>
             <div class="ring-day-label ring-day-start" id="ringDayStart">
               <span aria-hidden="true">☀</span>
@@ -54,24 +60,6 @@
               <strong>--:--</strong>
             </div>
             <div class="ring-caption-row" id="ringCaptions"></div>
-          </div>
-          <div class="dashboard-copy">
-            <div class="baby-summary" aria-label="Perfil do bebê">
-              <span class="baby-avatar" aria-hidden="true">☾</span>
-              <div>
-                <strong id="profileName">Bebê</strong>
-                <span id="profileMeta">6 meses</span>
-              </div>
-            </div>
-            <p class="label">Próxima janela</p>
-            <h2 id="nextWindow">Configure o bebê</h2>
-            <p id="nextHint">Informe idade e último despertar para calcular a próxima soneca.</p>
-            <div class="dashboard-legend" id="dayLegend"></div>
-            <div class="night-callout">
-              <span>Sono noturno</span>
-              <strong id="bedtimeSuggestion">--:--</strong>
-              <p id="bedtimeReason">Calculado após registrar as sonecas do dia.</p>
-            </div>
           </div>
           <div class="hero-meter" aria-label="Pressão de sono estimada">
             <svg viewBox="0 0 120 120" role="img">
@@ -194,29 +182,21 @@
               <strong id="nightSleep">0h</strong>
             </div>
           </div>
+          <div class="goals-card">
+            <div class="goal-row">
+              <span>Sono diurno</span>
+              <strong id="daySleepGoal">Bebê fez 0h</strong>
+            </div>
+            <div class="goal-row">
+              <span>Sono noturno</span>
+              <strong id="nightSleepGoal">Bebê fez 0h</strong>
+            </div>
+          </div>
           <div class="notice-card" id="notificationHelp">
             <strong>Status dos avisos</strong>
             <p id="notificationHelpText">Toque em ativar avisos para verificar suporte e permissões neste aparelho.</p>
             <button class="secondary full-width notification-button" id="requestNotifications" type="button">Ativar avisos</button>
           </div>
-        </section>
-
-        <section class="panel">
-          <div class="section-head">
-            <div>
-              <p class="label">Histórico</p>
-              <h2>Últimas sonecas</h2>
-            </div>
-            <button class="text-button danger" id="clearHistory">Limpar</button>
-          </div>
-          <div class="history-filter">
-            <label>
-              Data
-              <input id="historyDate" type="date">
-            </label>
-            <button class="secondary compact-button" id="todayHistory" type="button">Hoje</button>
-          </div>
-          <ol class="history" id="history"></ol>
         </section>
 
         <section class="note">
@@ -241,6 +221,26 @@
         <p class="label">Perfil</p>
         <h2>Dados da rotina</h2>
         <div id="profileSheetMount"></div>
+      </div>
+    </div>
+
+    <div class="sheet" id="historySheet" aria-hidden="true">
+      <div class="sheet-card history-sheet-card">
+        <button class="icon-button close" id="closeHistory" aria-label="Fechar">x</button>
+        <p class="label">Histórico</p>
+        <h2>Registros</h2>
+        <div class="section-head compact-head">
+          <div></div>
+          <button class="text-button danger" id="clearHistory">Limpar</button>
+        </div>
+        <div class="history-filter">
+          <label>
+            Data
+            <input id="historyDate" type="date">
+          </label>
+          <button class="secondary compact-button" id="todayHistory" type="button">Hoje</button>
+        </div>
+        <ol class="history" id="history"></ol>
       </div>
     </div>
 
@@ -392,6 +392,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=63" defer></script>
+    <script src="app.js?v=73" defer></script>
   </body>
 </html>

@@ -54,9 +54,11 @@ const els = {
   dayNowHand: document.querySelector("#dayNowHand"),
   dayCenterTime: document.querySelector("#dayCenterTime"),
   dayCenterLabel: document.querySelector("#dayCenterLabel"),
+  dayCenterHint: document.querySelector("#dayCenterHint"),
   ringDayStart: document.querySelector("#ringDayStart"),
   ringDayEnd: document.querySelector("#ringDayEnd"),
   ringCaptions: document.querySelector("#ringCaptions"),
+  napDetailCard: document.querySelector("#napDetailCard"),
   dayLegend: document.querySelector("#dayLegend"),
   bedtimeSuggestion: document.querySelector("#bedtimeSuggestion"),
   bedtimeReason: document.querySelector("#bedtimeReason"),
@@ -98,6 +100,9 @@ const els = {
   sleep24h: document.querySelector("#sleep24h"),
   napCount: document.querySelector("#napCount"),
   nightSleep: document.querySelector("#nightSleep"),
+  daySleepGoal: document.querySelector("#daySleepGoal"),
+  nightSleepGoal: document.querySelector("#nightSleepGoal"),
+  assistantInsight: document.querySelector("#assistantInsight"),
   notificationHelpText: document.querySelector("#notificationHelpText"),
   history: document.querySelector("#history"),
   historyDate: document.querySelector("#historyDate"),
@@ -105,9 +110,12 @@ const els = {
   requestNotifications: document.querySelector("#requestNotifications"),
   clearHistory: document.querySelector("#clearHistory"),
   profileMenu: document.querySelector("#profileMenu"),
+  historyMenu: document.querySelector("#historyMenu"),
   reportMenu: document.querySelector("#reportMenu"),
   profileSheet: document.querySelector("#profileSheet"),
   closeProfile: document.querySelector("#closeProfile"),
+  historySheet: document.querySelector("#historySheet"),
+  closeHistory: document.querySelector("#closeHistory"),
   reportSheet: document.querySelector("#reportSheet"),
   closeReport: document.querySelector("#closeReport"),
   avgNapCount: document.querySelector("#avgNapCount"),
@@ -234,12 +242,15 @@ function bindEvents() {
   }
   els.requestNotifications.addEventListener("click", requestNotificationPermission);
   els.clearHistory.addEventListener("click", clearHistory);
+  els.dayMarkers.addEventListener("click", handleDayMarkerClick);
+  els.napDetailCard.addEventListener("click", handleNapDetailCardClick);
   els.historyDate.addEventListener("change", renderHistory);
   els.todayHistory.addEventListener("click", () => {
     els.historyDate.value = dateInputValue(new Date());
     renderHistory();
   });
   els.profileMenu.addEventListener("click", () => toggleProfileSheet(true));
+  els.historyMenu.addEventListener("click", () => toggleHistorySheet(true));
   els.reportMenu.addEventListener("click", () => toggleReportSheet(true));
   els.previousWeek.addEventListener("click", () => shiftReportWeek(-1));
   els.currentWeek.addEventListener("click", () => {
@@ -249,6 +260,7 @@ function bindEvents() {
   els.nextWeek.addEventListener("click", () => shiftReportWeek(1));
   els.installHelp.addEventListener("click", () => toggleInstallSheet(true));
   els.closeProfile.addEventListener("click", () => toggleProfileSheet(false));
+  els.closeHistory.addEventListener("click", () => toggleHistorySheet(false));
   els.closeReport.addEventListener("click", () => toggleReportSheet(false));
   els.closeInstall.addEventListener("click", () => toggleInstallSheet(false));
   els.closeMood.addEventListener("click", () => toggleMoodSheet(false));
@@ -272,6 +284,9 @@ function bindEvents() {
   });
   els.profileSheet.addEventListener("click", (event) => {
     if (event.target === els.profileSheet) toggleProfileSheet(false);
+  });
+  els.historySheet.addEventListener("click", (event) => {
+    if (event.target === els.historySheet) toggleHistorySheet(false);
   });
   els.reportSheet.addEventListener("click", (event) => {
     if (event.target === els.reportSheet) toggleReportSheet(false);
@@ -656,8 +671,8 @@ function renderProfile() {
   const ageLabel = `${age} ${age === 1 ? "mês" : "meses"}`;
   const dayStart = state.dayStart || state.lastWake || "--:--";
 
-  els.profileName.textContent = name;
-  els.profileMeta.textContent = ageLabel;
+  if (els.profileName) els.profileName.textContent = name;
+  if (els.profileMeta) els.profileMeta.textContent = ageLabel;
   els.profileCardName.textContent = name;
   els.profileCardMeta.textContent = `${ageLabel} · dia iniciado às ${dayStart}`;
 }
@@ -719,85 +734,50 @@ function renderPrediction(prediction) {
   els.sleepPressureRing.style.strokeDashoffset = String(CIRCLE_LENGTH - CIRCLE_LENGTH * Math.min(prediction.pressure, 100) / 100);
 
   if (state.activeNapStart) {
-    els.nextWindow.textContent = "Soneca em andamento";
-    els.nextHint.textContent = "O próximo cálculo será atualizado quando a soneca for encerrada.";
+    if (els.nextWindow) els.nextWindow.textContent = "Soneca em andamento";
+    if (els.nextHint) els.nextHint.textContent = "O próximo cálculo será atualizado quando a soneca for encerrada.";
     return;
   }
 
   if (state.activeNightStart) {
-    els.nextWindow.textContent = "Sono noturno";
-    els.nextHint.textContent = "O novo ciclo do dia começa quando o sono noturno for encerrado.";
+    if (els.nextWindow) els.nextWindow.textContent = "Sono noturno";
+    if (els.nextHint) els.nextHint.textContent = "O novo ciclo do dia começa quando o sono noturno for encerrado.";
     return;
   }
 
   if (nowMinutes() > prediction.end) {
     const name = state.babyName || "bebê";
-    els.nextWindow.textContent = "Janela aberta";
-    els.nextHint.textContent = `${name} já passou do alvo provável. Observe sinais de sono e ajuste o próximo registro ao encerrar.`;
+    if (els.nextWindow) els.nextWindow.textContent = "Janela aberta";
+    if (els.nextHint) els.nextHint.textContent = `${name} já passou do alvo provável. Observe sinais de sono e ajuste o próximo registro ao encerrar.`;
     return;
   }
 
-  els.nextWindow.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
+  if (els.nextWindow) els.nextWindow.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
   const target = minutesToTime(prediction.target);
   const name = state.babyName || "bebê";
-  els.nextHint.textContent = `Alvo provável para ${name}: perto de ${target}. Ajustado por idade, última soneca e sono nas últimas 24h.`;
+  if (els.nextHint) els.nextHint.textContent = `Alvo provável para ${name}: perto de ${target}.`;
 }
 
 function renderDayPlanner(prediction) {
   const now = nowMinutes();
   const night = calculateNightSuggestion(prediction);
   const today = napsToday();
+  const ringNaps = [...today].sort((a, b) => new Date(a.start) - new Date(b.start));
   const feedings = feedingsToday();
-  const segments = [];
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
   currentRingEndMinutes = night.start;
   const plannedNaps = plannedNapMarkers(prediction, today, night);
 
-  today.forEach((nap) => {
-    segments.push({
-      type: "nap",
-      start: dateToDayMinutes(new Date(nap.start)),
-      end: dateToDayMinutes(new Date(nap.end))
-    });
-  });
-
-  if (state.activeNightStart) {
-    segments.push({
-      type: "night",
-      start: dateToDayMinutes(new Date(state.activeNightStart)),
-      end: now
-    });
-  } else if (state.activeNapStart) {
-    segments.push({
-      type: "nap",
-      start: dateToDayMinutes(new Date(state.activeNapStart)),
-      end: now
-    });
-  } else {
-    plannedNaps.forEach((nap) => {
-      segments.push({
-        type: "next",
-        start: nap.start,
-        end: nap.end
-      });
-    });
-  }
-
-  if (!state.activeNightStart) {
-    segments.push({
-      type: "night-future",
-      start: night.start - 40,
-      end: night.start
-    });
-  }
-
-  els.daySegments.innerHTML = segments
-    .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end))
-    .map((segment) => arcPath(segment.start, Math.max(segment.start + 6, segment.end), segment.type))
-    .join("");
+  els.daySegments.innerHTML = "";
   els.dayMarkers.innerHTML = [
     { type: "day-start", at: safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60), label: state.dayStart || state.lastWake || DEFAULT_DAY_START },
-    ...today.map((nap) => ({ type: "nap", at: dateToDayMinutes(new Date(nap.start)), label: timeLabel(new Date(nap.start)) })),
+    ...ringNaps.map((nap, index) => ({
+      type: "nap",
+      at: dateToDayMinutes(new Date(nap.start)),
+      label: timeLabel(new Date(nap.start)),
+      id: napIdentity(nap),
+      index: index + 1
+    })),
     ...(state.activeNapStart ? [{ type: "nap", at: dateToDayMinutes(new Date(state.activeNapStart)), label: timeLabel(new Date(state.activeNapStart)) }] : []),
     ...feedings.map((feeding) => ({ type: "feed", at: dateToDayMinutes(new Date(feeding.at)) })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
@@ -812,20 +792,84 @@ function renderDayPlanner(prediction) {
   els.dayNowHand.setAttribute("y2", String(nowPoint.y));
   renderRingCenter(prediction, today);
   renderRingDayLabels(night);
-  els.bedtimeSuggestion.textContent = minutesToTime(night.start);
-  els.bedtimeReason.textContent = night.reason;
+  if (els.bedtimeSuggestion) {
+    els.bedtimeSuggestion.textContent = minutesToTime(night.start);
+  }
+  if (els.bedtimeReason) {
+    els.bedtimeReason.textContent = night.reason;
+  }
   els.ringCaptions.innerHTML = "";
-  els.dayLegend.innerHTML = `
-    <span class="legend-item"><i class="legend-dot nap"></i>Sonecas</span>
-    <span class="legend-item"><i class="legend-dot feed"></i>Mamadas</span>
-    <span class="legend-item"><i class="legend-dot next"></i>Próxima</span>
-    <span class="legend-item"><i class="legend-dot night"></i>Noite</span>
+  if (els.dayLegend) {
+    els.dayLegend.innerHTML = "";
+  }
+}
+
+function handleDayMarkerClick(event) {
+  const dayEndMarker = event.target.closest(".day-marker-group.day-end");
+  if (dayEndMarker) {
+    showNightDetailCard();
+    return;
+  }
+
+  const marker = event.target.closest(".day-marker-group.nap[data-nap-id]");
+  if (!marker) {
+    hideNapDetailCard();
+    return;
+  }
+
+  const nap = napsToday().find((item) => napIdentity(item) === marker.dataset.napId);
+  if (!nap) {
+    hideNapDetailCard();
+    return;
+  }
+
+  showNapDetailCard(nap, Number(marker.dataset.napIndex || 0));
+}
+
+function handleNapDetailCardClick(event) {
+  if (event.target.closest("[data-close-nap-detail]")) {
+    hideNapDetailCard();
+  }
+}
+
+function showNapDetailCard(nap, index) {
+  if (!els.napDetailCard) return;
+  const start = new Date(nap.start);
+  const end = new Date(nap.end);
+  const title = index ? `${ordinalFeminine(index)} soneca` : "Soneca";
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
+    <span>${title}</span>
+    <strong>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
+    <small>Duração: ${formatDuration(safeDuration(nap))}</small>
   `;
+  els.napDetailCard.hidden = false;
+}
+
+function showNightDetailCard() {
+  if (!els.napDetailCard) return;
+  const prediction = calculatePrediction();
+  const suggested = calculateNightSuggestion(prediction);
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
+    <span>Sono noturno</span>
+    <strong>${minutesToTime(suggested.start)}</strong>
+    <small>${suggested.reason}</small>
+  `;
+  els.napDetailCard.hidden = false;
+}
+
+function hideNapDetailCard() {
+  if (els.napDetailCard) {
+    els.napDetailCard.hidden = true;
+  }
 }
 
 function renderRingCenter(prediction, today) {
   const nextNapName = `${ordinalFeminine(today.length + 1)} soneca`;
   const now = nowMinutes();
+  const target = minutesToTime(prediction.target);
+  const name = state.babyName || "bebê";
 
   if (state.activeNapStart) {
     const startedAt = new Date(state.activeNapStart);
@@ -834,29 +878,34 @@ function renderRingCenter(prediction, today) {
       : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
     els.dayCenterLabel.textContent = "dormindo há";
     els.dayCenterTime.textContent = formatRingDuration(elapsed);
+    els.dayCenterHint.textContent = `Próxima janela: ${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · alvo ${target}`;
     return;
   }
 
   if (state.activeNightStart) {
     els.dayCenterLabel.textContent = "sono noturno";
     els.dayCenterTime.textContent = "em andamento";
+    els.dayCenterHint.textContent = "O novo ciclo começa ao encerrar a noite.";
     return;
   }
 
   if (now < prediction.start) {
     els.dayCenterLabel.textContent = `${nextNapName} em`;
     els.dayCenterTime.textContent = formatDuration(prediction.start - now);
+    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · ${name}: perto de ${target}`;
     return;
   }
 
   if (now <= prediction.end) {
     els.dayCenterLabel.textContent = nextNapName;
     els.dayCenterTime.textContent = "janela aberta";
+    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · ${name}: perto de ${target}`;
     return;
   }
 
   els.dayCenterLabel.textContent = nextNapName;
   els.dayCenterTime.textContent = "janela aberta";
+  els.dayCenterHint.textContent = `${name} já passou do alvo provável.`;
 }
 
 function renderRingDayLabels(night) {
@@ -978,9 +1027,21 @@ function renderTimer() {
 }
 
 function renderInsights(prediction) {
-  els.sleep24h.textContent = formatDuration(dayNapSleepMinutes());
+  const daySleep = dayNapSleepMinutes();
+  const nightSleep = nightSleepInLast24Hours();
+  const goals = sleepGoalsForAge(currentBabyAgeMonths());
+  els.sleep24h.textContent = formatDuration(daySleep);
   els.napCount.textContent = String(napsToday().length);
-  els.nightSleep.textContent = formatDuration(nightSleepInLast24Hours());
+  els.nightSleep.textContent = formatDuration(nightSleep);
+  if (els.daySleepGoal) {
+    els.daySleepGoal.textContent = `${babyDisplayName()} fez ${formatDuration(daySleep)}`;
+  }
+  if (els.nightSleepGoal) {
+    els.nightSleepGoal.textContent = `${babyDisplayName()} fez ${formatDuration(nightSleep)}`;
+  }
+  if (els.assistantInsight) {
+    els.assistantInsight.textContent = assistantSuggestion(prediction, daySleep, nightSleep, goals);
+  }
 }
 
 function renderHistory() {
@@ -1556,14 +1617,12 @@ function scheduleUpcomingNotifications() {
     scheduleReminder(reminder, now);
   });
   syncRemoteNotificationSchedule(reminders, now);
-  const nextReminderDelay = reminders
-    .map((reminder) => minutesUntilReminder(reminder.at, now))
-    .filter((delay) => Number.isFinite(delay) && delay > 0 && delay <= 18 * 60)
-    .sort((a, b) => a - b)[0];
+  const nextReminder = nextUpcomingReminder(reminders, now);
+  const nextReminderDelay = nextReminder ? nextReminder.delay : null;
   updateNotificationHelp(minutesToWindow <= 15
     ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
     : nextReminderDelay
-      ? `Avisos ligados. Próximo lembrete em ${formatDuration(nextReminderDelay)}.`
+      ? `Avisos ligados. Próximo lembrete em ${formatDuration(nextReminderDelay)} (${minutesToTime(nextReminder.at)}).`
       : "Avisos ligados. Não há outro lembrete previsto para as próximas horas."
   );
 }
@@ -1610,14 +1669,14 @@ function scheduleActiveNapNotifications() {
 }
 
 function scheduleReminder(reminder, now = nowMinutes()) {
-  const delayMinutes = minutesUntilReminder(reminder.at, now);
-  if (!Number.isFinite(delayMinutes)) return;
-
   if (reminder.catchUpUntil && isClockMinuteBetween(now, reminder.at, reminder.catchUpUntil)) {
     if (state.activeNapStart || state.activeNightStart) return;
     notify(reminder.title, reminder.body, reminder.tag);
     return;
   }
+
+  const delayMinutes = minutesUntilToday(reminder.at, now);
+  if (!Number.isFinite(delayMinutes)) return;
 
   if (delayMinutes <= 0 || delayMinutes > 18 * 60) return;
   notificationTimers.push(setTimeout(() => {
@@ -1626,11 +1685,27 @@ function scheduleReminder(reminder, now = nowMinutes()) {
   }, delayMinutes * 60000));
 }
 
+function nextUpcomingReminder(reminders, now = nowMinutes()) {
+  return reminders
+    .map((reminder) => ({
+      ...reminder,
+      delay: minutesUntilToday(reminder.at, now)
+    }))
+    .filter((reminder) => Number.isFinite(reminder.delay) && reminder.delay > 0 && reminder.delay <= 18 * 60)
+    .sort((a, b) => a.delay - b.delay)[0] || null;
+}
+
 function minutesUntilReminder(targetMinutes, now = nowMinutes()) {
   if (!Number.isFinite(Number(targetMinutes))) return NaN;
   let diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
   if (diff <= 0) diff += 24 * 60;
   return diff;
+}
+
+function minutesUntilToday(targetMinutes, now = nowMinutes()) {
+  if (!Number.isFinite(Number(targetMinutes))) return NaN;
+  const diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
+  return diff > 0 ? diff : NaN;
 }
 
 function isClockMinuteBetween(value, start, end) {
@@ -1771,7 +1846,7 @@ async function syncRemoteNotificationSchedule(reminders, now = nowMinutes()) {
   const scheduled = reminders
     .map((reminder) => ({
       id: reminder.tag,
-      at: nextDateForClockMinute(reminder.at, now).toISOString(),
+      at: dateForClockMinuteToday(reminder.at).toISOString(),
       title: reminder.title,
       body: reminder.body,
       tag: reminder.tag
@@ -1798,13 +1873,10 @@ async function syncRemoteNotificationScheduleAbsolute(reminders) {
   }
 }
 
-function nextDateForClockMinute(targetMinutes, now = nowMinutes()) {
+function dateForClockMinuteToday(targetMinutes) {
   const target = normalizeDayMinutes(targetMinutes);
   const date = new Date();
   date.setHours(Math.floor(target / 60), target % 60, 0, 0);
-  if (minutesUntilReminder(target, now) >= 24 * 60 - 1 || date.getTime() <= Date.now()) {
-    date.setDate(date.getDate() + 1);
-  }
   return date;
 }
 
@@ -1874,15 +1946,53 @@ function nightSleepInLast24Hours() {
 }
 
 function latestNightSleepMinutes() {
-  const latestNight = state.nights
+  const latestNight = latestNightRecord();
+  return latestNight ? safeDuration(latestNight) : 0;
+}
+
+function latestNightRecord() {
+  return state.nights
     .filter((night) => {
       const start = new Date(night.start).getTime();
       const end = new Date(night.end).getTime();
       return Number.isFinite(start) && Number.isFinite(end) && end > start;
     })
-    .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+    .sort((a, b) => new Date(b.end) - new Date(a.end))[0] || null;
+}
 
-  return latestNight ? safeDuration(latestNight) : 0;
+function sleepGoalsForAge(age) {
+  if (age <= 4) return { day: 4 * 60, night: 11 * 60 };
+  if (age <= 8) return { day: 3.5 * 60, night: 11 * 60 };
+  if (age <= 12) return { day: 3 * 60, night: 11 * 60 };
+  if (age <= 24) return { day: 2 * 60, night: 11 * 60 };
+  return { day: 90, night: 10.5 * 60 };
+}
+
+function goalStatus(value, target) {
+  return value >= target * 0.92 ? "✔" : "•";
+}
+
+function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
+  const today = napsToday();
+  const lastNap = today[0];
+
+  if (lastNap && safeDuration(lastNap) < 35) {
+    return `Sugestão: como a última soneca foi curta (${safeDuration(lastNap)} min), tente encurtar a próxima janela de vigília em 15 minutos.`;
+  }
+
+  if (nightSleep > 0 && nightSleep < goals.night - 60) {
+    return `Ela dormiu apenas ${formatDuration(nightSleep)} à noite. Hoje pode precisar de uma soneca extra ou janela de vigília menor.`;
+  }
+
+  if (daySleep < goals.day * 0.65 && nowMinutes() > 15 * 60) {
+    return "O sono diurno está abaixo da meta. Observe sinais de cansaço e antecipe a próxima soneca se necessário.";
+  }
+
+  if (nowMinutes() > prediction.target) {
+    return "A janela provável já abriu. Observe sinais de sono antes de alongar mais a vigília.";
+  }
+
+  return "Rotina dentro do esperado até agora. Mantenha a próxima janela conforme o alvo calculado.";
 }
 
 function estimateNightSleepMinutes(bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30), morning = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60)) {
@@ -1996,9 +2106,9 @@ function markerSvg(marker) {
 
   if (marker.type === "next") {
     return `
-      <g class="day-marker-group next" transform="translate(${point.x} ${point.y}) rotate(${markerRotation(marker.at)})">
-        <rect class="marker-pill" x="-22" y="-14" width="44" height="28" rx="14"></rect>
-        <text class="marker-icon" x="0" y="6" text-anchor="middle" transform="rotate(${-markerRotation(marker.at)})">${icon}</text>
+      <g class="day-marker-group next" transform="translate(${point.x} ${point.y})">
+        <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
+        <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
       </g>
       ${markerTimeText(marker.startLabel, marker.startAt, "next")}
       ${markerTimeText(marker.endLabel, marker.endAt, "next")}
@@ -2008,7 +2118,7 @@ function markerSvg(marker) {
   if (marker.type === "day-start" || marker.type === "day-end") {
     const timePoint = pointOnCircle(marker.at, 102);
     return `
-      <g class="day-marker-group ${marker.type}" transform="translate(${point.x} ${point.y})">
+      <g class="day-marker-group ${marker.type}" ${marker.type === "day-end" ? 'role="button" tabindex="0"' : ""} transform="translate(${point.x} ${point.y})">
         <circle class="marker-orb" cx="0" cy="0" r="13"></circle>
         <text class="marker-icon" x="0" y="6" text-anchor="middle">${icon}</text>
       </g>
@@ -2017,19 +2127,21 @@ function markerSvg(marker) {
   }
 
   return `
-    <g class="day-marker-group ${marker.type}" transform="translate(${point.x} ${point.y})">
-      <circle class="marker-orb" cx="0" cy="0" r="${marker.type === "feed" ? 7 : 10}"></circle>
+    <g class="day-marker-group ${marker.type}" ${marker.id ? `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"` : ""} transform="translate(${point.x} ${point.y})">
+      <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
       <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
     </g>
   `;
 }
 
 function markerTimeText(label, at, type) {
-  const point = pointOnCircle(at, 106);
-  return `<text class="marker-time ${type}" x="${point.x}" y="${point.y}" text-anchor="middle">${label}</text>`;
+  const point = pointOnCircle(at, 112);
+  const rotation = tangentTextRotation(at);
+  return `<text class="marker-time ${type}" x="${point.x}" y="${point.y}" text-anchor="middle" transform="rotate(${rotation} ${point.x} ${point.y})">${label}</text>`;
 }
 
 function markerIcon(type) {
+  if (type === "feed") return "🍼";
   const icons = {
     nap: "☁",
     next: "☁",
@@ -2042,6 +2154,16 @@ function markerIcon(type) {
 
 function markerRotation(minutes) {
   return Math.round(135 + ringProgress(minutes) * 270);
+}
+
+function tangentTextRotation(minutes) {
+  let rotation = markerRotation(minutes) + 90;
+  if (rotation > 90 && rotation < 270) rotation += 180;
+  return Math.round(rotation);
+}
+
+function babyDisplayName() {
+  return state.babyName || "Bebê";
 }
 
 function pointOnCircle(minutes, radius) {
@@ -2172,6 +2294,11 @@ function toggleInstallSheet(open) {
 
 function toggleProfileSheet(open) {
   els.profileSheet.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function toggleHistorySheet(open) {
+  els.historySheet.setAttribute("aria-hidden", open ? "false" : "true");
+  if (open) renderHistory();
 }
 
 function toggleReportSheet(open) {

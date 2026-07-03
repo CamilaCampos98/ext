@@ -154,8 +154,8 @@ h2 {
   min-height: 0;
   overflow: hidden;
   background:
-    linear-gradient(145deg, rgba(24, 31, 67, 0.95), rgba(18, 28, 61, 0.88)),
-    var(--surface);
+    linear-gradient(145deg, rgba(24, 31, 67, 0.58), rgba(18, 28, 61, 0.42));
+  border-color: rgba(168, 216, 240, 0.16);
 }
 
 .sleep-dashboard::before {
@@ -165,6 +165,32 @@ h2 {
   bottom: 18px;
   color: rgba(203, 183, 247, 0.34);
   font-size: 2.2rem;
+}
+
+.home-assistant-card {
+  width: min(620px, 94vw);
+  margin: 0 auto 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(168, 216, 240, 0.15);
+  border-radius: 8px;
+  background: rgba(12, 18, 44, 0.24);
+  backdrop-filter: blur(10px);
+}
+
+.home-assistant-card span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.home-assistant-card p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .day-ring-wrap {
@@ -212,13 +238,6 @@ h2 {
   stroke: var(--night-color);
 }
 
-.day-ring-segment.night-future {
-  stroke: var(--night-color);
-  stroke-width: 6;
-  stroke-dasharray: 1 12;
-  opacity: 0.95;
-}
-
 .day-ring-now {
   display: none;
   stroke: #F8FBFD;
@@ -239,50 +258,67 @@ h2 {
   filter: drop-shadow(0 0 8px rgba(166, 151, 255, 0.36));
 }
 
-.marker-orb,
-.marker-pill {
-  fill: rgba(35, 35, 82, 0.9);
-  stroke-width: 2;
-}
-
 .marker-orb {
+  fill: rgba(35, 35, 82, 0.9);
   stroke: var(--lavender);
-  stroke-dasharray: 1.6 3.4;
+  stroke-width: 2;
+  stroke-dasharray: none;
 }
 
 .day-marker-group.nap .marker-orb {
+  fill: transparent;
   stroke: #8f88ff;
-  fill: rgba(71, 69, 139, 0.88);
+  stroke-dasharray: none;
 }
 
 .day-marker-group.feed .marker-orb {
   stroke: var(--feed);
-  fill: var(--feed);
+  fill: transparent;
+  stroke-width: 2;
 }
 
-.day-marker-group.next .marker-pill {
+.day-marker-group.next .marker-orb {
+  fill: rgba(35, 35, 82, 0.22);
   stroke: var(--next-nap-color);
+  stroke-width: 2;
   stroke-dasharray: 1.8 3.8;
-  fill: rgba(35, 35, 82, 0.86);
 }
 
 .day-marker-group.day-start .marker-orb {
   fill: rgba(96, 63, 39, 0.95);
   stroke: #FFD166;
+  stroke-width: 2;
   stroke-dasharray: none;
 }
 
 .day-marker-group.day-end .marker-orb {
   fill: rgba(100, 54, 45, 0.95);
   stroke: #ff986c;
-  stroke-dasharray: 1.6 3.4;
+  stroke-width: 2;
+  stroke-dasharray: none;
 }
 
 .marker-icon {
   fill: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
   dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(10, 16, 40, 0.76);
+  stroke-width: 2px;
+  stroke-linejoin: round;
   pointer-events: none;
+}
+
+.day-marker-group.nap .marker-icon {
+  fill: var(--ink);
+}
+
+.day-marker-group.next .marker-icon {
+  fill: var(--next-nap-color);
+}
+
+.day-marker-group.feed .marker-icon {
+  fill: var(--feed);
 }
 
 .day-marker-group.day-start .marker-icon {
@@ -294,9 +330,9 @@ h2 {
 }
 
 .marker-time {
-  font-size: 7px;
+  font-size: 6.6px;
   font-weight: 500;
-  fill: #9e96ff;
+  fill: var(--next-nap-color);
   paint-order: stroke;
   stroke: rgba(10, 16, 40, 0.9);
   stroke-width: 2px;
@@ -311,6 +347,64 @@ h2 {
   fill: #ff986c;
 }
 
+.nap-detail-card {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  z-index: 3;
+  width: min(230px, 76vw);
+  padding: 12px 34px 12px 12px;
+  border: 1px solid rgba(168, 216, 240, 0.24);
+  border-radius: 8px;
+  background: rgba(12, 18, 44, 0.94);
+  box-shadow: 0 16px 34px rgba(3, 8, 24, 0.34);
+  transform: translateX(-50%);
+  text-align: left;
+}
+
+.nap-detail-close {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(248, 251, 253, 0.18);
+  border-radius: 999px;
+  background: rgba(248, 251, 253, 0.08);
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.nap-detail-card[hidden] {
+  display: none;
+}
+
+.nap-detail-card span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.nap-detail-card strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.nap-detail-card small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .day-ring-center {
   position: absolute;
   inset: 0;
@@ -323,8 +417,7 @@ h2 {
 }
 
 .day-ring-center span,
-.day-ring-center small,
-.night-callout span {
+.day-ring-center small {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 800;
@@ -337,8 +430,8 @@ h2 {
 
 .day-ring-center strong {
   order: 2;
-  margin: 10px 0 0;
-  font-size: 2.65rem;
+  margin: 7px 0 0;
+  font-size: 2.2rem;
   line-height: 1;
 }
 
@@ -350,6 +443,18 @@ h2 {
   font-weight: 500;
   text-transform: none;
   line-height: 1.1;
+}
+
+.day-ring-center span {
+  order: 3;
+  display: block;
+  max-width: 150px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: none;
+  line-height: 1.18;
 }
 
 .ring-day-label {
@@ -411,28 +516,12 @@ h2 {
   box-shadow: 0 10px 22px rgba(3, 8, 24, 0.2);
 }
 
-.dashboard-copy {
-  min-width: 0;
-}
-
-.baby-summary,
 .profile-card {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.baby-summary {
-  width: fit-content;
-  max-width: 100%;
-  margin-bottom: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(168, 216, 240, 0.28);
-  border-radius: 8px;
-  background: rgba(168, 216, 240, 0.1);
-}
-
-.baby-avatar,
 .profile-moon {
   display: grid;
   place-items: center;
@@ -446,20 +535,16 @@ h2 {
   font-weight: 900;
 }
 
-.baby-summary strong,
-.baby-summary span,
 .profile-card span,
 .profile-card strong,
 .profile-card small {
   display: block;
 }
 
-.baby-summary strong,
 .profile-card strong {
   color: var(--ink);
 }
 
-.baby-summary span,
 .profile-card span,
 .profile-card small {
   color: var(--muted);
@@ -583,27 +668,6 @@ h2 {
   background: var(--night-color);
 }
 
-.night-callout {
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(12, 18, 44, 0.74);
-}
-
-.night-callout strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 1.8rem;
-  line-height: 1;
-}
-
-.night-callout p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  line-height: 1.35;
-}
-
 .panel,
 .note {
   margin-top: 14px;
@@ -613,8 +677,8 @@ h2 {
 
 .timer-panel {
   background:
-    linear-gradient(145deg, rgba(35, 43, 87, 0.94), rgba(24, 31, 67, 0.9)),
-    var(--surface-strong);
+    linear-gradient(145deg, rgba(35, 43, 87, 0.46), rgba(24, 31, 67, 0.32));
+  border-color: rgba(168, 216, 240, 0.15);
 }
 
 .timer-panel.is-idle .timer,
@@ -654,7 +718,8 @@ h2 {
   min-height: 72px;
   padding: 11px;
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.72);
+  background: rgba(12, 18, 44, 0.34);
+  border: 1px solid rgba(168, 216, 240, 0.1);
 }
 
 .nap-detail-grid span {
@@ -853,7 +918,8 @@ select {
   min-height: 74px;
   padding: 12px;
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.72);
+  background: rgba(12, 18, 44, 0.3);
+  border: 1px solid rgba(168, 216, 240, 0.1);
 }
 
 .insight-grid span,
@@ -868,6 +934,44 @@ select {
   display: block;
   margin-top: 8px;
   font-size: 1.15rem;
+}
+
+.goals-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(168, 216, 240, 0.14);
+  border-radius: 8px;
+  background: rgba(12, 18, 44, 0.24);
+  backdrop-filter: blur(10px);
+}
+
+.goal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.goal-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.goal-row strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.goals-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
 }
 
 .history {
@@ -950,8 +1054,10 @@ select {
 }
 
 .note {
-  background: rgba(56, 38, 70, 0.78);
+  background: rgba(56, 38, 70, 0.32);
+  border-color: rgba(203, 183, 247, 0.14);
   box-shadow: none;
+  backdrop-filter: blur(10px);
 }
 
 .notice-card {
@@ -959,7 +1065,8 @@ select {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.72);
+  background: rgba(12, 18, 44, 0.26);
+  backdrop-filter: blur(10px);
 }
 
 .notice-card strong {
@@ -1014,8 +1121,13 @@ select {
   width: min(720px, 100%);
 }
 
-.report-sheet-card {
+.report-sheet-card,
+.history-sheet-card {
   width: min(760px, 100%);
+}
+
+.compact-head {
+  margin: 4px 0 10px;
 }
 
 .report-grid {
@@ -1353,7 +1465,8 @@ select {
   }
 
   .profile-sheet-card,
-  .report-sheet-card {
+  .report-sheet-card,
+  .history-sheet-card {
     max-height: min(84vh, calc(100vh - 24px));
   }
 
@@ -1433,7 +1546,8 @@ select {
   @media (max-width: 560px) {
     .sheet-card,
     .profile-sheet-card,
-    .report-sheet-card {
+    .report-sheet-card,
+    .history-sheet-card {
       max-height: min(84dvh, calc(100dvh - 24px));
     }
   }
