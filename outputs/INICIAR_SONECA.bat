@@ -44,23 +44,27 @@ if "%PNPM_EXE%"=="" (
 )
 
 if not exist "%SCRIPT_DIR%node_modules\web-push\package.json" (
+  pushd "%SCRIPT_DIR%"
   if not "%NPM_EXE%"=="" (
     echo Instalando dependencias do servidor...
-    call "%NPM_EXE%" install --prefix "%SCRIPT_DIR%"
+    call "%NPM_EXE%" install
   ) else if not "%PNPM_EXE%"=="" (
     echo Instalando dependencias do servidor...
-    call "%PNPM_EXE%" install --dir "%SCRIPT_DIR%"
+    call "%PNPM_EXE%" install
   ) else (
     echo A dependencia web-push ainda nao foi instalada e npm/pnpm nao foram encontrados.
     echo Instale o Node.js completo ou execute npm install na pasta outputs.
+    popd
     pause
     exit /b 1
   )
   if errorlevel 1 (
+    popd
     echo Falha ao instalar dependencias.
     pause
     exit /b 1
   )
+  popd
 )
 
 "%NODE_EXE%" "%SCRIPT_DIR%serve-soneca.js"
