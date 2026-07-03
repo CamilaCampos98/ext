@@ -1449,6 +1449,12 @@ select {
 }
 
 @media (max-width: 560px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   .sheet {
     align-items: flex-end;
     padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
@@ -1476,19 +1482,76 @@ select {
   }
 
   .app-shell {
-    padding-left: 12px;
-    padding-right: 12px;
+    width: 100%;
+    padding-left: 10px;
+    padding-right: 10px;
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .topbar > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .top-actions {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: 66vw;
+    flex-wrap: wrap;
+  }
+
+  .top-button {
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: 0.74rem;
+  }
+
+  .top-actions .icon-button {
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
   }
 
   .hero {
     grid-template-columns: 1fr;
     gap: 16px;
-    padding-top: 26px;
+    width: 100%;
+    padding: 22px 8px 18px;
     text-align: center;
   }
 
+  .panel,
+  .note {
+    width: 100%;
+    padding: 14px 10px;
+  }
+
+  .home-assistant-card {
+    width: min(100%, 92vw);
+  }
+
   .day-ring-wrap {
-    width: min(430px, 92vw);
+    width: min(390px, calc(100vw - 36px));
+  }
+
+  .day-ring-center strong {
+    font-size: clamp(1.65rem, 8vw, 2.1rem);
+  }
+
+  .day-ring-center small {
+    max-width: 132px;
+    font-size: 0.84rem;
+  }
+
+  .day-ring-center span {
+    max-width: 138px;
+    font-size: 0.62rem;
   }
 
   .ring-day-label {
@@ -1514,6 +1577,28 @@ select {
 
   .hero h2 {
     font-size: clamp(2rem, 11vw, 3rem);
+  }
+
+  .section-head {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .section-head .pill {
+    max-width: 48%;
+  }
+
+  .start-compact,
+  .button-row,
+  .night-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .start-compact .primary,
+  .start-compact .secondary,
+  .night-button {
+    width: 100%;
   }
 
   .form-grid,
