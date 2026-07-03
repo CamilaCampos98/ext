@@ -6,6 +6,7 @@ const path = require("path");
 const ROOT = path.join(__dirname, "nap-pwa");
 const HOST = "0.0.0.0";
 const START_PORT = Number(process.env.PORT || 5179);
+const APP_VERSION = getAppVersion();
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -64,9 +65,9 @@ function createServer(port) {
     const addresses = getLocalAddresses();
     console.log("");
     console.log("Soneca PWA rodando.");
-    console.log(`Neste computador: http://127.0.0.1:${port}/?v=23`);
+    console.log(`Neste computador: http://127.0.0.1:${port}/?v=${APP_VERSION}`);
     addresses.forEach((address) => {
-      console.log(`No iPhone: http://${address}:${port}/?v=23`);
+      console.log(`No iPhone: http://${address}:${port}/?v=${APP_VERSION}`);
     });
     console.log("");
     console.log("Deixe esta janela aberta enquanto estiver usando. Para parar, pressione Ctrl+C.");
@@ -78,6 +79,16 @@ function getLocalAddresses() {
     .flat()
     .filter((network) => network && network.family === "IPv4" && !network.internal)
     .map((network) => network.address);
+}
+
+function getAppVersion() {
+  try {
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    const match = html.match(/app\.js\?v=(\d+)/);
+    return match ? match[1] : "1";
+  } catch {
+    return "1";
+  }
 }
 
 createServer(START_PORT);
