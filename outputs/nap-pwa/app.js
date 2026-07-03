@@ -1456,6 +1456,7 @@ function scheduleUpcomingNotifications() {
   const prediction = calculatePrediction();
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
+  const minutesToWindow = minutesUntilReminder(prediction.start, now);
   const reminders = [
     {
       at: prediction.start - 15,
@@ -1493,12 +1494,15 @@ function scheduleUpcomingNotifications() {
   reminders.forEach((reminder) => {
     scheduleReminder(reminder, now);
   });
-  updateNotificationHelp("Avisos locais programados para a próxima janela de sono e sono noturno enquanto a PWA puder rodar.");
+  updateNotificationHelp(minutesToWindow <= 15
+    ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
+    : `Avisos ligados. Próximo lembrete em ${formatDuration(Math.max(0, minutesToWindow - 15))}.`
+  );
 }
 
 function scheduleActiveNapNotifications() {
-  clearNotificationTimers();
   if (!canNotify() || !state.activeNapStart) return;
+  clearNotificationTimers();
   const started = new Date(state.activeNapStart).getTime();
   [
     { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo.", tag: "soneca-ativa-30" },
