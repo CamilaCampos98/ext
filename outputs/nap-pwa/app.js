@@ -3,6 +3,7 @@ const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
+const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyXhag4VlD-y5IbQWcYoU2TMoF6RMri96HrzylzMwsRMgJPZQN-pTs1MFPJqFpdKCl-Zg/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
@@ -26,6 +27,7 @@ const defaultState = {
   dayStart: DEFAULT_DAY_START,
   lastWake: "",
   bedtime: "19:30",
+  plannedNapCount: 5,
   activeNapStart: null,
   activeNightStart: null,
   cycleStartAt: null,
@@ -41,6 +43,8 @@ const defaultState = {
 
 let state = loadState();
 let notificationTimers = [];
+let currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
+let currentRingEndMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
 
 const els = {
   nextWindow: document.querySelector("#nextWindow"),
@@ -50,6 +54,8 @@ const els = {
   dayNowHand: document.querySelector("#dayNowHand"),
   dayCenterTime: document.querySelector("#dayCenterTime"),
   dayCenterLabel: document.querySelector("#dayCenterLabel"),
+  ringDayStart: document.querySelector("#ringDayStart"),
+  ringDayEnd: document.querySelector("#ringDayEnd"),
   ringCaptions: document.querySelector("#ringCaptions"),
   dayLegend: document.querySelector("#dayLegend"),
   bedtimeSuggestion: document.querySelector("#bedtimeSuggestion"),
@@ -80,6 +86,7 @@ const els = {
   dayStart: document.querySelector("#dayStart"),
   lastWake: document.querySelector("#lastWake"),
   bedtime: document.querySelector("#bedtime"),
+  plannedNapCount: document.querySelector("#plannedNapCount"),
   feedBreastEnabled: document.querySelector("#feedBreastEnabled"),
   feedBottleEnabled: document.querySelector("#feedBottleEnabled"),
   feedFormulaEnabled: document.querySelector("#feedFormulaEnabled"),
@@ -167,6 +174,7 @@ function hydrateForm() {
   els.dayStart.value = state.dayStart || DEFAULT_DAY_START;
   els.lastWake.value = state.lastWake || minutesToTime(nowMinutes());
   els.bedtime.value = state.bedtime;
+  els.plannedNapCount.value = String(plannedNapCount());
   hydrateFeedingOptions();
   if (!els.historyDate.value) {
     els.historyDate.value = dateInputValue(new Date());
@@ -203,6 +211,7 @@ function bindEvents() {
     els.dayStart.addEventListener(eventName, updateProfile);
     els.lastWake.addEventListener(eventName, updateProfile);
     els.bedtime.addEventListener(eventName, updateProfile);
+    els.plannedNapCount.addEventListener(eventName, updateProfile);
   });
   [els.feedBreastEnabled, els.feedBottleEnabled, els.feedFormulaEnabled].forEach((input) => {
     input.addEventListener("change", updateFeedingOptions);
@@ -300,6 +309,7 @@ function updateProfile() {
   state.dayStart = els.dayStart.value;
   state.lastWake = els.lastWake.value;
   state.bedtime = els.bedtime.value;
+  state.plannedNapCount = plannedNapCount();
   saveState();
   scheduleUpcomingNotifications();
   render();
@@ -739,6 +749,9 @@ function renderDayPlanner(prediction) {
   const today = napsToday();
   const feedings = feedingsToday();
   const segments = [];
+  currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
+  currentRingEndMinutes = night.start;
+  const plannedNaps = plannedNapMarkers(prediction, today, night);
 
   today.forEach((nap) => {
     segments.push({
@@ -761,18 +774,20 @@ function renderDayPlanner(prediction) {
       end: now
     });
   } else {
-    segments.push({
-      type: "next",
-      start: prediction.start,
-      end: prediction.end
+    plannedNaps.forEach((nap) => {
+      segments.push({
+        type: "next",
+        start: nap.start,
+        end: nap.end
+      });
     });
   }
 
   if (!state.activeNightStart) {
     segments.push({
       type: "night-future",
-      start: night.start,
-      end: night.start + 120
+      start: night.start - 40,
+      end: night.start
     });
   }
 
@@ -781,10 +796,12 @@ function renderDayPlanner(prediction) {
     .map((segment) => arcPath(segment.start, Math.max(segment.start + 6, segment.end), segment.type))
     .join("");
   els.dayMarkers.innerHTML = [
-    ...today.map((nap) => ({ type: "nap", at: dateToDayMinutes(new Date(nap.start)) })),
+    { type: "day-start", at: safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60), label: state.dayStart || state.lastWake || DEFAULT_DAY_START },
+    ...today.map((nap) => ({ type: "nap", at: dateToDayMinutes(new Date(nap.start)), label: timeLabel(new Date(nap.start)) })),
+    ...(state.activeNapStart ? [{ type: "nap", at: dateToDayMinutes(new Date(state.activeNapStart)), label: timeLabel(new Date(state.activeNapStart)) }] : []),
     ...feedings.map((feeding) => ({ type: "feed", at: dateToDayMinutes(new Date(feeding.at)) })),
-    { type: "next", at: prediction.target },
-    { type: "night", at: night.start }
+    ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
+    { type: "day-end", at: night.start, label: minutesToTime(night.start) }
   ]
     .filter((marker) => Number.isFinite(marker.at))
     .map((marker) => markerSvg(marker))
@@ -794,6 +811,7 @@ function renderDayPlanner(prediction) {
   els.dayNowHand.setAttribute("x2", String(nowPoint.x));
   els.dayNowHand.setAttribute("y2", String(nowPoint.y));
   renderRingCenter(prediction, today);
+  renderRingDayLabels(night);
   els.bedtimeSuggestion.textContent = minutesToTime(night.start);
   els.bedtimeReason.textContent = night.reason;
   els.ringCaptions.innerHTML = "";
@@ -810,8 +828,12 @@ function renderRingCenter(prediction, today) {
   const now = nowMinutes();
 
   if (state.activeNapStart) {
-    els.dayCenterLabel.textContent = "soneca";
-    els.dayCenterTime.textContent = "em andamento";
+    const startedAt = new Date(state.activeNapStart);
+    const elapsed = Number.isNaN(startedAt.getTime())
+      ? 0
+      : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
+    els.dayCenterLabel.textContent = "dormindo há";
+    els.dayCenterTime.textContent = formatRingDuration(elapsed);
     return;
   }
 
@@ -837,6 +859,42 @@ function renderRingCenter(prediction, today) {
   els.dayCenterTime.textContent = "janela aberta";
 }
 
+function renderRingDayLabels(night) {
+  const dayStart = normalizeTimeField(state.dayStart || state.lastWake) || DEFAULT_DAY_START;
+  const dayEnd = minutesToTime(night.start);
+  if (els.ringDayStart) {
+    els.ringDayStart.querySelector("strong").textContent = dayStart;
+  }
+  if (els.ringDayEnd) {
+    els.ringDayEnd.querySelector("strong").textContent = dayEnd;
+  }
+}
+
+function plannedNapMarkers(prediction, today, night) {
+  const total = plannedNapCount();
+  const done = today.length + (state.activeNapStart ? 1 : 0);
+  const remaining = Math.max(0, total - done);
+  if (!remaining || state.activeNightStart) return [];
+
+  const markers = [];
+  const now = nowMinutes();
+  let start = state.activeNapStart ? now + 45 : prediction.start;
+  const dayEnd = night.start;
+  const available = Math.max(remaining * 36, minutesBetweenClock(start, dayEnd) - 24);
+  const step = remaining <= 1 ? 0 : available / remaining;
+
+  for (let index = 0; index < remaining; index += 1) {
+    const windowStart = index === 0 && !state.activeNapStart ? start : start + Math.round(step * index);
+    const clampedStart = clampClockWithinDay(windowStart, dayEnd - 30);
+    const windowEnd = Math.min(clampedStart + 30, dayEnd - 8);
+    const target = Math.round((clampedStart + windowEnd) / 2);
+    if (windowEnd <= clampedStart || target >= dayEnd) continue;
+    markers.push({ start: clampedStart, end: windowEnd, target });
+  }
+
+  return markers;
+}
+
 function calculateNightSuggestion(prediction) {
   const profile = prediction.profile;
   const today = napsToday();
@@ -845,7 +903,7 @@ function calculateNightSuggestion(prediction) {
   const plannedBedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
   const finalWakeWindow = clamp(profile.target + 35, profile.min + 20, profile.max + 35);
   const napSleepToday = today.reduce((sum, nap) => sum + safeDuration(nap), 0);
-  const expectedNaps = expectedNapCount(profile.naps);
+  const expectedNaps = plannedNapCount();
 
   let adjustment = 0;
   if (lastNap && lastNap.duration < 35) adjustment -= 25;
@@ -1498,9 +1556,15 @@ function scheduleUpcomingNotifications() {
     scheduleReminder(reminder, now);
   });
   syncRemoteNotificationSchedule(reminders, now);
+  const nextReminderDelay = reminders
+    .map((reminder) => minutesUntilReminder(reminder.at, now))
+    .filter((delay) => Number.isFinite(delay) && delay > 0 && delay <= 18 * 60)
+    .sort((a, b) => a - b)[0];
   updateNotificationHelp(minutesToWindow <= 15
     ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
-    : `Avisos ligados. Próximo lembrete em ${formatDuration(Math.max(0, minutesToWindow - 15))}.`
+    : nextReminderDelay
+      ? `Avisos ligados. Próximo lembrete em ${formatDuration(nextReminderDelay)}.`
+      : "Avisos ligados. Não há outro lembrete previsto para as próximas horas."
   );
 }
 
@@ -1508,15 +1572,29 @@ function scheduleActiveNapNotifications() {
   if (!canNotify() || !state.activeNapStart) return;
   clearNotificationTimers();
   const started = new Date(state.activeNapStart).getTime();
+  if (!Number.isFinite(started)) return;
+
+  const elapsedMinutes = Math.floor((Date.now() - started) / 60000);
   const activeReminders = [
     { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo.", tag: "soneca-ativa-30" },
     { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa.", tag: "soneca-ativa-45" },
     { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia.", tag: "soneca-ativa-90" }
   ];
+  let nextDelay = null;
   activeReminders.forEach((item) => {
     const delay = started + item.minute * 60000 - Date.now();
     if (delay > 0) {
-      notificationTimers.push(setTimeout(() => notify("Soneca em andamento", item.body, item.tag), delay));
+      nextDelay = nextDelay === null ? delay : Math.min(nextDelay, delay);
+      notificationTimers.push(setTimeout(() => {
+        markActiveNapNoticeSent(item.tag);
+        notify("Soneca em andamento", item.body, item.tag);
+      }, delay));
+      return;
+    }
+
+    if (elapsedMinutes >= item.minute && elapsedMinutes <= item.minute + 10 && !wasActiveNapNoticeSent(item.tag)) {
+      markActiveNapNoticeSent(item.tag);
+      notify("Soneca em andamento", item.body, item.tag);
     }
   });
   syncRemoteNotificationScheduleAbsolute(activeReminders.map((item) => ({
@@ -1525,7 +1603,10 @@ function scheduleActiveNapNotifications() {
     body: item.body,
     tag: item.tag
   })));
-  updateNotificationHelp("Avisos locais programados para acompanhar a soneca em andamento.");
+  updateNotificationHelp(nextDelay === null
+    ? "Avisos ligados para esta soneca. Os marcos de acompanhamento previstos já passaram."
+    : `Avisos ligados para esta soneca. Próximo acompanhamento em ${formatDuration(nextDelay / 60000)}.`
+  );
 }
 
 function scheduleReminder(reminder, now = nowMinutes()) {
@@ -1563,6 +1644,29 @@ function isClockMinuteBetween(value, start, end) {
 function clearNotificationTimers() {
   notificationTimers.forEach((timer) => clearTimeout(timer));
   notificationTimers = [];
+}
+
+function activeNapNoticeKey(tag) {
+  return `${state.activeNapStart || "sem-soneca"}:${tag}`;
+}
+
+function loadActiveNapNotices() {
+  try {
+    return JSON.parse(localStorage.getItem(ACTIVE_NAP_NOTICE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function wasActiveNapNoticeSent(tag) {
+  const notices = loadActiveNapNotices();
+  return Boolean(notices[activeNapNoticeKey(tag)]);
+}
+
+function markActiveNapNoticeSent(tag) {
+  const notices = loadActiveNapNotices();
+  notices[activeNapNoticeKey(tag)] = new Date().toISOString();
+  localStorage.setItem(ACTIVE_NAP_NOTICE_KEY, JSON.stringify(notices));
 }
 
 function notify(title, body, tag = "soneca-alerta") {
@@ -1849,6 +1953,21 @@ function expectedNapCount(value) {
   return Number(match[match.length - 1]);
 }
 
+function plannedNapCount() {
+  const raw = els?.plannedNapCount?.value || state.plannedNapCount || defaultState.plannedNapCount;
+  return clamp(Math.round(Number(raw) || defaultState.plannedNapCount), 1, 8);
+}
+
+function minutesBetweenClock(start, end) {
+  let diff = normalizeDayMinutes(end) - normalizeDayMinutes(start);
+  if (diff < 0) diff += 24 * 60;
+  return diff;
+}
+
+function clampClockWithinDay(value, max) {
+  return Math.min(normalizeDayMinutes(value), normalizeDayMinutes(max));
+}
+
 function ordinalFeminine(number) {
   const labels = ["primeira", "segunda", "terceira", "quarta", "quinta", "sexta", "sétima", "oitava"];
   return labels[number - 1] || `${number}ª`;
@@ -1859,28 +1978,94 @@ function dateToDayMinutes(date) {
 }
 
 function arcPath(startMinutes, endMinutes, type) {
-  const start = normalizeDayMinutes(startMinutes);
-  let end = normalizeDayMinutes(endMinutes);
-  if (end <= start) end += 24 * 60;
+  const startProgress = ringProgress(startMinutes);
+  let endProgress = ringProgress(endMinutes);
+  if (endProgress < startProgress) endProgress = startProgress;
 
-  const startPoint = pointOnCircle(start, 92);
-  const endPoint = pointOnCircle(end, 92);
-  const largeArc = end - start > 12 * 60 ? 1 : 0;
+  const visibleEnd = Math.max(startProgress + 0.006, endProgress);
+  const startPoint = pointOnRingProgress(startProgress, 92);
+  const endPoint = pointOnRingProgress(visibleEnd, 92);
+  const largeArc = (visibleEnd - startProgress) * 270 > 180 ? 1 : 0;
 
   return `<path class="day-ring-segment ${type}" d="M ${startPoint.x} ${startPoint.y} A 92 92 0 ${largeArc} 1 ${endPoint.x} ${endPoint.y}"></path>`;
 }
 
 function markerSvg(marker) {
   const point = pointOnCircle(marker.at, 92);
-  return `<circle class="day-marker ${marker.type}" cx="${point.x}" cy="${point.y}" r="5"></circle>`;
+  const icon = markerIcon(marker.type);
+
+  if (marker.type === "next") {
+    return `
+      <g class="day-marker-group next" transform="translate(${point.x} ${point.y}) rotate(${markerRotation(marker.at)})">
+        <rect class="marker-pill" x="-22" y="-14" width="44" height="28" rx="14"></rect>
+        <text class="marker-icon" x="0" y="6" text-anchor="middle" transform="rotate(${-markerRotation(marker.at)})">${icon}</text>
+      </g>
+      ${markerTimeText(marker.startLabel, marker.startAt, "next")}
+      ${markerTimeText(marker.endLabel, marker.endAt, "next")}
+    `;
+  }
+
+  if (marker.type === "day-start" || marker.type === "day-end") {
+    const timePoint = pointOnCircle(marker.at, 102);
+    return `
+      <g class="day-marker-group ${marker.type}" transform="translate(${point.x} ${point.y})">
+        <circle class="marker-orb" cx="0" cy="0" r="13"></circle>
+        <text class="marker-icon" x="0" y="6" text-anchor="middle">${icon}</text>
+      </g>
+      <text class="marker-time ${marker.type}" x="${timePoint.x}" y="${timePoint.y + 9}" text-anchor="middle">${marker.label}</text>
+    `;
+  }
+
+  return `
+    <g class="day-marker-group ${marker.type}" transform="translate(${point.x} ${point.y})">
+      <circle class="marker-orb" cx="0" cy="0" r="${marker.type === "feed" ? 7 : 10}"></circle>
+      <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
+    </g>
+  `;
+}
+
+function markerTimeText(label, at, type) {
+  const point = pointOnCircle(at, 106);
+  return `<text class="marker-time ${type}" x="${point.x}" y="${point.y}" text-anchor="middle">${label}</text>`;
+}
+
+function markerIcon(type) {
+  const icons = {
+    nap: "☁",
+    next: "☁",
+    feed: "•",
+    "day-start": "☀",
+    "day-end": "☾"
+  };
+  return icons[type] || "•";
+}
+
+function markerRotation(minutes) {
+  return Math.round(135 + ringProgress(minutes) * 270);
 }
 
 function pointOnCircle(minutes, radius) {
-  const angle = (normalizeDayMinutes(minutes) / (24 * 60)) * Math.PI * 2 - Math.PI / 2;
+  return pointOnRingProgress(ringProgress(minutes), radius);
+}
+
+function pointOnRingProgress(progress, radius) {
+  const angle = (135 + clamp(progress, 0, 1) * 270) * Math.PI / 180;
   return {
     x: roundSvg(120 + Math.cos(angle) * radius),
     y: roundSvg(120 + Math.sin(angle) * radius)
   };
+}
+
+function ringProgress(minutes) {
+  const start = normalizeDayMinutes(currentRingStartMinutes);
+  const end = normalizeDayMinutes(currentRingEndMinutes);
+  let span = end - start;
+  if (span <= 0) span += 24 * 60;
+  if (span < 60) span = 24 * 60;
+
+  let elapsed = normalizeDayMinutes(minutes) - start;
+  if (elapsed < 0) elapsed += 24 * 60;
+  return clamp(elapsed / span, 0, 1);
 }
 
 function normalizeDayMinutes(minutes) {
@@ -1908,6 +2093,7 @@ function loadState() {
     loaded.dayStart = normalizeTimeField(loaded.dayStart) || DEFAULT_DAY_START;
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
+    loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.babyBirthDate = normalizeDateInputValue(loaded.babyBirthDate);
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
@@ -2299,6 +2485,14 @@ function formatDuration(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest ? `${hours}h${String(rest).padStart(2, "0")}` : `${hours}h`;
+}
+
+function formatRingDuration(minutes) {
+  minutes = Math.max(0, Math.round(Number(minutes) || 0));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${String(rest).padStart(2, "0")}min` : `${hours}h`;
 }
 
 function safeDuration(nap) {

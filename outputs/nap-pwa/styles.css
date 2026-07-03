@@ -139,16 +139,19 @@ h2 {
 
 .hero {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(360px, 430px) 1fr;
+  gap: 22px;
   align-items: center;
-  min-height: 176px;
+  min-height: 420px;
   padding: 22px;
   border-radius: 8px;
 }
 
 .sleep-dashboard {
   position: relative;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  min-height: 0;
   overflow: hidden;
   background:
     linear-gradient(145deg, rgba(24, 31, 67, 0.95), rgba(18, 28, 61, 0.88)),
@@ -166,10 +169,10 @@ h2 {
 
 .day-ring-wrap {
   position: relative;
-  width: min(220px, 100%);
+  width: min(620px, 94vw);
   aspect-ratio: 1;
   justify-self: center;
-  filter: drop-shadow(0 0 22px rgba(203, 183, 247, 0.22));
+  filter: drop-shadow(0 0 32px rgba(203, 183, 247, 0.2));
 }
 
 .day-ring {
@@ -186,12 +189,12 @@ h2 {
 }
 
 .day-ring-track {
-  stroke: rgba(203, 183, 247, 0.14);
-  stroke-width: 22;
+  stroke: rgba(80, 76, 142, 0.28);
+  stroke-width: 18;
 }
 
 .day-ring-segment {
-  stroke-width: 22;
+  stroke-width: 18;
 }
 
 .day-ring-segment.nap {
@@ -217,40 +220,95 @@ h2 {
 }
 
 .day-ring-now {
+  display: none;
   stroke: #F8FBFD;
   stroke-width: 3;
 }
 
 .day-ring-core {
-  fill: rgba(12, 18, 44, 0.72);
-  stroke: rgba(203, 183, 247, 0.2);
+  fill: rgba(12, 18, 44, 0.38);
+  stroke: rgba(203, 183, 247, 0.12);
   stroke-width: 1;
 }
 
 .day-marker {
-  fill: #F8FBFD;
-  stroke: var(--lavender);
+  display: none;
+}
+
+.day-marker-group {
+  filter: drop-shadow(0 0 8px rgba(166, 151, 255, 0.36));
+}
+
+.marker-orb,
+.marker-pill {
+  fill: rgba(35, 35, 82, 0.9);
   stroke-width: 2;
-  filter: drop-shadow(0 0 6px rgba(203, 183, 247, 0.4));
 }
 
-.day-marker.nap {
-  stroke: var(--nap-color);
+.marker-orb {
+  stroke: var(--lavender);
+  stroke-dasharray: 1.6 3.4;
 }
 
-.day-marker.next {
-  fill: rgba(12, 18, 44, 0.92);
-  stroke: var(--next-nap-color);
+.day-marker-group.nap .marker-orb {
+  stroke: #8f88ff;
+  fill: rgba(71, 69, 139, 0.88);
 }
 
-.day-marker.feed {
+.day-marker-group.feed .marker-orb {
+  stroke: var(--feed);
   fill: var(--feed);
-  stroke: #F8FBFD;
 }
 
-.day-marker.night {
-  fill: rgba(12, 18, 44, 0.92);
-  stroke: var(--night-color);
+.day-marker-group.next .marker-pill {
+  stroke: var(--next-nap-color);
+  stroke-dasharray: 1.8 3.8;
+  fill: rgba(35, 35, 82, 0.86);
+}
+
+.day-marker-group.day-start .marker-orb {
+  fill: rgba(96, 63, 39, 0.95);
+  stroke: #FFD166;
+  stroke-dasharray: none;
+}
+
+.day-marker-group.day-end .marker-orb {
+  fill: rgba(100, 54, 45, 0.95);
+  stroke: #ff986c;
+  stroke-dasharray: 1.6 3.4;
+}
+
+.marker-icon {
+  fill: var(--ink);
+  font-size: 10px;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.day-marker-group.day-start .marker-icon {
+  fill: #FFD166;
+}
+
+.day-marker-group.day-end .marker-icon {
+  fill: #ff986c;
+}
+
+.marker-time {
+  font-size: 7px;
+  font-weight: 500;
+  fill: #9e96ff;
+  paint-order: stroke;
+  stroke: rgba(10, 16, 40, 0.9);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+.marker-time.day-start {
+  fill: #FFD166;
+}
+
+.marker-time.day-end {
+  fill: #ff986c;
 }
 
 .day-ring-center {
@@ -279,15 +337,61 @@ h2 {
 
 .day-ring-center strong {
   order: 2;
-  margin: 5px 0 0;
-  font-size: 1.5rem;
+  margin: 10px 0 0;
+  font-size: 2.65rem;
   line-height: 1;
 }
 
 .day-ring-center small {
   order: 1;
-  max-width: 116px;
+  max-width: 156px;
+  color: #d7d0ff;
+  font-size: 0.98rem;
+  font-weight: 500;
+  text-transform: none;
   line-height: 1.1;
+}
+
+.ring-day-label {
+  display: none;
+  position: absolute;
+  align-items: center;
+  gap: 6px;
+  min-width: 76px;
+  padding: 7px 10px;
+  border: 1px solid rgba(248, 251, 253, 0.2);
+  border-radius: 999px;
+  background: rgba(12, 18, 44, 0.9);
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(3, 8, 24, 0.24);
+}
+
+.ring-day-label span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(168, 216, 240, 0.22);
+  color: var(--accent);
+  font-size: 0.92rem;
+}
+
+.ring-day-start {
+  left: 6px;
+  bottom: 20px;
+}
+
+.ring-day-end {
+  right: 4px;
+  bottom: 20px;
+}
+
+.ring-day-end span {
+  background: rgba(203, 183, 247, 0.2);
+  color: var(--night-color);
 }
 
 .ring-caption-row {
@@ -1273,7 +1377,28 @@ select {
   }
 
   .day-ring-wrap {
-    width: min(292px, 82vw);
+    width: min(430px, 92vw);
+  }
+
+  .ring-day-label {
+    min-width: 68px;
+    padding: 6px 8px;
+    font-size: 0.72rem;
+  }
+
+  .ring-day-label span {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ring-day-start {
+    left: 0;
+    bottom: 18px;
+  }
+
+  .ring-day-end {
+    right: 0;
+    bottom: 18px;
   }
 
   .hero h2 {

@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=26">
+    <link rel="stylesheet" href="styles.css?v=30">
   </head>
   <body>
     <div class="app-shell">
@@ -34,7 +34,7 @@
         <section class="hero sleep-dashboard">
           <div class="day-ring-wrap">
             <svg class="day-ring" viewBox="0 0 240 240" aria-label="Linha do tempo circular das sonecas do dia" role="img">
-              <circle class="day-ring-track" cx="120" cy="120" r="92"></circle>
+              <path class="day-ring-track" d="M 54.95 185.05 A 92 92 0 1 1 185.05 185.05"></path>
               <g id="daySegments"></g>
               <g id="dayMarkers"></g>
               <line class="day-ring-now" id="dayNowHand" x1="120" y1="120" x2="120" y2="30"></line>
@@ -44,6 +44,14 @@
               <span aria-hidden="true"></span>
               <strong id="dayCenterTime">--:--</strong>
               <small id="dayCenterLabel">dia de sono</small>
+            </div>
+            <div class="ring-day-label ring-day-start" id="ringDayStart">
+              <span aria-hidden="true">☀</span>
+              <strong>--:--</strong>
+            </div>
+            <div class="ring-day-label ring-day-end" id="ringDayEnd">
+              <span aria-hidden="true">☾</span>
+              <strong>--:--</strong>
             </div>
             <div class="ring-caption-row" id="ringCaptions"></div>
           </div>
@@ -154,6 +162,10 @@
             <label>
               Hora de dormir
               <input id="bedtime" type="time" value="19:30">
+            </label>
+            <label>
+              Sonecas previstas
+              <input id="plannedNapCount" type="number" min="1" max="8" step="1" value="5">
             </label>
           </div>
           <div class="feeding-profile">
@@ -380,6 +392,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=58" defer></script>
+    <script src="app.js?v=63" defer></script>
   </body>
 </html>
