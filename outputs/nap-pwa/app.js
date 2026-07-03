@@ -228,11 +228,26 @@ function bindEvents() {
   els.openStartSheet.addEventListener("click", () => toggleStartSheet(true));
   els.closeStartSheet.addEventListener("click", () => toggleStartSheet(false));
   els.startNap.addEventListener("click", startNap);
-  els.endNap.addEventListener("click", () => toggleMoodSheet(true));
-  els.startNight.addEventListener("click", startNightSleep);
-  els.endNight.addEventListener("click", completeNightSleep);
-  els.openManualNap.addEventListener("click", () => openManualRecordSheet("nap"));
-  els.openManualNight.addEventListener("click", () => openManualRecordSheet("night"));
+  els.endNap.addEventListener("click", () => {
+    toggleStartSheet(false);
+    toggleMoodSheet(true);
+  });
+  els.startNight.addEventListener("click", () => {
+    toggleStartSheet(false);
+    startNightSleep();
+  });
+  els.endNight.addEventListener("click", () => {
+    toggleStartSheet(false);
+    completeNightSleep();
+  });
+  els.openManualNap.addEventListener("click", () => {
+    toggleStartSheet(false);
+    openManualRecordSheet("nap");
+  });
+  els.openManualNight.addEventListener("click", () => {
+    toggleStartSheet(false);
+    openManualRecordSheet("night");
+  });
   els.openFeeding.addEventListener("click", () => {
     toggleStartSheet(false);
     openFeedingSheet(false);
@@ -991,7 +1006,7 @@ function renderTimer() {
   const nightActive = Boolean(state.activeNightStart);
   els.timerPanel.classList.toggle("is-idle", !active && !nightActive);
   els.timerPanel.classList.toggle("is-active", active || nightActive);
-  els.openStartSheet.disabled = active || nightActive;
+  els.openStartSheet.disabled = false;
   els.startNap.disabled = active || nightActive;
   els.endNap.disabled = !active;
   els.startNight.disabled = active || nightActive;
@@ -2288,32 +2303,54 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function closeAllSheets(exceptSheet = null) {
+  [
+    els.installSheet,
+    els.profileSheet,
+    els.historySheet,
+    els.reportSheet,
+    els.moodSheet,
+    els.startSheet,
+    els.manualNapSheet,
+    els.feedingSheet
+  ].forEach((sheet) => {
+    if (sheet && sheet !== exceptSheet) {
+      sheet.setAttribute("aria-hidden", "true");
+    }
+  });
+}
+
+function setSheetOpen(sheet, open) {
+  if (!sheet) return;
+  if (open) closeAllSheets(sheet);
+  sheet.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
 function toggleInstallSheet(open) {
-  els.installSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.installSheet, open);
 }
 
 function toggleProfileSheet(open) {
-  els.profileSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.profileSheet, open);
 }
 
 function toggleHistorySheet(open) {
-  els.historySheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.historySheet, open);
   if (open) renderHistory();
 }
 
 function toggleReportSheet(open) {
-  els.reportSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.reportSheet, open);
   if (open) renderReport();
 }
 
 function toggleMoodSheet(open) {
   if (open && !state.activeNapStart) return;
-  els.moodSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.moodSheet, open);
 }
 
 function toggleStartSheet(open) {
-  if (open && (state.activeNapStart || state.activeNightStart)) return;
-  els.startSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.startSheet, open);
 }
 
 function openManualRecordSheet(type = "nap") {
@@ -2346,7 +2383,7 @@ function defaultManualNightStart(end) {
 }
 
 function toggleManualNapSheet(open) {
-  els.manualNapSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.manualNapSheet, open);
 }
 
 function openFeedingSheet(manual = false) {
@@ -2363,7 +2400,7 @@ function openFeedingSheet(manual = false) {
 }
 
 function toggleFeedingSheet(open) {
-  els.feedingSheet.setAttribute("aria-hidden", open ? "false" : "true");
+  setSheetOpen(els.feedingSheet, open);
 }
 
 function renderFeedingTypeOptions() {

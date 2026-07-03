@@ -1,9 +1,18 @@
-const CACHE_NAME = "soneca-pwa-v81";
+const CACHE_NAME = "soneca-pwa-v90";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=47",
-  "./app.js?v=73",
+  "./vendor/fontawesome/css/all.min.css?v=1",
+  "./vendor/fontawesome/webfonts/fa-solid-900.woff2",
+  "./vendor/fontawesome/webfonts/fa-solid-900.ttf",
+  "./vendor/fontawesome/webfonts/fa-regular-400.woff2",
+  "./vendor/fontawesome/webfonts/fa-regular-400.ttf",
+  "./vendor/fontawesome/webfonts/fa-brands-400.woff2",
+  "./vendor/fontawesome/webfonts/fa-brands-400.ttf",
+  "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
+  "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
+  "./styles.css?v=55",
+  "./app.js?v=75",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
@@ -24,6 +33,20 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request))
   );

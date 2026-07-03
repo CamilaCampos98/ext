@@ -12,7 +12,8 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=47">
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
+    <link rel="stylesheet" href="styles.css?v=55">
   </head>
   <body>
     <div class="app-shell">
@@ -20,14 +21,6 @@
         <div>
           <p class="eyebrow">Soneca</p>
           <h1>Rotina de sono</h1>
-        </div>
-        <div class="top-actions">
-          <button class="top-button" id="profileMenu" type="button">Perfil</button>
-          <button class="top-button" id="historyMenu" type="button">Histórico</button>
-          <button class="top-button" id="reportMenu" type="button">Relatório</button>
-          <button class="icon-button" id="installHelp" aria-label="Instalar no iPhone" title="Instalar">
-            <span aria-hidden="true">+</span>
-          </button>
         </div>
       </header>
 
@@ -93,24 +86,6 @@
               <span>Humor</span>
               <strong id="currentMood">-</strong>
             </div>
-          </div>
-          <div class="start-compact">
-            <button class="primary start-main" id="openStartSheet" type="button">Start</button>
-            <button class="secondary" id="endNap">Encerrar soneca</button>
-          </div>
-          <div class="button-row night-controls">
-            <button class="secondary night-button" id="startNight">Iniciar sono noturno</button>
-            <button class="secondary night-button" id="endNight">Encerrar sono noturno</button>
-          </div>
-          <div class="manual-actions">
-            <button class="manual-card-button" id="openManualNap" type="button">
-              <strong>Soneca anterior</strong>
-              <span>Corrigir ou preencher uma soneca esquecida</span>
-            </button>
-            <button class="manual-card-button night" id="openManualNight" type="button">
-              <strong>Sono noturno anterior</strong>
-              <span>Registrar a noite passada sem cronômetro</span>
-            </button>
           </div>
           <p class="fineprint" id="activeNapHint">Ao encerrar, registre como o bebê acordou para melhorar a leitura da rotina.</p>
         </section>
@@ -199,11 +174,25 @@
           </div>
         </section>
 
-        <section class="note">
-          <strong>Importante</strong>
-          <p>As previsões são estimativas para organização da rotina. Sono seguro e situações como prematuridade, refluxo, doença, ganho de peso baixo ou despertares persistentes devem ser acompanhados pelo pediatra.</p>
-        </section>
       </main>
+
+      <nav class="bottom-nav" aria-label="Ações principais">
+        <button class="bottom-nav-button" id="profileMenu" type="button" aria-label="Perfil" title="Perfil">
+          <i class="fa-solid fa-user" aria-hidden="true"></i>
+        </button>
+        <button class="bottom-nav-button" id="historyMenu" type="button" aria-label="Histórico" title="Histórico">
+          <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+        </button>
+        <button class="bottom-nav-start" id="openStartSheet" type="button" aria-label="Abrir ações" title="Start">
+          <i class="fa-solid fa-play" aria-hidden="true"></i>
+        </button>
+        <button class="bottom-nav-button" id="reportMenu" type="button" aria-label="Relatório" title="Relatório">
+          <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
+        </button>
+        <button class="bottom-nav-button" id="installHelp" type="button" aria-label="Instalar no iPhone" title="Instalar">
+          <i class="fa-solid fa-plus" aria-hidden="true"></i>
+        </button>
+      </nav>
     </div>
 
     <div class="sheet" id="installSheet" aria-hidden="true">
@@ -212,6 +201,10 @@
         <h2>Instalar no iPhone</h2>
         <p>No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início". Depois abra por esse ícone para usar como app.</p>
         <p class="fineprint">No iOS, notificações web dependem do suporte do Safari e da permissão do usuário. Sem backend, os avisos são confiáveis enquanto o app está aberto ou em segundo plano recente.</p>
+        <div class="install-note">
+          <strong>Importante</strong>
+          <p>As previsões são estimativas para organização da rotina. Sono seguro e situações como prematuridade, refluxo, doença, ganho de peso baixo ou despertares persistentes devem ser acompanhados pelo pediatra.</p>
+        </div>
       </div>
     </div>
 
@@ -318,12 +311,39 @@
         <h2>O que vai começar agora?</h2>
         <div class="start-options">
           <button class="manual-card-button" id="startNap" type="button">
+            <i class="fa-solid fa-alarm-clock" aria-hidden="true"></i>
             <strong>Soneca</strong>
             <span>Inicia o cronômetro com o horário atual</span>
           </button>
+          <button class="manual-card-button" id="endNap" type="button">
+            <i class="fa-solid fa-stop" aria-hidden="true"></i>
+            <strong>Encerrar soneca</strong>
+            <span>Finaliza a soneca em andamento</span>
+          </button>
           <button class="manual-card-button feeding" id="openFeeding" type="button">
+            <i class="fa-solid fa-bottle-baby" aria-hidden="true"></i>
             <strong>Mamada</strong>
             <span>Registra com o horário atual</span>
+          </button>
+          <button class="manual-card-button night" id="startNight" type="button">
+            <i class="fa-solid fa-cloud-moon" aria-hidden="true"></i>
+            <strong>Hora de dormir</strong>
+            <span>Inicia o sono noturno com o horário atual</span>
+          </button>
+          <button class="manual-card-button night" id="endNight" type="button">
+            <i class="fa-solid fa-cloud-sun" aria-hidden="true"></i>
+            <strong>Acordou</strong>
+            <span>Encerra o sono noturno e inicia o novo dia</span>
+          </button>
+          <button class="manual-card-button" id="openManualNap" type="button">
+            <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+            <strong>Soneca anterior</strong>
+            <span>Corrigir ou preencher uma soneca esquecida</span>
+          </button>
+          <button class="manual-card-button night" id="openManualNight" type="button">
+            <i class="fa-solid fa-moon" aria-hidden="true"></i>
+            <strong>Sono noturno anterior</strong>
+            <span>Registrar a noite passada sem cronômetro</span>
           </button>
         </div>
       </div>
@@ -392,6 +412,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=73" defer></script>
+    <script src="app.js?v=75" defer></script>
   </body>
 </html>
