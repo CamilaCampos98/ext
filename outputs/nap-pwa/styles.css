@@ -99,7 +99,6 @@ main {
 }
 
 .topbar,
-.home-assistant-card,
 .timer-panel {
   display: none !important;
 }
@@ -175,6 +174,9 @@ h2 {
 
 .sleep-dashboard {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   grid-template-columns: 1fr;
   justify-items: center;
   min-height: 0;
@@ -194,20 +196,22 @@ h2 {
 }
 
 .home-assistant-card {
-  width: min(620px, 94vw);
-  margin: 0 auto 8px;
-  padding: 12px 14px;
-  border: 1px solid rgba(168, 216, 240, 0.1);
+  order: 2;
+  width: min(520px, calc(100vw - 34px));
+  margin: 6px auto 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(168, 216, 240, 0.14);
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.1);
-  backdrop-filter: blur(4px);
+  background: rgba(12, 18, 44, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .home-assistant-card span {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -215,13 +219,14 @@ h2 {
 .home-assistant-card p {
   margin: 0;
   color: var(--ink);
-  font-size: 0.9rem;
-  line-height: 1.35;
+  font-size: 0.76rem;
+  line-height: 1.28;
 }
 
 .day-ring-wrap {
+  order: 1;
   position: relative;
-  width: min(700px, 94vw, calc(100dvh - 124px));
+  width: min(680px, 94vw, calc(100dvh - 176px));
   aspect-ratio: 1;
   justify-self: center;
   filter: drop-shadow(0 0 32px rgba(203, 183, 247, 0.2));
@@ -1726,11 +1731,22 @@ select {
   }
 
   .home-assistant-card {
-    width: min(100%, calc(100vw - 52px));
+    width: min(100%, calc(100vw - 28px));
+    margin-top: 4px;
+    padding: 8px 10px;
+  }
+
+  .home-assistant-card span {
+    font-size: 0.62rem;
+  }
+
+  .home-assistant-card p {
+    font-size: 0.7rem;
+    line-height: 1.22;
   }
 
   .day-ring-wrap {
-    width: min(calc(100vw - 20px), calc(100dvh - 112px));
+    width: min(calc(100vw - 20px), calc(100dvh - 162px));
   }
 
   .day-ring-center strong {
