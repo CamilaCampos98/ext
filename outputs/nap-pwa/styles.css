@@ -131,10 +131,10 @@ h2 {
 .hero,
 .panel,
 .note {
-  border: 1px solid var(--line);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  border: 1px solid rgba(168, 216, 240, 0.08);
+  background: rgba(12, 18, 44, 0.06);
+  box-shadow: none;
+  backdrop-filter: blur(0px);
 }
 
 .hero {
@@ -153,9 +153,8 @@ h2 {
   justify-items: center;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(145deg, rgba(24, 31, 67, 0.58), rgba(18, 28, 61, 0.42));
-  border-color: rgba(168, 216, 240, 0.16);
+  background: rgba(12, 18, 44, 0.04);
+  border-color: rgba(168, 216, 240, 0.08);
 }
 
 .sleep-dashboard::before {
@@ -171,10 +170,10 @@ h2 {
   width: min(620px, 94vw);
   margin: 0 auto 8px;
   padding: 12px 14px;
-  border: 1px solid rgba(168, 216, 240, 0.15);
+  border: 1px solid rgba(168, 216, 240, 0.1);
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.24);
-  backdrop-filter: blur(10px);
+  background: rgba(12, 18, 44, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .home-assistant-card span {
@@ -676,9 +675,8 @@ h2 {
 }
 
 .timer-panel {
-  background:
-    linear-gradient(145deg, rgba(35, 43, 87, 0.46), rgba(24, 31, 67, 0.32));
-  border-color: rgba(168, 216, 240, 0.15);
+  background: rgba(12, 18, 44, 0.06);
+  border-color: rgba(168, 216, 240, 0.08);
 }
 
 .timer-panel.is-idle .timer,
@@ -718,8 +716,8 @@ h2 {
   min-height: 72px;
   padding: 11px;
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.34);
-  border: 1px solid rgba(168, 216, 240, 0.1);
+  background: rgba(12, 18, 44, 0.14);
+  border: 1px solid rgba(168, 216, 240, 0.08);
 }
 
 .nap-detail-grid span {
@@ -918,8 +916,8 @@ select {
   min-height: 74px;
   padding: 12px;
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.3);
-  border: 1px solid rgba(168, 216, 240, 0.1);
+  background: rgba(12, 18, 44, 0.12);
+  border: 1px solid rgba(168, 216, 240, 0.08);
 }
 
 .insight-grid span,
@@ -941,10 +939,10 @@ select {
   gap: 10px;
   margin-top: 12px;
   padding: 14px;
-  border: 1px solid rgba(168, 216, 240, 0.14);
+  border: 1px solid rgba(168, 216, 240, 0.1);
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.24);
-  backdrop-filter: blur(10px);
+  background: rgba(12, 18, 44, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .goal-row {
@@ -1054,19 +1052,19 @@ select {
 }
 
 .note {
-  background: rgba(56, 38, 70, 0.32);
-  border-color: rgba(203, 183, 247, 0.14);
+  background: rgba(56, 38, 70, 0.08);
+  border-color: rgba(203, 183, 247, 0.08);
   box-shadow: none;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(3px);
 }
 
 .notice-card {
   margin-top: 14px;
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(168, 216, 240, 0.08);
   border-radius: 8px;
-  background: rgba(12, 18, 44, 0.26);
-  backdrop-filter: blur(10px);
+  background: rgba(12, 18, 44, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .notice-card strong {
