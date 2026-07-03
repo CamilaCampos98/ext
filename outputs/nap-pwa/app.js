@@ -1,7 +1,8 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const CIRCLE_LENGTH = 314;
-const PUSH_PUBLIC_KEY = "";
-const PUSH_SUBSCRIBE_ENDPOINT = "";
+const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
+const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
+const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyXhag4VlD-y5IbQWcYoU2TMoF6RMri96HrzylzMwsRMgJPZQN-pTs1MFPJqFpdKCl-Zg/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
@@ -1496,6 +1497,7 @@ function scheduleUpcomingNotifications() {
   reminders.forEach((reminder) => {
     scheduleReminder(reminder, now);
   });
+  syncRemoteNotificationSchedule(reminders, now);
   updateNotificationHelp(minutesToWindow <= 15
     ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
     : `Avisos ligados. Próximo lembrete em ${formatDuration(Math.max(0, minutesToWindow - 15))}.`
@@ -1506,16 +1508,23 @@ function scheduleActiveNapNotifications() {
   if (!canNotify() || !state.activeNapStart) return;
   clearNotificationTimers();
   const started = new Date(state.activeNapStart).getTime();
-  [
+  const activeReminders = [
     { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo.", tag: "soneca-ativa-30" },
     { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa.", tag: "soneca-ativa-45" },
     { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia.", tag: "soneca-ativa-90" }
-  ].forEach((item) => {
+  ];
+  activeReminders.forEach((item) => {
     const delay = started + item.minute * 60000 - Date.now();
     if (delay > 0) {
       notificationTimers.push(setTimeout(() => notify("Soneca em andamento", item.body, item.tag), delay));
     }
   });
+  syncRemoteNotificationScheduleAbsolute(activeReminders.map((item) => ({
+    at: new Date(started + item.minute * 60000).toISOString(),
+    title: "Soneca em andamento",
+    body: item.body,
+    tag: item.tag
+  })));
   updateNotificationHelp("Avisos locais programados para acompanhar a soneca em andamento.");
 }
 
@@ -1615,30 +1624,84 @@ async function ensureServiceWorkerReady() {
 }
 
 async function subscribeToPushIfConfigured() {
-  if (!PUSH_PUBLIC_KEY || !PUSH_SUBSCRIBE_ENDPOINT) {
-    return {
-      ok: false,
-      message: "Permissão OK. Para push real com o app fechado, falta backend Web Push: chave VAPID pública e endpoint para salvar a assinatura deste iPhone."
-    };
+  try {
+    const keyResponse = await fetch(PUSH_PUBLIC_KEY_ENDPOINT, { cache: "no-store" });
+    const keyResult = await keyResponse.json();
+    if (!keyResponse.ok || !keyResult.ok || !keyResult.publicKey) {
+      return {
+        ok: false,
+        message: keyResult.error || "Permissão OK. O servidor ainda não está pronto para push remoto."
+      };
+    }
+
+    const registration = await ensureServiceWorkerReady();
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !subscriptionUsesKey(subscription, keyResult.publicKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyResult.publicKey)
+      });
+    }
+
+    const response = await fetch(PUSH_SUBSCRIBE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription })
+    });
+
+    if (!response.ok) {
+      return { ok: false, message: "Permissão OK, mas o servidor não aceitou a assinatura push deste aparelho." };
+    }
+
+    return { ok: true, message: "Push remoto ativado. O servidor vai enviar os próximos avisos mesmo se o app sair de cena." };
+  } catch (error) {
+    return { ok: false, message: `Permissão OK, mas o push remoto falhou: ${error.message}` };
   }
+}
 
-  const registration = await ensureServiceWorkerReady();
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(PUSH_PUBLIC_KEY)
-  });
+async function syncRemoteNotificationSchedule(reminders, now = nowMinutes()) {
+  const scheduled = reminders
+    .map((reminder) => ({
+      id: reminder.tag,
+      at: nextDateForClockMinute(reminder.at, now).toISOString(),
+      title: reminder.title,
+      body: reminder.body,
+      tag: reminder.tag
+    }))
+    .filter((reminder) => new Date(reminder.at).getTime() > Date.now() + 5000);
+  await syncRemoteNotificationScheduleAbsolute(scheduled);
+}
 
-  const response = await fetch(PUSH_SUBSCRIBE_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(subscription)
-  });
+async function syncRemoteNotificationScheduleAbsolute(reminders) {
+  if (!canNotify() || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
-  if (!response.ok) {
-    return { ok: false, message: "Permissão OK, mas o backend não aceitou a assinatura push deste aparelho." };
+  try {
+    const registration = await ensureServiceWorkerReady();
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+
+    await fetch(PUSH_SCHEDULE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription, reminders })
+    });
+  } catch {
+    // Avisos locais continuam funcionando mesmo se o agendamento remoto falhar.
   }
+}
 
-  return { ok: true, message: "Push real ativado para este aparelho. O servidor já pode enviar avisos com o app fechado." };
+function nextDateForClockMinute(targetMinutes, now = nowMinutes()) {
+  const target = normalizeDayMinutes(targetMinutes);
+  const date = new Date();
+  date.setHours(Math.floor(target / 60), target % 60, 0, 0);
+  if (minutesUntilReminder(target, now) >= 24 * 60 - 1 || date.getTime() <= Date.now()) {
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
 }
 
 function urlBase64ToUint8Array(value) {
@@ -1646,6 +1709,20 @@ function urlBase64ToUint8Array(value) {
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(base64);
   return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
+}
+
+function subscriptionUsesKey(subscription, publicKey) {
+  const currentKey = subscription?.options?.applicationServerKey;
+  if (!currentKey) return true;
+  return uint8ArrayToUrlBase64(new Uint8Array(currentKey)) === publicKey;
+}
+
+function uint8ArrayToUrlBase64(bytes) {
+  let raw = "";
+  bytes.forEach((byte) => {
+    raw += String.fromCharCode(byte);
+  });
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function wakeWindowForAge(age) {

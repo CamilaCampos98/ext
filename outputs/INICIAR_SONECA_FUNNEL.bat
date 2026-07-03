@@ -4,6 +4,8 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "PORT=5179"
 set "NODE_EXE="
+set "NPM_EXE="
+set "PNPM_EXE="
 set "TAILSCALE_EXE="
 
 where node >nul 2>nul
@@ -38,6 +40,31 @@ if "%TAILSCALE_EXE%"=="" (
   echo Depois execute este arquivo novamente.
   pause
   exit /b 1
+)
+
+where npm >nul 2>nul
+if %errorlevel%==0 set "NPM_EXE=npm"
+where pnpm >nul 2>nul
+if %errorlevel%==0 set "PNPM_EXE=pnpm"
+
+if not exist "%SCRIPT_DIR%node_modules\web-push\package.json" (
+  if not "%NPM_EXE%"=="" (
+    echo Instalando dependencias do servidor...
+    "%NPM_EXE%" install --prefix "%SCRIPT_DIR%"
+  ) else if not "%PNPM_EXE%"=="" (
+    echo Instalando dependencias do servidor...
+    "%PNPM_EXE%" install --dir "%SCRIPT_DIR%"
+  ) else (
+    echo A dependencia web-push ainda nao foi instalada e npm/pnpm nao foram encontrados.
+    echo Instale o Node.js completo ou execute npm install na pasta outputs.
+    pause
+    exit /b 1
+  )
+  if errorlevel 1 (
+    echo Falha ao instalar dependencias.
+    pause
+    exit /b 1
+  )
 )
 
 echo Iniciando servidor local da Soneca na porta %PORT%...

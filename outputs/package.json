@@ -1,0 +1,10 @@
+{
+  "name": "soneca-pwa-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Servidor local da PWA Soneca com suporte a Web Push.",
+  "main": "serve-soneca.js",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
