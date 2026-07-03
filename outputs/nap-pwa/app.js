@@ -619,10 +619,12 @@ async function requestNotificationPermission() {
   const pushReady = "PushManager" in window;
   if (result === "granted") {
     const pushResult = pushReady ? await subscribeToPushIfConfigured() : { ok: false, message: "Este navegador não expôs PushManager para push remoto." };
-    notify("Avisos ativados", pushResult.ok ? "Push configurado para este aparelho." : "Permissão concedida para avisos locais enquanto o app puder rodar.");
     updateNotificationHelp(pushResult.message);
-    scheduleUpcomingNotifications();
-    scheduleActiveNapNotifications();
+    if (state.activeNapStart) {
+      scheduleActiveNapNotifications();
+    } else {
+      scheduleUpcomingNotifications();
+    }
   }
 }
 
@@ -1522,10 +1524,8 @@ function scheduleReminder(reminder, now = nowMinutes()) {
   if (!Number.isFinite(delayMinutes)) return;
 
   if (reminder.catchUpUntil && isClockMinuteBetween(now, reminder.at, reminder.catchUpUntil)) {
-    notificationTimers.push(setTimeout(() => {
-      if (state.activeNapStart || state.activeNightStart) return;
-      notify(reminder.title, reminder.body, reminder.tag);
-    }, 1200));
+    if (state.activeNapStart || state.activeNightStart) return;
+    notify(reminder.title, reminder.body, reminder.tag);
     return;
   }
 
