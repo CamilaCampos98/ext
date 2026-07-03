@@ -66,6 +66,12 @@ select {
   font: inherit;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 button {
   -webkit-tap-highlight-color: transparent;
 }
@@ -1489,26 +1495,38 @@ select {
   }
 
   .topbar {
-    align-items: flex-start;
-    gap: 10px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 0 16px;
+    text-align: center;
   }
 
   .topbar > div:first-child {
+    width: 100%;
     min-width: 0;
-    flex: 1 1 auto;
+  }
+
+  .topbar h1 {
+    white-space: nowrap;
+    font-size: clamp(1.45rem, 7vw, 1.8rem);
   }
 
   .top-actions {
-    flex: 0 1 auto;
-    justify-content: flex-end;
+    width: 100%;
+    max-width: 340px;
+    flex: 0 0 auto;
+    justify-content: center;
     gap: 6px;
-    max-width: 66vw;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   .top-button {
     min-height: 34px;
-    padding: 0 9px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 8px;
     font-size: 0.74rem;
   }
 
@@ -1521,23 +1539,29 @@ select {
   .hero {
     grid-template-columns: 1fr;
     gap: 16px;
-    width: 100%;
-    padding: 22px 8px 18px;
+    width: calc(100vw - 20px);
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 20px 8px 18px;
     text-align: center;
   }
 
   .panel,
   .note {
-    width: 100%;
+    width: calc(100vw - 20px);
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
     padding: 14px 10px;
   }
 
   .home-assistant-card {
-    width: min(100%, 92vw);
+    width: min(100%, calc(100vw - 52px));
   }
 
   .day-ring-wrap {
-    width: min(390px, calc(100vw - 36px));
+    width: min(330px, calc(100vw - 58px));
   }
 
   .day-ring-center strong {
@@ -1566,13 +1590,19 @@ select {
   }
 
   .ring-day-start {
-    left: 0;
+    left: 8px;
     bottom: 18px;
   }
 
   .ring-day-end {
-    right: 0;
+    right: 8px;
     bottom: 18px;
+  }
+
+  .sleep-dashboard::before {
+    right: 18px;
+    bottom: 16px;
+    font-size: 1.8rem;
   }
 
   .hero h2 {
