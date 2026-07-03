@@ -2116,8 +2116,9 @@ function arcPath(startMinutes, endMinutes, type) {
 }
 
 function markerSvg(marker) {
-  const point = pointOnCircle(marker.at, 92);
+  const point = pointOnCircle(marker.at, markerRadius(marker.type));
   const icon = markerIcon(marker.type);
+  const orbRadius = marker.type === "feed" ? 7.5 : 10;
 
   if (marker.type === "next") {
     return `
@@ -2143,10 +2144,15 @@ function markerSvg(marker) {
 
   return `
     <g class="day-marker-group ${marker.type}" ${marker.id ? `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"` : ""} transform="translate(${point.x} ${point.y})">
-      <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
+      <circle class="marker-orb" cx="0" cy="0" r="${orbRadius}"></circle>
       <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
     </g>
   `;
+}
+
+function markerRadius(type) {
+  if (type === "feed") return 74;
+  return 92;
 }
 
 function markerTimeText(label, at, type) {
