@@ -1,13 +1,13 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 set "NODE_EXE="
 set "NPM_EXE="
 set "PNPM_EXE="
 
-where node >nul 2>nul
-if %errorlevel%==0 (
-  set "NODE_EXE=node"
+for /f "delims=" %%I in ('where node 2^>nul') do (
+  echo %%I | find /I "%SCRIPT_DIR%node_modules" >nul
+  if errorlevel 1 if "!NODE_EXE!"=="" set "NODE_EXE=%%I"
 )
 
 if "%NODE_EXE%"=="" (
@@ -24,18 +24,32 @@ if "%NODE_EXE%"=="" (
   exit /b 1
 )
 
-where npm >nul 2>nul
-if %errorlevel%==0 set "NPM_EXE=npm"
-where pnpm >nul 2>nul
-if %errorlevel%==0 set "PNPM_EXE=pnpm"
+for %%I in ("%NODE_EXE%") do (
+  if exist "%%~dpInpm.cmd" set "NPM_EXE=%%~dpInpm.cmd"
+  if exist "%%~dpIpnpm.cmd" set "PNPM_EXE=%%~dpIpnpm.cmd"
+)
+
+if "%NPM_EXE%"=="" (
+  for /f "delims=" %%I in ('where npm 2^>nul') do (
+    echo %%I | find /I "%SCRIPT_DIR%node_modules" >nul
+    if errorlevel 1 if "!NPM_EXE!"=="" set "NPM_EXE=%%I"
+  )
+)
+
+if "%PNPM_EXE%"=="" (
+  for /f "delims=" %%I in ('where pnpm 2^>nul') do (
+    echo %%I | find /I "%SCRIPT_DIR%node_modules" >nul
+    if errorlevel 1 if "!PNPM_EXE!"=="" set "PNPM_EXE=%%I"
+  )
+)
 
 if not exist "%SCRIPT_DIR%node_modules\web-push\package.json" (
   if not "%NPM_EXE%"=="" (
     echo Instalando dependencias do servidor...
-    "%NPM_EXE%" install --prefix "%SCRIPT_DIR%"
+    call "%NPM_EXE%" install --prefix "%SCRIPT_DIR%"
   ) else if not "%PNPM_EXE%"=="" (
     echo Instalando dependencias do servidor...
-    "%PNPM_EXE%" install --dir "%SCRIPT_DIR%"
+    call "%PNPM_EXE%" install --dir "%SCRIPT_DIR%"
   ) else (
     echo A dependencia web-push ainda nao foi instalada e npm/pnpm nao foram encontrados.
     echo Instale o Node.js completo ou execute npm install na pasta outputs.
