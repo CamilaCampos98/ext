@@ -1,9 +1,9 @@
-const CACHE_NAME = "soneca-pwa-v51";
+const CACHE_NAME = "soneca-pwa-v52";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=25",
-  "./app.js?v=51",
+  "./app.js?v=52",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
@@ -35,6 +35,18 @@ self.addEventListener("message", (event) => {
     body: event.data.body,
     icon: "icon.svg",
     badge: "icon.svg",
-    tag: "soneca-alerta"
+    tag: event.data.tag || "soneca-alerta"
   });
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      const visibleClient = clientList.find((client) => "focus" in client);
+      if (visibleClient) return visibleClient.focus();
+      if (clients.openWindow) return clients.openWindow("./");
+      return undefined;
+    })
+  );
 });

@@ -332,6 +332,7 @@ function startNap() {
   if (state.activeNapStart || state.activeNightStart) return;
   toggleStartSheet(false);
   state.activeNapStart = new Date().toISOString();
+  clearNotificationTimers();
   saveState();
   scheduleActiveNapNotifications();
   render();
@@ -1453,32 +1454,77 @@ function scheduleUpcomingNotifications() {
   clearNotificationTimers();
   if (!canNotify() || state.activeNapStart || state.activeNightStart) return;
   const prediction = calculatePrediction();
+  const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
   const reminders = [
-    { at: prediction.start - 15, title: "Janela chegando", body: `Próxima soneca provável entre ${minutesToTime(prediction.start)} e ${minutesToTime(prediction.end)}.` },
-    { at: prediction.target, title: "Hora provável da soneca", body: "A pressão de sono está perto do alvo calculado." }
+    {
+      at: prediction.start - 15,
+      title: "Janela chegando",
+      body: `Próxima soneca provável entre ${minutesToTime(prediction.start)} e ${minutesToTime(prediction.end)}.`,
+      tag: "soneca-janela-chegando"
+    },
+    {
+      at: prediction.start,
+      title: "Janela de soneca aberta",
+      body: `A janela começou. Alvo provável perto de ${minutesToTime(prediction.target)}.`,
+      tag: "soneca-janela-aberta"
+    },
+    {
+      at: prediction.target,
+      title: "Hora provável da soneca",
+      body: "A pressão de sono está perto do alvo calculado.",
+      tag: "soneca-alvo"
+    },
+    {
+      at: night.start - 30,
+      title: "Sono noturno chegando",
+      body: `Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`,
+      tag: "soneca-noite-chegando"
+    },
+    {
+      at: night.start,
+      title: "Sono noturno sugerido",
+      body: "A rotina do dia indica que pode ser hora de iniciar o sono noturno.",
+      tag: "soneca-noite"
+    }
   ];
   reminders.forEach((reminder) => {
-    const delay = (reminder.at - now) * 60000;
-    if (delay > 0 && delay < 12 * 60 * 60000) {
-      notificationTimers.push(setTimeout(() => notify(reminder.title, reminder.body), delay));
-    }
+    scheduleReminder(reminder, now);
   });
+  updateNotificationHelp("Avisos locais programados para a próxima janela de sono e sono noturno enquanto a PWA puder rodar.");
 }
 
 function scheduleActiveNapNotifications() {
+  clearNotificationTimers();
   if (!canNotify() || !state.activeNapStart) return;
   const started = new Date(state.activeNapStart).getTime();
   [
-    { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo." },
-    { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa." },
-    { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia." }
+    { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo.", tag: "soneca-ativa-30" },
+    { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa.", tag: "soneca-ativa-45" },
+    { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia.", tag: "soneca-ativa-90" }
   ].forEach((item) => {
     const delay = started + item.minute * 60000 - Date.now();
     if (delay > 0) {
-      notificationTimers.push(setTimeout(() => notify("Soneca em andamento", item.body), delay));
+      notificationTimers.push(setTimeout(() => notify("Soneca em andamento", item.body, item.tag), delay));
     }
   });
+  updateNotificationHelp("Avisos locais programados para acompanhar a soneca em andamento.");
+}
+
+function scheduleReminder(reminder, now = nowMinutes()) {
+  const delayMinutes = minutesUntilReminder(reminder.at, now);
+  if (!Number.isFinite(delayMinutes) || delayMinutes <= 0 || delayMinutes > 18 * 60) return;
+  notificationTimers.push(setTimeout(() => {
+    if (state.activeNapStart || state.activeNightStart) return;
+    notify(reminder.title, reminder.body, reminder.tag);
+  }, delayMinutes * 60000));
+}
+
+function minutesUntilReminder(targetMinutes, now = nowMinutes()) {
+  if (!Number.isFinite(Number(targetMinutes))) return NaN;
+  let diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
+  if (diff <= 0) diff += 24 * 60;
+  return diff;
 }
 
 function clearNotificationTimers() {
@@ -1486,13 +1532,20 @@ function clearNotificationTimers() {
   notificationTimers = [];
 }
 
-function notify(title, body) {
+function notify(title, body, tag = "soneca-alerta") {
   if (!canNotify()) return;
-  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: "notify", title, body });
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.ready.then((registration) => {
+      registration.showNotification(title, {
+        body,
+        icon: "icon.svg",
+        badge: "icon.svg",
+        tag
+      });
+    }).catch(() => new Notification(title, { body, icon: "icon.svg", tag }));
     return;
   }
-  new Notification(title, { body, icon: "icon.svg" });
+  new Notification(title, { body, icon: "icon.svg", tag });
 }
 
 function updateNotificationState(label) {
