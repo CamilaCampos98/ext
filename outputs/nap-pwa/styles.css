@@ -869,6 +869,10 @@ select {
   line-height: 1.45;
 }
 
+.notification-button {
+  margin-top: 12px;
+}
+
 .note strong {
   display: block;
   margin-bottom: 6px;
