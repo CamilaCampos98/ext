@@ -15,6 +15,7 @@
   --next-nap-color: #A8D8F0;
   --night-color: #8E6AD8;
   --feed: #8A3FFC;
+  --marker-shell-fill: #2C305D;
   --peach: #DFF3FF;
   --warn: #CBB7F7;
   --shadow: 0 18px 46px rgba(4, 7, 24, 0.46);
@@ -286,62 +287,65 @@ h2 {
 }
 
 .day-marker-group {
-  filter: drop-shadow(0 0 8px rgba(166, 151, 255, 0.36));
+  filter: drop-shadow(0 0 5px rgba(168, 216, 240, 0.32));
 }
 
 .marker-orb {
-  fill: rgba(35, 35, 82, 0.9);
+  fill: var(--marker-shell-fill);
   stroke: var(--lavender);
-  stroke-width: 2;
+  stroke-width: 1.15;
   stroke-dasharray: none;
 }
 
 .day-marker-group.nap .marker-orb {
-  fill: transparent;
-  stroke: #8f88ff;
+  fill: var(--marker-shell-fill);
+  stroke: var(--nap-color);
+  stroke-width: 1.15;
   stroke-dasharray: none;
 }
 
 .day-marker-group.feed .marker-orb {
+  fill: var(--marker-shell-fill);
   stroke: var(--feed);
-  fill: transparent;
-  stroke-width: 2;
+  stroke-width: 1.15;
 }
 
 .day-marker-group.next .marker-orb {
-  fill: rgba(35, 35, 82, 0.22);
+  fill: var(--marker-shell-fill);
   stroke: var(--next-nap-color);
-  stroke-width: 2;
-  stroke-dasharray: 1.8 3.8;
+  stroke-width: 0.95;
+  stroke-dasharray: 1.4 3.2;
 }
 
 .day-marker-group.day-start .marker-orb {
-  fill: rgba(96, 63, 39, 0.95);
+  fill: var(--marker-shell-fill);
   stroke: #FFD166;
-  stroke-width: 2;
+  stroke-width: 1.15;
   stroke-dasharray: none;
 }
 
 .day-marker-group.day-end .marker-orb {
-  fill: rgba(100, 54, 45, 0.95);
+  fill: var(--marker-shell-fill);
   stroke: #ff986c;
-  stroke-width: 2;
+  stroke-width: 1.15;
   stroke-dasharray: none;
 }
 
 .marker-icon {
   fill: var(--ink);
-  font-size: 12px;
-  dominant-baseline: middle;
+  font-family: "Font Awesome 6 Free";
+  font-size: 9.8px;
+  font-weight: 900;
+  dominant-baseline: central;
   paint-order: stroke;
-  stroke: rgba(10, 16, 40, 0.76);
-  stroke-width: 2px;
+  stroke: rgba(10, 16, 40, 0.34);
+  stroke-width: 1px;
   stroke-linejoin: round;
   pointer-events: none;
 }
 
 .day-marker-group.nap .marker-icon {
-  fill: var(--ink);
+  fill: #F8FBFD;
 }
 
 .day-marker-group.next .marker-icon {
@@ -349,15 +353,15 @@ h2 {
 }
 
 .day-marker-group.feed .marker-icon {
-  fill: var(--feed);
+  fill: #F8FBFD;
 }
 
 .day-marker-group.day-start .marker-icon {
-  fill: #FFD166;
+  fill: #F8FBFD;
 }
 
 .day-marker-group.day-end .marker-icon {
-  fill: #ff986c;
+  fill: #F8FBFD;
 }
 
 .marker-time {
@@ -455,7 +459,9 @@ h2 {
   text-transform: uppercase;
 }
 
-.day-ring-center span:empty {
+.day-ring-center span:empty,
+.day-ring-center .day-ring-feeding-label:empty,
+.day-ring-center .day-ring-feeding-time:empty {
   display: none;
 }
 
@@ -480,12 +486,29 @@ h2 {
   order: 3;
   display: block;
   max-width: 150px;
-  margin-top: 7px;
+  margin-top: 6px;
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: none;
   line-height: 1.18;
+}
+
+.day-ring-center .day-ring-feeding-label {
+  order: 4;
+  margin-top: 13px;
+  color: #d7d0ff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.day-ring-center .day-ring-feeding-time {
+  order: 5;
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 1.04rem;
+  line-height: 1;
 }
 
 .ring-day-label {

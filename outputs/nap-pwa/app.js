@@ -55,6 +55,8 @@ const els = {
   dayCenterTime: document.querySelector("#dayCenterTime"),
   dayCenterLabel: document.querySelector("#dayCenterLabel"),
   dayCenterHint: document.querySelector("#dayCenterHint"),
+  dayCenterFeedingLabel: document.querySelector("#dayCenterFeedingLabel"),
+  dayCenterFeedingTime: document.querySelector("#dayCenterFeedingTime"),
   ringDayStart: document.querySelector("#ringDayStart"),
   ringDayEnd: document.querySelector("#ringDayEnd"),
   ringCaptions: document.querySelector("#ringCaptions"),
@@ -829,6 +831,7 @@ function renderDayPlanner(prediction) {
   els.dayNowHand.setAttribute("x2", String(nowPoint.x));
   els.dayNowHand.setAttribute("y2", String(nowPoint.y));
   renderRingCenter(prediction, today);
+  renderLastFeedingInRingCenter();
   renderRingDayLabels(night);
   if (els.bedtimeSuggestion) {
     els.bedtimeSuggestion.textContent = minutesToTime(night.start);
@@ -938,7 +941,7 @@ function renderRingCenter(prediction, today) {
       : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
     els.dayCenterLabel.textContent = "dormindo há";
     els.dayCenterTime.textContent = formatRingDuration(elapsed);
-    els.dayCenterHint.textContent = `Próxima janela: ${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · alvo ${target}`;
+    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
     return;
   }
 
@@ -952,20 +955,41 @@ function renderRingCenter(prediction, today) {
   if (now < prediction.start) {
     els.dayCenterLabel.textContent = `${nextNapName} em`;
     els.dayCenterTime.textContent = formatDuration(prediction.start - now);
-    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · ${name}: perto de ${target}`;
+    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
     return;
   }
 
   if (now <= prediction.end) {
     els.dayCenterLabel.textContent = nextNapName;
     els.dayCenterTime.textContent = "janela aberta";
-    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)} · ${name}: perto de ${target}`;
+    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
     return;
   }
 
   els.dayCenterLabel.textContent = nextNapName;
   els.dayCenterTime.textContent = "janela aberta";
   els.dayCenterHint.textContent = `${name} já passou do alvo provável.`;
+}
+
+function renderLastFeedingInRingCenter() {
+  if (!els.dayCenterFeedingLabel || !els.dayCenterFeedingTime) return;
+  const lastFeeding = latestPastFeeding();
+  if (!lastFeeding) {
+    els.dayCenterFeedingLabel.textContent = "";
+    els.dayCenterFeedingTime.textContent = "";
+    return;
+  }
+
+  els.dayCenterFeedingLabel.textContent = "\u00faltima mamada";
+  els.dayCenterFeedingTime.textContent = formatFeedingAge(lastFeeding);
+}
+
+function latestPastFeeding() {
+  const now = Date.now();
+  return dedupeFeedings(state.feedings || [])
+    .map((feeding) => ({ feeding, time: new Date(feeding.at).getTime() }))
+    .filter((item) => Number.isFinite(item.time) && item.time <= now)
+    .sort((a, b) => b.time - a.time)[0]?.feeding || null;
 }
 
 function renderRingDayLabels(night) {
@@ -2203,13 +2227,14 @@ function arcPath(startMinutes, endMinutes, type) {
 
 function markerSvg(marker) {
   const point = pointOnCircle(marker.at, 92);
-  const icon = markerIcon(marker.type);
+  const icon = markerIconFa(marker.type);
+  const markerRadius = 8.4;
 
   if (marker.type === "next") {
     return `
       <g class="day-marker-group next" transform="translate(${point.x} ${point.y})">
-        <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
-        <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
+        <circle class="marker-orb" cx="0" cy="0" r="${markerRadius}"></circle>
+        <text class="marker-icon" x="0" y="1" text-anchor="middle">${icon}</text>
       </g>
       ${markerTimeText(marker.startLabel, marker.startAt, "next")}
       ${markerTimeText(marker.endLabel, marker.endAt, "next")}
@@ -2220,8 +2245,8 @@ function markerSvg(marker) {
     const timePoint = pointOnCircle(marker.at, 102);
     return `
       <g class="day-marker-group ${marker.type}" ${marker.type === "day-end" ? 'role="button" tabindex="0"' : ""} transform="translate(${point.x} ${point.y})">
-        <circle class="marker-orb" cx="0" cy="0" r="13"></circle>
-        <text class="marker-icon" x="0" y="6" text-anchor="middle">${icon}</text>
+        <circle class="marker-orb" cx="0" cy="0" r="${markerRadius}"></circle>
+        <text class="marker-icon" x="0" y="1" text-anchor="middle">${icon}</text>
       </g>
       <text class="marker-time ${marker.type}" x="${timePoint.x}" y="${timePoint.y + 9}" text-anchor="middle">${marker.label}</text>
     `;
@@ -2229,8 +2254,8 @@ function markerSvg(marker) {
 
   return `
     <g class="day-marker-group ${marker.type}" ${markerAttributes(marker)} transform="translate(${point.x} ${point.y})">
-      <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
-      <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
+      <circle class="marker-orb" cx="0" cy="0" r="${markerRadius}"></circle>
+      <text class="marker-icon" x="0" y="1" text-anchor="middle">${icon}</text>
     </g>
   `;
 }
@@ -2259,6 +2284,17 @@ function markerIcon(type) {
     "day-end": "☾"
   };
   return icons[type] || "•";
+}
+
+function markerIconFa(type) {
+  const icons = {
+    nap: "\uf0c2",
+    next: "\uf0c2",
+    feed: "\ue4c4",
+    "day-start": "\uf6c4",
+    "day-end": "\uf6c3"
+  };
+  return icons[type] || "\uf111";
 }
 
 function markerRotation(minutes) {
@@ -2775,6 +2811,16 @@ function formatRingDuration(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest ? `${hours}h ${String(rest).padStart(2, "0")}min` : `${hours}h`;
+}
+
+function formatFeedingAge(feeding) {
+  const fedAt = new Date(feeding.at).getTime();
+  const minutes = Number.isFinite(fedAt)
+    ? Math.max(0, Math.floor((Date.now() - fedAt) / 60000))
+    : 0;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${String(hours).padStart(2, "0")}h${String(rest).padStart(2, "0")} min`;
 }
 
 function safeDuration(nap) {
