@@ -864,6 +864,10 @@ h2 {
   transform: translateX(2px);
 }
 
+body.sheet-open .bottom-nav {
+  display: none !important;
+}
+
 .install-note {
   margin-top: 14px;
   padding: 12px;
@@ -1464,6 +1468,50 @@ select {
 .manual-card-button.night i {
   background: rgba(203, 183, 247, 0.18);
   color: var(--lavender);
+}
+
+.start-time-panel {
+  display: grid;
+  width: 100%;
+  gap: 5px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.start-time-panel input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(168, 216, 240, 0.24);
+  border-radius: 8px;
+  background: rgba(8, 14, 34, 0.84);
+  color: var(--ink);
+  padding: 0 6px;
+  font-size: 0.68rem;
+}
+
+.start-time-panel small {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.nap-start-card .start-time-panel {
+  margin: 16px 0 14px;
+  font-size: 0.78rem;
+}
+
+.nap-start-card .start-time-panel input {
+  min-height: 46px;
+  padding: 0 12px;
+  font-size: 0.86rem;
+}
+
+.nap-start-card .start-time-panel small {
+  font-size: 0.68rem;
 }
 
 .start-options {

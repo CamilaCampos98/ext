@@ -74,6 +74,10 @@ const els = {
   openStartSheet: document.querySelector("#openStartSheet"),
   startSheet: document.querySelector("#startSheet"),
   closeStartSheet: document.querySelector("#closeStartSheet"),
+  napStartSheet: document.querySelector("#napStartSheet"),
+  closeNapStartSheet: document.querySelector("#closeNapStartSheet"),
+  napStartTime: document.querySelector("#napStartTime"),
+  confirmStartNap: document.querySelector("#confirmStartNap"),
   startNap: document.querySelector("#startNap"),
   endNap: document.querySelector("#endNap"),
   startNight: document.querySelector("#startNight"),
@@ -227,7 +231,14 @@ function bindEvents() {
 
   els.openStartSheet.addEventListener("click", () => toggleStartSheet(true));
   els.closeStartSheet.addEventListener("click", () => toggleStartSheet(false));
-  els.startNap.addEventListener("click", startNap);
+  if (els.napStartTime) {
+    ["click", "pointerdown", "touchstart"].forEach((eventName) => {
+      els.napStartTime.addEventListener(eventName, (event) => event.stopPropagation());
+    });
+  }
+  els.startNap.addEventListener("click", () => toggleNapStartSheet(true));
+  els.closeNapStartSheet.addEventListener("click", () => toggleNapStartSheet(false));
+  els.confirmStartNap.addEventListener("click", startNap);
   els.endNap.addEventListener("click", () => {
     toggleStartSheet(false);
     toggleMoodSheet(true);
@@ -312,6 +323,9 @@ function bindEvents() {
   els.startSheet.addEventListener("click", (event) => {
     if (event.target === els.startSheet) toggleStartSheet(false);
   });
+  els.napStartSheet.addEventListener("click", (event) => {
+    if (event.target === els.napStartSheet) toggleNapStartSheet(false);
+  });
   els.manualNapSheet.addEventListener("click", (event) => {
     if (event.target === els.manualNapSheet) toggleManualNapSheet(false);
   });
@@ -371,8 +385,13 @@ function updateFeedingOptions() {
 
 function startNap() {
   if (state.activeNapStart || state.activeNightStart) return;
-  toggleStartSheet(false);
-  state.activeNapStart = new Date().toISOString();
+  toggleNapStartSheet(false);
+  const informedStart = els.napStartTime?.value ? new Date(els.napStartTime.value) : null;
+  const now = new Date();
+  const startedAt = informedStart && !Number.isNaN(informedStart.getTime()) && informedStart <= now
+    ? informedStart
+    : now;
+  state.activeNapStart = startedAt.toISOString();
   clearNotificationTimers();
   saveState();
   scheduleActiveNapNotifications();
@@ -794,7 +813,11 @@ function renderDayPlanner(prediction) {
       index: index + 1
     })),
     ...(state.activeNapStart ? [{ type: "nap", at: dateToDayMinutes(new Date(state.activeNapStart)), label: timeLabel(new Date(state.activeNapStart)) }] : []),
-    ...feedings.map((feeding) => ({ type: "feed", at: dateToDayMinutes(new Date(feeding.at)) })),
+    ...feedings.map((feeding) => ({
+      type: "feed",
+      at: dateToDayMinutes(new Date(feeding.at)),
+      id: feedingIdentity(feeding)
+    })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
     { type: "day-end", at: night.start, label: minutesToTime(night.start) }
   ]
@@ -827,6 +850,15 @@ function handleDayMarkerClick(event) {
   }
 
   const marker = event.target.closest(".day-marker-group.nap[data-nap-id]");
+  const feedMarker = event.target.closest(".day-marker-group.feed[data-feeding-id]");
+  if (feedMarker) {
+    const feeding = feedingsToday().find((item) => feedingIdentity(item) === feedMarker.dataset.feedingId);
+    if (feeding) {
+      showFeedingDetailCard(feeding);
+      return;
+    }
+  }
+
   if (!marker) {
     hideNapDetailCard();
     return;
@@ -870,6 +902,19 @@ function showNightDetailCard() {
     <span>Sono noturno</span>
     <strong>${minutesToTime(suggested.start)}</strong>
     <small>${suggested.reason}</small>
+  `;
+  els.napDetailCard.hidden = false;
+}
+
+function showFeedingDetailCard(feeding) {
+  if (!els.napDetailCard) return;
+  const fedAt = new Date(feeding.at);
+  const side = feedingSideLabel(feeding.side);
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
+    <span>Mamada</span>
+    <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
+    <small>Lado: ${side || "não informado"}</small>
   `;
   els.napDetailCard.hidden = false;
 }
@@ -1247,7 +1292,7 @@ async function loadNapsFromSheet(options = {}) {
       .map(sheetRecordToNight)
       .filter(Boolean);
 
-    if (!remoteNaps.length && !remoteNights.length) return { count: 0, changed: false };
+    const hadLocalSynced = state.naps.some((nap) => nap.synced) || state.nights.some((night) => night.synced);
 
     mergeNaps(remoteNaps);
     mergeNights(remoteNights);
@@ -1256,7 +1301,7 @@ async function loadNapsFromSheet(options = {}) {
       render();
       setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
     }
-    return { count: remoteNaps.length + remoteNights.length, changed: true };
+    return { count: remoteNaps.length + remoteNights.length, changed: hadLocalSynced || Boolean(remoteNaps.length || remoteNights.length) };
   } catch (error) {
     const message = `Não consegui carregar o Google Sheets: ${error.message}`;
     if (!deferRender) setHint(message);
@@ -1325,7 +1370,7 @@ async function loadFeedingsFromSheet(options = {}) {
       .map(sheetRecordToFeeding)
       .filter(Boolean);
 
-    if (!remoteFeedings.length) return { count: 0, changed: false };
+    const hadLocalSynced = state.feedings.some((feeding) => feeding.synced);
 
     mergeFeedings(remoteFeedings);
     if (!deferRender) {
@@ -1333,7 +1378,7 @@ async function loadFeedingsFromSheet(options = {}) {
       render();
       setHint(`Google Sheets carregado: ${remoteFeedings.length} mamada(s) encontrada(s).`);
     }
-    return { count: remoteFeedings.length, changed: true };
+    return { count: remoteFeedings.length, changed: hadLocalSynced || Boolean(remoteFeedings.length) };
   } catch (error) {
     const message = `Nao consegui carregar as mamadas do Google Sheets: ${error.message}`;
     if (!deferRender) setHint(message);
@@ -1360,7 +1405,9 @@ function sheetRecordToFeeding(record) {
 
 function mergeNaps(remoteNaps) {
   const byId = new Map();
-  state.naps.forEach((nap) => byId.set(String(nap.id || napIdentity(nap)), nap));
+  state.naps
+    .filter((nap) => !nap.synced)
+    .forEach((nap) => byId.set(String(nap.id || napIdentity(nap)), nap));
   remoteNaps.forEach((nap) => byId.set(String(nap.id), nap));
   state.naps = Array.from(byId.values())
     .sort((a, b) => new Date(b.end) - new Date(a.end))
@@ -1374,7 +1421,9 @@ function mergeNaps(remoteNaps) {
 
 function mergeNights(remoteNights) {
   const byId = new Map();
-  state.nights.forEach((night) => byId.set(String(night.id || napIdentity(night)), night));
+  state.nights
+    .filter((night) => !night.synced)
+    .forEach((night) => byId.set(String(night.id || napIdentity(night)), night));
   remoteNights.forEach((night) => byId.set(String(night.id), night));
   state.nights = Array.from(byId.values())
     .sort((a, b) => new Date(b.end) - new Date(a.end))
@@ -1400,7 +1449,9 @@ function mergeNights(remoteNights) {
 
 function mergeFeedings(remoteFeedings) {
   const byId = new Map();
-  state.feedings.forEach((feeding) => byId.set(String(feeding.id || feedingIdentity(feeding)), feeding));
+  state.feedings
+    .filter((feeding) => !feeding.synced)
+    .forEach((feeding) => byId.set(String(feeding.id || feedingIdentity(feeding)), feeding));
   remoteFeedings.forEach((feeding) => byId.set(String(feeding.id), feeding));
   state.feedings = dedupeFeedings(Array.from(byId.values()))
     .sort((a, b) => new Date(b.at) - new Date(a.at))
@@ -2177,11 +2228,19 @@ function markerSvg(marker) {
   }
 
   return `
-    <g class="day-marker-group ${marker.type}" ${marker.id ? `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"` : ""} transform="translate(${point.x} ${point.y})">
+    <g class="day-marker-group ${marker.type}" ${markerAttributes(marker)} transform="translate(${point.x} ${point.y})">
       <circle class="marker-orb" cx="0" cy="0" r="10"></circle>
       <text class="marker-icon" x="0" y="5" text-anchor="middle">${icon}</text>
     </g>
   `;
+}
+
+function markerAttributes(marker) {
+  if (!marker.id) return "";
+  if (marker.type === "feed") {
+    return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
+  }
+  return `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"`;
 }
 
 function markerTimeText(label, at, type) {
@@ -2346,6 +2405,7 @@ function closeAllSheets(exceptSheet = null) {
     els.reportSheet,
     els.moodSheet,
     els.startSheet,
+    els.napStartSheet,
     els.manualNapSheet,
     els.feedingSheet
   ].forEach((sheet) => {
@@ -2353,12 +2413,29 @@ function closeAllSheets(exceptSheet = null) {
       sheet.setAttribute("aria-hidden", "true");
     }
   });
+  updateSheetOpenState();
 }
 
 function setSheetOpen(sheet, open) {
   if (!sheet) return;
   if (open) closeAllSheets(sheet);
   sheet.setAttribute("aria-hidden", open ? "false" : "true");
+  updateSheetOpenState();
+}
+
+function updateSheetOpenState() {
+  const hasOpenSheet = [
+    els.installSheet,
+    els.profileSheet,
+    els.historySheet,
+    els.reportSheet,
+    els.moodSheet,
+    els.startSheet,
+    els.napStartSheet,
+    els.manualNapSheet,
+    els.feedingSheet
+  ].some((sheet) => sheet && sheet.getAttribute("aria-hidden") === "false");
+  document.body.classList.toggle("sheet-open", hasOpenSheet);
 }
 
 function toggleInstallSheet(open) {
@@ -2385,7 +2462,13 @@ function toggleMoodSheet(open) {
 }
 
 function toggleStartSheet(open) {
+  if (open) toggleNapStartSheet(false);
   setSheetOpen(els.startSheet, open);
+}
+
+function toggleNapStartSheet(open) {
+  if (open && els.napStartTime) els.napStartTime.value = "";
+  setSheetOpen(els.napStartSheet, open);
 }
 
 function openManualRecordSheet(type = "nap") {

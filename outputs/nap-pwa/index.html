@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=59">
+    <link rel="stylesheet" href="styles.css?v=63">
   </head>
   <body>
     <div class="app-shell">
@@ -313,7 +313,7 @@
           <button class="manual-card-button" id="startNap" type="button">
             <i class="fa-solid fa-alarm-clock" aria-hidden="true"></i>
             <strong>Soneca</strong>
-            <span>Inicia o cronômetro com o horário atual</span>
+            <span>Inicia o cronômetro com o horário informado</span>
           </button>
           <button class="manual-card-button" id="endNap" type="button">
             <i class="fa-solid fa-stop" aria-hidden="true"></i>
@@ -346,6 +346,20 @@
             <span>Registrar a noite passada sem cronômetro</span>
           </button>
         </div>
+      </div>
+    </div>
+
+    <div class="sheet" id="napStartSheet" aria-hidden="true">
+      <div class="sheet-card nap-start-card">
+        <button class="icon-button close" id="closeNapStartSheet" aria-label="Fechar">x</button>
+        <p class="label">Soneca</p>
+        <h2>Iniciar soneca</h2>
+        <label class="start-time-panel" for="napStartTime">
+          Início da soneca
+          <input id="napStartTime" type="datetime-local">
+          <small>Opcional. Se ficar vazio, usa o horário atual.</small>
+        </label>
+        <button class="primary full-width" id="confirmStartNap" type="button">Iniciar</button>
       </div>
     </div>
 
@@ -412,6 +426,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=77" defer></script>
+    <script src="app.js?v=82" defer></script>
   </body>
 </html>
