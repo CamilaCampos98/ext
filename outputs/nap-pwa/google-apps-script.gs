@@ -1,5 +1,6 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
+const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const SHARED_TOKEN = 'sonecas';
 
 const HEADERS = [
@@ -35,6 +36,26 @@ const FEEDING_HEADERS = [
   'Inicio do dia'
 ];
 
+const SLEEP_DIARY_HEADERS = [
+  'Recebido em',
+  'ID da soneca',
+  'Bebê',
+  'Idade (meses)',
+  'Data',
+  'Soneca nº',
+  'Início',
+  'Fim',
+  'Duração (min)',
+  'Onde terminou',
+  'Humor ao acordar',
+  'Tempo para dormir (min)',
+  'Tipo de ajuda',
+  'Mamada antes da soneca',
+  'Usou chupeta',
+  'Acordou quando caiu',
+  'Janela de sono usada'
+];
+
 function doGet(e) {
   const token = e && e.parameter ? e.parameter.token : '';
 
@@ -48,6 +69,10 @@ function doGet(e) {
 
   if (e && e.parameter && e.parameter.action === 'listFeedings') {
     return jsonResponse(listFeedingRows(getFeedingSheet()));
+  }
+
+  if (e && e.parameter && e.parameter.action === 'listSleepDiary') {
+    return jsonResponse(listSleepDiaryRows(getSleepDiarySheet()));
   }
 
   return jsonResponse({
@@ -80,6 +105,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendFeedings') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'upsertSleepDiary') {
+      return jsonResponse(upsertSleepDiaryRows(getSleepDiarySheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkUpsertSleepDiary') {
+      return jsonResponse(upsertSleepDiaryRows(getSleepDiarySheet(), payload.records || []));
     }
 
     if (payload.action === 'bulkAppend') {
@@ -133,6 +166,24 @@ function getFeedingSheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, FEEDING_HEADERS);
+  }
+
+  return sheet;
+}
+
+function getSleepDiarySheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(SLEEP_DIARY_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(SLEEP_DIARY_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SLEEP_DIARY_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, SLEEP_DIARY_HEADERS);
   }
 
   return sheet;
@@ -236,12 +287,58 @@ function appendMissingFeedingRows(sheet, records) {
   };
 }
 
+function upsertSleepDiaryRows(sheet, records) {
+  const existingRows = getExistingIdRows(sheet);
+  const inserted = [];
+  const updated = [];
+  const skipped = [];
+
+  records.forEach((record) => {
+    const id = String(record.napId || record.id || '');
+    if (!id) {
+      skipped.push(id);
+      return;
+    }
+
+    const row = toSleepDiarySheetRow(record);
+    if (existingRows.has(id)) {
+      sheet.getRange(existingRows.get(id), 1, 1, SLEEP_DIARY_HEADERS.length).setValues([row]);
+      updated.push(id);
+      return;
+    }
+
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, SLEEP_DIARY_HEADERS.length).setValues([row]);
+    existingRows.set(id, sheet.getLastRow());
+    inserted.push(id);
+  });
+
+  return {
+    ok: true,
+    inserted: inserted,
+    updated: updated,
+    skipped: skipped
+  };
+}
+
 function getExistingIds(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return new Set();
 
   const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
   return new Set(values.map((row) => String(row[0])).filter(Boolean));
+}
+
+function getExistingIdRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  const rows = new Map();
+  if (lastRow < 2) return rows;
+
+  const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  values.forEach((row, index) => {
+    const id = String(row[0] || '');
+    if (id) rows.set(id, index + 2);
+  });
+  return rows;
 }
 
 function toSheetRow(payload) {
@@ -278,6 +375,28 @@ function toFeedingSheetRow(payload) {
     payload.sideLabel || payload.side || '',
     payload.note || '',
     toTimeString(payload.dayStart)
+  ];
+}
+
+function toSleepDiarySheetRow(payload) {
+  return [
+    new Date(),
+    payload.napId || payload.id || '',
+    payload.babyName || '',
+    payload.babyAge || '',
+    payload.date || '',
+    payload.napNumber || '',
+    toDateTimeString(payload.start),
+    toDateTimeString(payload.end),
+    payload.duration || '',
+    payload.sleepEndPlaceLabel || sleepEndPlaceLabel(payload.sleepEndPlace),
+    payload.wakeMoodLabel || wakeMoodLabel(payload.wakeMood),
+    payload.sleepLatency || '',
+    payload.helpTypesLabel || helpTypesLabel(payload.helpTypes),
+    payload.feedingBeforeNap || '',
+    payload.pacifierLabel || yesNoLabel(payload.pacifier),
+    payload.pacifierWakeLabel || yesNoLabel(payload.pacifierWake),
+    payload.wakeWindowUsedLabel || payload.wakeWindowUsed || ''
   ];
 }
 
@@ -336,6 +455,104 @@ function listFeedingRows(sheet) {
     }));
 
   return { ok: true, records: records };
+}
+
+function listSleepDiaryRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { ok: true, records: [] };
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, SLEEP_DIARY_HEADERS.length).getValues();
+  const records = values
+    .filter((row) => row[1])
+    .map((row) => ({
+      receivedAt: toIsoString(row[0]),
+      napId: String(row[1]),
+      babyName: row[2] || '',
+      babyAge: row[3] || '',
+      date: row[4] || '',
+      napNumber: row[5] || '',
+      start: toDateTimeString(row[6]),
+      end: toDateTimeString(row[7]),
+      duration: Number(row[8] || 0),
+      sleepEndPlace: sleepEndPlaceKey(row[9]),
+      wakeMood: wakeMoodKey(row[10]),
+      sleepLatency: Number(row[11] || 0) > 0 ? row[11] : '',
+      helpTypes: helpTypesKey(row[12]),
+      feedingBeforeNap: row[13] || '',
+      pacifier: yesNoKey(row[14]) || yesNoKey(row[11]),
+      pacifierWake: yesNoKey(row[15]) || yesNoKey(row[12]),
+      wakeWindowUsed: row[16] || row[13] || ''
+    }));
+
+  return { ok: true, records: records };
+}
+
+function yesNoKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text === 'sim' || text === 'yes') return 'yes';
+  if (text === 'não' || text === 'nao' || text === 'no') return 'no';
+  return '';
+}
+
+function yesNoLabel(value) {
+  if (value === 'yes') return 'Sim';
+  if (value === 'no') return 'Não';
+  return '';
+}
+
+function sleepEndPlaceKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text === 'berço (com ajuda)' || text === 'berco (com ajuda)' || text === 'crib-help') return 'crib-help';
+  if (text === 'berço (sozinha)' || text === 'berco (sozinha)' || text === 'crib-alone') return 'crib-alone';
+  if (text === 'berço' || text === 'berco' || text === 'crib' || text === 'sim' || text === 'yes') return 'crib-help';
+  if (text === 'colo' || text === 'lap' || text === 'não' || text === 'nao' || text === 'no') return 'lap';
+  return '';
+}
+
+function sleepEndPlaceLabel(value) {
+  if (value === 'crib' || value === 'crib-help') return 'Berço (com ajuda)';
+  if (value === 'crib-alone') return 'Berço (sozinha)';
+  if (value === 'lap') return 'Colo';
+  return '';
+}
+
+function wakeMoodKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text === 'feliz' || text === 'happy') return 'happy';
+  if (text === 'calma' || text === 'calm') return 'calm';
+  if (text === 'irritada' || text === 'upset') return 'upset';
+  if (text === 'chorando' || text === 'crying') return 'crying';
+  return '';
+}
+
+function wakeMoodLabel(value) {
+  if (value === 'happy') return 'Feliz';
+  if (value === 'calm') return 'Calma';
+  if (value === 'upset') return 'Irritada';
+  if (value === 'crying') return 'Chorando';
+  return '';
+}
+
+function helpTypesKey(value) {
+  if (Array.isArray(value)) return value.join(', ');
+  return String(value || '');
+}
+
+function helpTypesLabel(value) {
+  if (Array.isArray(value)) {
+    const labels = {
+      lap: 'colo',
+      rocking: 'balanço',
+      'chest-hand': 'mão no peito',
+      pacifier: 'chupeta',
+      voice: 'voz',
+      shush: 'shhhh'
+    };
+    return value.map((item) => labels[item] || item).filter(Boolean).join(', ');
+  }
+  return String(value || '');
 }
 
 function feedingTypeKey(value) {

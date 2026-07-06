@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=74">
+    <link rel="stylesheet" href="styles.css?v=86">
   </head>
   <body>
     <div class="app-shell">
@@ -185,6 +185,9 @@
         <button class="bottom-nav-button" id="historyMenu" type="button" aria-label="Histórico" title="Histórico">
           <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
         </button>
+        <button class="bottom-nav-button" id="diaryMenu" type="button" aria-label="Diário do sono" title="Diário do sono">
+          <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+        </button>
         <button class="bottom-nav-start" id="openStartSheet" type="button" aria-label="Abrir ações" title="Start">
           <i class="fa-solid fa-play" aria-hidden="true"></i>
         </button>
@@ -239,19 +242,34 @@
       </div>
     </div>
 
+    <div class="sheet" id="diarySheet" aria-hidden="true">
+      <div class="sheet-card diary-sheet-card">
+        <button class="icon-button close" id="closeDiary" aria-label="Fechar">x</button>
+        <p class="label">Diário do sono</p>
+        <h2>Sonecas de hoje</h2>
+        <div class="diary-stats" id="diaryStats"></div>
+        <div class="sleep-diary-list" id="sleepDiaryList"></div>
+        <div class="diary-tips" id="diaryTips"></div>
+      </div>
+    </div>
+
     <div class="sheet" id="reportSheet" aria-hidden="true">
       <div class="sheet-card report-sheet-card">
         <button class="icon-button close" id="closeReport" aria-label="Fechar">x</button>
         <p class="label">Relatório</p>
         <h2>Semana</h2>
-        <div class="report-filter">
-          <button class="secondary compact-button" id="previousWeek" type="button">Anterior</button>
+        <div class="report-filter" id="reportFilter">
+          <button class="secondary compact-button" id="previousWeek" type="button" data-report-shift="-1">Anterior</button>
           <div>
             <span>Período</span>
             <strong id="reportWeekLabel">--/-- - --/--</strong>
           </div>
-          <button class="secondary compact-button" id="currentWeek" type="button">Atual</button>
-          <button class="secondary compact-button" id="nextWeek" type="button">Próxima</button>
+          <label class="report-date-jump">
+            <span>Data</span>
+            <input id="reportDate" type="date">
+          </label>
+          <button class="secondary compact-button" id="currentWeek" type="button" data-report-current="true">Atual</button>
+          <button class="secondary compact-button" id="nextWeek" type="button" data-report-shift="1">Próxima</button>
         </div>
         <div class="report-grid">
           <div>
@@ -271,15 +289,19 @@
             <strong id="avgTotalSleep">0h</strong>
           </div>
           <div>
-            <span>MÃ©dia mamadas/dia</span>
+            <span>Média mamadas/dia</span>
             <strong id="avgFeedingCount">0</strong>
           </div>
           <div>
-            <span>Acordada Ã  noite</span>
+            <span>Acordada à noite</span>
             <strong id="avgNightAwake">0min</strong>
           </div>
+          <div>
+            <span>Meta das sonecas</span>
+            <strong id="avgNapGoal">0%</strong>
+          </div>
         </div>
-        <div class="report-chart-wrap">
+        <div class="report-chart-wrap report-chart-grid" id="reportCharts">
           <svg id="sleepReportChart" class="report-chart" viewBox="0 0 640 260" role="img" aria-label="Progressão do sono na semana"></svg>
         </div>
         <div class="dashboard-legend report-legend">
@@ -448,6 +470,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=93" defer></script>
+    <script src="app.js?v=109" defer></script>
   </body>
 </html>

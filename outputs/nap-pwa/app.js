@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyXhag4VlD-y5IbQWcYoU2TMoF6RMri96HrzylzMwsRMgJPZQN-pTs1MFPJqFpdKCl-Zg/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzXTI_bHTfWa4-UQvJ2mbIuz4opEUdJ9-BYd90zWhm-ueqBqAqYw75D9-IF9R7ZZmmNzQ/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -37,6 +37,7 @@ const defaultState = {
   naps: [],
   nights: [],
   feedings: [],
+  sleepDiary: {},
   feedingOptions: {
     breast: true,
     bottle: true,
@@ -122,11 +123,17 @@ const els = {
   clearHistory: document.querySelector("#clearHistory"),
   profileMenu: document.querySelector("#profileMenu"),
   historyMenu: document.querySelector("#historyMenu"),
+  diaryMenu: document.querySelector("#diaryMenu"),
   reportMenu: document.querySelector("#reportMenu"),
   profileSheet: document.querySelector("#profileSheet"),
   closeProfile: document.querySelector("#closeProfile"),
   historySheet: document.querySelector("#historySheet"),
   closeHistory: document.querySelector("#closeHistory"),
+  diarySheet: document.querySelector("#diarySheet"),
+  closeDiary: document.querySelector("#closeDiary"),
+  sleepDiaryList: document.querySelector("#sleepDiaryList"),
+  diaryStats: document.querySelector("#diaryStats"),
+  diaryTips: document.querySelector("#diaryTips"),
   reportSheet: document.querySelector("#reportSheet"),
   closeReport: document.querySelector("#closeReport"),
   avgNapCount: document.querySelector("#avgNapCount"),
@@ -135,9 +142,13 @@ const els = {
   avgTotalSleep: document.querySelector("#avgTotalSleep"),
   avgFeedingCount: document.querySelector("#avgFeedingCount"),
   avgNightAwake: document.querySelector("#avgNightAwake"),
+  avgNapGoal: document.querySelector("#avgNapGoal"),
+  reportCharts: document.querySelector("#reportCharts"),
   sleepReportChart: document.querySelector("#sleepReportChart"),
   reportSummary: document.querySelector("#reportSummary"),
   reportWeekLabel: document.querySelector("#reportWeekLabel"),
+  reportFilter: document.querySelector("#reportFilter"),
+  reportDate: document.querySelector("#reportDate"),
   previousWeek: document.querySelector("#previousWeek"),
   currentWeek: document.querySelector("#currentWeek"),
   nextWeek: document.querySelector("#nextWeek"),
@@ -173,6 +184,7 @@ let manualRecordType = "nap";
 let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
+let sleepDiarySheetSupport = null;
 
 init();
 
@@ -294,16 +306,14 @@ function bindEvents() {
   });
   els.profileMenu.addEventListener("click", () => toggleProfileSheet(true));
   els.historyMenu.addEventListener("click", () => toggleHistorySheet(true));
+  els.diaryMenu.addEventListener("click", () => toggleDiarySheet(true));
   els.reportMenu.addEventListener("click", () => toggleReportSheet(true));
-  els.previousWeek.addEventListener("click", () => shiftReportWeek(-1));
-  els.currentWeek.addEventListener("click", () => {
-    reportWeekStart = startOfWeek(new Date());
-    renderReport();
-  });
-  els.nextWeek.addEventListener("click", () => shiftReportWeek(1));
+  els.reportFilter.addEventListener("click", handleReportFilterClick);
+  els.reportDate.addEventListener("change", handleReportDateChange);
   els.installHelp.addEventListener("click", () => toggleInstallSheet(true));
   els.closeProfile.addEventListener("click", () => toggleProfileSheet(false));
   els.closeHistory.addEventListener("click", () => toggleHistorySheet(false));
+  els.closeDiary.addEventListener("click", () => toggleDiarySheet(false));
   els.closeReport.addEventListener("click", () => toggleReportSheet(false));
   els.closeInstall.addEventListener("click", () => toggleInstallSheet(false));
   els.closeMood.addEventListener("click", () => toggleMoodSheet(false));
@@ -318,6 +328,7 @@ function bindEvents() {
   els.saveManualNap.addEventListener("click", saveManualNap);
   els.closeFeeding.addEventListener("click", () => toggleFeedingSheet(false));
   els.saveFeeding.addEventListener("click", saveFeeding);
+  els.sleepDiaryList.addEventListener("change", handleSleepDiaryChange);
   document.querySelectorAll("[data-feed-side]").forEach((button) => {
     button.addEventListener("click", () => selectFeedSide(button.dataset.feedSide));
   });
@@ -330,6 +341,9 @@ function bindEvents() {
   });
   els.historySheet.addEventListener("click", (event) => {
     if (event.target === els.historySheet) toggleHistorySheet(false);
+  });
+  els.diarySheet.addEventListener("click", (event) => {
+    if (event.target === els.diarySheet) toggleDiarySheet(false);
   });
   els.reportSheet.addEventListener("click", (event) => {
     if (event.target === els.reportSheet) toggleReportSheet(false);
@@ -535,6 +549,9 @@ function saveManualNap() {
 }
 
 function createNapRecord(startedAt, endedAt, mood) {
+  const napIndex = napIndexForStart(startedAt);
+  const goalDuration = napGoalMinutesForIndex(napIndex);
+  const duration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
     id: `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     type: "nap",
@@ -545,7 +562,9 @@ function createNapRecord(startedAt, endedAt, mood) {
     lastWake: state.lastWake,
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
-    duration: Math.max(1, Math.round((endedAt - startedAt) / 60000)),
+    duration,
+    goalDuration,
+    goalPercent: napGoalPercent(duration, goalDuration),
     mood,
     synced: false
   };
@@ -620,6 +639,13 @@ function nightAwakeningsNote(night) {
     .map((item) => `${timeLabel(new Date(item.start))}-${timeLabel(new Date(item.end))}`)
     .join(", ");
   return `Acordada na noite: ${formatDuration(awakeMinutes)}${ranges ? ` (${ranges})` : ""}`;
+}
+
+function napGoalNote(nap) {
+  if ((nap.type || "nap") === "night") return "";
+  const goal = Number(nap.goalDuration) || napGoalMinutesForIndex(napIndexForStart(new Date(nap.start)));
+  const percent = Number(nap.goalPercent) || napGoalPercent(safeDuration(nap), goal);
+  return `Meta da soneca: ${formatDuration(goal)} (${percent}% atingido)`;
 }
 
 function addNapRecord(nap) {
@@ -785,6 +811,7 @@ function render() {
   renderTimer();
   renderInsights(prediction);
   renderHistory();
+  renderSleepDiary();
   renderReport();
 }
 
@@ -1077,10 +1104,13 @@ function showNapDetailCard(nap, index) {
   const start = new Date(nap.start);
   const end = new Date(nap.end);
   const title = index ? `${ordinalFeminine(index)} soneca` : "Soneca";
+  const goal = Number(nap.goalDuration) || napGoalMinutesForIndex(index || napIndexForStart(start));
+  const goalPercent = Number(nap.goalPercent) || napGoalPercent(safeDuration(nap), goal);
   els.napDetailCard.innerHTML = `
     <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
     <span>${title}</span>
     <strong>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
+    <small>Meta: ${formatDuration(goal)} · ${goalPercent}% atingido</small>
     <small>Duração: ${formatDuration(safeDuration(nap))}</small>
   `;
   els.napDetailCard.hidden = false;
@@ -1129,9 +1159,13 @@ function renderRingCenter(prediction, today) {
     const elapsed = Number.isNaN(startedAt.getTime())
       ? 0
       : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
+    const goal = activeNapGoalMinutes();
+    const remaining = Math.max(0, goal - elapsed);
     els.dayCenterLabel.textContent = "dormindo há";
     els.dayCenterTime.textContent = formatRingDuration(elapsed);
-    els.dayCenterHint.textContent = `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
+    els.dayCenterHint.textContent = remaining
+      ? `meta ${formatDuration(goal)} · faltam ${formatDuration(remaining)}`
+      : `meta ${formatDuration(goal)} atingida`;
     return;
   }
 
@@ -1322,11 +1356,13 @@ function renderTimer() {
   const startedAt = new Date(state.activeNapStart);
   const minutes = Math.floor((Date.now() - startedAt.getTime()) / 60000);
   const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000) % 60;
+  const goal = activeNapGoalMinutes();
   els.timer.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   els.currentStart.textContent = timeLabel(startedAt);
-  els.currentEnd.textContent = "em andamento";
+  els.currentEnd.textContent = `meta ${formatDuration(goal)}`;
   els.currentMood.textContent = "-";
   els.napStatus.textContent = `Dormindo há ${formatDuration(minutes)}`;
+  els.napStatus.textContent = `Dormindo h\u00e1 ${formatDuration(minutes)} · ${napGoalPercent(minutes, goal)}% da meta`;
 }
 
 function renderInsights(prediction) {
@@ -1376,6 +1412,309 @@ function renderHistory() {
   }).join("");
 }
 
+function renderSleepDiary() {
+  if (!els.sleepDiaryList) return;
+  if (els.diarySheet?.getAttribute("aria-hidden") === "true") return;
+
+  const naps = napsToday()
+    .slice()
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  if (!naps.length) {
+    els.diaryStats.innerHTML = "";
+    els.sleepDiaryList.innerHTML = `<div class="empty-diary">Nenhuma soneca finalizada neste ciclo ainda.</div>`;
+    els.diaryTips.innerHTML = `<strong>Dica</strong><p>Quando uma soneca for encerrada, ela aparece aqui para você registrar como foi o adormecer.</p>`;
+    return;
+  }
+
+  els.sleepDiaryList.innerHTML = naps.map((nap, index) => sleepDiaryCard(nap, index + 1)).join("");
+  renderSleepDiaryStats(naps);
+}
+
+function sleepDiaryCard(nap, napNumber) {
+  const id = napIdentity(nap);
+  const entry = sleepDiaryEntry(id);
+  const start = new Date(nap.start);
+  const end = new Date(nap.end);
+  const wakeWindowUsed = wakeWindowUsedForNap(nap);
+  return `
+    <article class="sleep-diary-card">
+      <div class="sleep-diary-head">
+        <div>
+          <span>${napNumber}ª soneca</span>
+          <strong>${timeLabel(start)} - ${timeLabel(end)}</strong>
+        </div>
+        <div class="diary-duration">
+          <span>Duração</span>
+          <strong>${formatDuration(safeDuration(nap))}</strong>
+        </div>
+      </div>
+      <div class="diary-fields">
+        <label>
+          Onde terminou de dormir?
+          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="sleepEndPlace">
+            ${sleepEndPlaceOptions(entry.sleepEndPlace)}
+          </select>
+        </label>
+        <label>
+          Humor ao acordar
+          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="wakeMood">
+            ${wakeMoodOptions(entry.wakeMood)}
+          </select>
+        </label>
+        <label>
+          Tempo para dormir (min)
+          <input type="number" min="0" max="90" inputmode="numeric" value="${escapeAttribute(entry.sleepLatency || "")}" data-diary-id="${escapeAttribute(id)}" data-diary-field="sleepLatency">
+        </label>
+        <label>
+          Usou chupeta para dormir?
+          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="pacifier">
+            ${diaryOptions(entry.pacifier)}
+          </select>
+        </label>
+        <label>
+          Acordou quando caiu?
+          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="pacifierWake">
+            ${diaryOptions(entry.pacifierWake)}
+          </select>
+        </label>
+        <label>
+          Duração da soneca
+          <input type="text" value="${formatDuration(safeDuration(nap))}" readonly>
+        </label>
+        <label>
+          Janela de sono usada
+          <input type="text" value="${formatDuration(wakeWindowUsed)}" readonly>
+        </label>
+        <label>
+          Mamada antes da soneca
+          <input type="text" value="${escapeAttribute(feedingBeforeNapLabel(nap))}" readonly>
+        </label>
+      </div>
+      <div class="diary-help-block">
+        <span>Tipo de ajuda</span>
+        <div class="diary-help-grid">
+          ${helpTypeOptions(entry.helpTypes, id)}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function sleepEndPlaceOptions(value) {
+  return `
+    <option value=""${value ? "" : " selected"}>Selecionar</option>
+    <option value="lap"${value === "lap" ? " selected" : ""}>Colo</option>
+    <option value="crib-help"${value === "crib-help" ? " selected" : ""}>Berço (com ajuda)</option>
+    <option value="crib-alone"${value === "crib-alone" ? " selected" : ""}>Berço (sozinha)</option>
+  `;
+}
+
+function legacySleepEndPlace(value) {
+  if (value === "yes") return "crib-help";
+  if (value === "no") return "lap";
+  if (value === "crib") return "crib-help";
+  return "";
+}
+
+function wakeMoodOptions(value) {
+  return `
+    <option value=""${value ? "" : " selected"}>Selecionar</option>
+    <option value="happy"${value === "happy" ? " selected" : ""}>Feliz</option>
+    <option value="calm"${value === "calm" ? " selected" : ""}>Calma</option>
+    <option value="upset"${value === "upset" ? " selected" : ""}>Irritada</option>
+    <option value="crying"${value === "crying" ? " selected" : ""}>Chorando</option>
+  `;
+}
+
+function helpTypeOptions(selected, napId) {
+  const selectedSet = new Set(Array.isArray(selected) ? selected : []);
+  return [
+    ["lap", "Colo"],
+    ["rocking", "Balanço"],
+    ["chest-hand", "Mão no peito"],
+    ["pacifier", "Chupeta"],
+    ["voice", "Voz"],
+    ["shush", "Shhhh"]
+  ].map(([value, label]) => `
+    <label class="diary-help-option">
+      <input type="checkbox" value="${value}" data-diary-id="${escapeAttribute(napId)}" data-diary-help="true"${selectedSet.has(value) ? " checked" : ""}>
+      <span>${label}</span>
+    </label>
+  `).join("");
+}
+
+function wakeWindowUsedForNap(nap) {
+  const start = new Date(nap.start);
+  if (Number.isNaN(start.getTime())) return 0;
+  const sameDayNaps = state.naps
+    .filter((item) => recordDateInputValue(item) === recordDateInputValue(nap))
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  const index = sameDayNaps.findIndex((item) => napIdentity(item) === napIdentity(nap));
+  const previousNap = index > 0 ? sameDayNaps[index - 1] : null;
+  const previousWake = previousNap
+    ? new Date(previousNap.end)
+    : dateAtTime(recordDateInputValue(nap), nap.dayStart || state.dayStart || state.lastWake || DEFAULT_DAY_START);
+  if (!(previousWake instanceof Date) || Number.isNaN(previousWake.getTime())) return 0;
+  return Math.max(0, Math.round((start - previousWake) / 60000));
+}
+
+function dateAtTime(dateValue, timeValue) {
+  const [year, month, day] = String(dateValue || "").split("-").map(Number);
+  const [hour, minute] = String(timeValue || "").split(":").map(Number);
+  if (!year || !month || !day || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return new Date(year, month - 1, day, hour, minute, 0);
+}
+
+function feedingBeforeNapLabel(nap) {
+  const start = new Date(nap.start);
+  if (Number.isNaN(start.getTime())) return "Não mamou";
+  const previousFeeding = state.feedings
+    .map((feeding) => ({ ...feeding, atDate: new Date(feeding.at) }))
+    .filter((feeding) => !Number.isNaN(feeding.atDate.getTime()) && feeding.atDate <= start)
+    .sort((a, b) => b.atDate - a.atDate)[0];
+  if (!previousFeeding) return "Não mamou";
+  const minutes = Math.max(0, Math.round((start - previousFeeding.atDate) / 60000));
+  if (minutes <= 5) return "Mamou imediatamente antes";
+  if (minutes <= 20) return "Mamou há 15 min";
+  if (minutes <= 45) return "Mamou há 30 min";
+  return `Mamou há ${formatDuration(minutes)}`;
+}
+
+function diaryOptions(value) {
+  return `
+    <option value=""${value ? "" : " selected"}>Selecionar</option>
+    <option value="yes"${value === "yes" ? " selected" : ""}>Sim</option>
+    <option value="no"${value === "no" ? " selected" : ""}>Não</option>
+  `;
+}
+
+function sleepDiaryEntry(id) {
+  state.sleepDiary = state.sleepDiary || {};
+  const entry = state.sleepDiary[id] || {};
+  return {
+    sleepEndPlace: entry.sleepEndPlace || legacySleepEndPlace(entry.crib),
+    cribHelp: entry.cribHelp || "",
+    wakeMood: entry.wakeMood || "",
+    sleepLatency: Number.isFinite(Number(entry.sleepLatency)) ? String(Number(entry.sleepLatency)) : "",
+    helpTypes: Array.isArray(entry.helpTypes) ? entry.helpTypes : [],
+    crib: entry.crib || "",
+    pacifier: entry.pacifier || "",
+    pacifierWake: entry.pacifierWake || "",
+    synced: entry.synced === true
+  };
+}
+
+function handleSleepDiaryChange(event) {
+  if (event.target?.dataset?.diaryHelp) {
+    handleSleepDiaryHelpChange(event);
+    return;
+  }
+
+  const field = event.target?.dataset?.diaryField;
+  const id = event.target?.dataset?.diaryId;
+  if (!field || !id) return;
+
+  state.sleepDiary = state.sleepDiary || {};
+  state.sleepDiary[id] = {
+    ...sleepDiaryEntry(id),
+    [field]: event.target.value,
+    synced: false
+  };
+  saveState();
+  renderSleepDiary();
+  syncSleepDiaryEntryToSheet(id);
+}
+
+function handleSleepDiaryHelpChange(event) {
+  const id = event.target?.dataset?.diaryId;
+  const value = event.target?.value;
+  if (!id || !value) return;
+
+  const entry = sleepDiaryEntry(id);
+  const selected = new Set(entry.helpTypes || []);
+  if (event.target.checked) {
+    selected.add(value);
+  } else {
+    selected.delete(value);
+  }
+
+  state.sleepDiary = state.sleepDiary || {};
+  state.sleepDiary[id] = {
+    ...entry,
+    helpTypes: Array.from(selected),
+    synced: false
+  };
+  saveState();
+  renderSleepDiary();
+  syncSleepDiaryEntryToSheet(id);
+}
+
+function renderSleepDiaryStats(naps) {
+  const entries = naps.map((nap) => sleepDiaryEntry(napIdentity(nap)));
+  const filledPlace = entries.filter((entry) => entry.sleepEndPlace).length;
+  const cribEnd = entries.filter((entry) => entry.sleepEndPlace === "crib-help" || entry.sleepEndPlace === "crib-alone").length;
+  const cribHelpYes = entries.filter((entry) => entry.sleepEndPlace === "crib-help").length;
+  const cribAlone = entries.filter((entry) => entry.sleepEndPlace === "crib-alone").length;
+  const sleepLatencies = entries.map((entry) => Number(entry.sleepLatency)).filter((value) => Number.isFinite(value) && value > 0);
+  const avgLatency = sleepLatencies.length ? Math.round(sleepLatencies.reduce((sum, value) => sum + value, 0) / sleepLatencies.length) : 0;
+  const pacifierYes = entries.filter((entry) => entry.pacifier === "yes").length;
+  const pacifierWakeYes = entries.filter((entry) => entry.pacifierWake === "yes").length;
+  const avgDuration = Math.round(naps.reduce((sum, nap) => sum + safeDuration(nap), 0) / naps.length);
+  const cribRate = filledPlace ? Math.round((cribEnd / filledPlace) * 100) : 0;
+
+  els.diaryStats.innerHTML = `
+    <div><span>Sonecas</span><strong>${naps.length}</strong></div>
+    <div><span>Média</span><strong>${formatDuration(avgDuration)}</strong></div>
+    <div><span>Terminou no berço</span><strong>${filledPlace ? `${cribRate}%` : "-"}</strong></div>
+    <div><span>Berço sozinha</span><strong>${cribAlone}</strong></div>
+    <div><span>Tempo p/ dormir</span><strong>${avgLatency ? `${avgLatency}min` : "-"}</strong></div>
+    <div><span>Com chupeta</span><strong>${pacifierYes}</strong></div>
+    <div><span>Acordou sem chupeta</span><strong>${pacifierWakeYes}</strong></div>
+  `;
+
+  els.diaryTips.innerHTML = sleepDiaryTips(naps, entries, avgDuration, cribRate, pacifierYes, pacifierWakeYes, cribHelpYes, cribAlone, avgLatency);
+}
+
+function sleepDiaryTips(naps, entries, avgDuration, cribRate, pacifierYes, pacifierWakeYes, cribHelpYes, cribAlone, avgLatency) {
+  const shortNaps = naps.filter((nap) => safeDuration(nap) < 35).length;
+  const longNaps = naps.filter((nap) => safeDuration(nap) >= 75).length;
+  const pacifierNoWake = entries.filter((entry) => entry.pacifier === "yes" && entry.pacifierWake === "no").length;
+  const filled = entries.filter((entry) => entry.sleepEndPlace || entry.wakeMood || entry.sleepLatency || entry.helpTypes.length || entry.pacifier || entry.pacifierWake).length;
+  const tips = [];
+
+  if (!filled) {
+    tips.push("Preencha onde a soneca terminou e se precisou de ajuda no berço para o diário começar a apontar padrões.");
+  }
+  if (shortNaps) {
+    tips.push(`${shortNaps} soneca${shortNaps === 1 ? "" : "s"} curta${shortNaps === 1 ? "" : "s"} hoje. Se ela despertar perto de 30 minutos, tente manter pouca luz, pouco estímulo e ajudar no berço antes de tirar do ambiente de sono.`);
+  }
+  if (cribAlone) {
+    tips.push(`${cribAlone} soneca${cribAlone === 1 ? "" : "s"} já terminou no berço sozinha. Esse é o principal sinal de progresso do treino.`);
+  } else if (cribRate >= 70 && filled) {
+    tips.push("A maior parte das sonecas já termina no berço. Continue reduzindo o balanço aos poucos e mantenha a mesma sequência antes de cada soneca.");
+  } else if (filled) {
+    tips.push("A transição ainda está mais no colo. Um bom próximo passo é desacelerar o balanço antes de dormir totalmente e tentar finalizar no berço com apoio.");
+  }
+  if (cribHelpYes) {
+    tips.push(`Ela precisou de ajuda no berço em ${cribHelpYes} soneca${cribHelpYes === 1 ? "" : "s"}. Observe quais ajudas funcionam melhor: mão firme, voz baixa, reposicionar ou pausa curta antes de intervir.`);
+  }
+  if (avgLatency) {
+    tips.push(`Tempo médio para dormir hoje: ${avgLatency} min. Se esse número cair mesmo com sonecas parecidas, também é evolução.`);
+  }
+  if (pacifierNoWake) {
+    tips.push(`A chupeta ajudou a iniciar o sono e ela continuou dormindo quando caiu em ${pacifierNoWake} soneca${pacifierNoWake === 1 ? "" : "s"}. Isso sugere apoio inicial, não dependência forte para manter o sono.`);
+  }
+  if (pacifierWakeYes) {
+    tips.push(`Ela acordou quando a chupeta caiu em ${pacifierWakeYes} soneca${pacifierWakeYes === 1 ? "" : "s"}. Nesses casos, observe se vale recolocar com pouca intervenção ou tentar acalmar primeiro com toque e voz baixa.`);
+  }
+  if (longNaps) {
+    tips.push("Houve soneca com ciclo emendado. Anote o que foi diferente nesse momento para repetir amanhã.");
+  }
+
+  return `<strong>Estatísticas e dicas</strong>${tips.map((tip) => `<p>${tip}</p>`).join("")}`;
+}
+
 function renderReport() {
   const days = reportWeekDays(reportWeekStart);
   const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.nightAwake);
@@ -1386,15 +1725,19 @@ function renderReport() {
   const avgTotalSleep = activeDays.reduce((sum, day) => sum + day.totalSleep, 0) / divisor;
   const avgFeedingCount = activeDays.reduce((sum, day) => sum + day.feedingCount, 0) / divisor;
   const avgNightAwake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0) / divisor;
+  const goalDays = activeDays.filter((day) => day.napGoalPercent);
+  const avgNapGoal = goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / (goalDays.length || 1);
   const weekEnd = addDays(reportWeekStart, 6);
 
   els.reportWeekLabel.textContent = `${shortDateLabel(reportWeekStart)} - ${shortDateLabel(weekEnd)}`;
+  if (els.reportDate) els.reportDate.value = dateInputValue(reportWeekStart);
   els.avgNapCount.textContent = activeDays.length ? avgNapCount.toFixed(1).replace(".", ",") : "0";
   els.avgDaySleep.textContent = formatDuration(Math.round(avgDaySleep));
   els.avgNightSleep.textContent = formatDuration(Math.round(avgNightSleep));
   els.avgTotalSleep.textContent = formatDuration(Math.round(avgTotalSleep));
   if (els.avgFeedingCount) els.avgFeedingCount.textContent = activeDays.length ? avgFeedingCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNightAwake) els.avgNightAwake.textContent = formatDuration(Math.round(avgNightAwake));
+  if (els.avgNapGoal) els.avgNapGoal.textContent = goalDays.length ? `${Math.round(avgNapGoal)}%` : "0%";
   els.reportSummary.textContent = activeDays.length
     ? reportSummaryText(activeDays)
     : "Sem registros suficientes para calcular a media.";
@@ -1414,6 +1757,37 @@ function reportWeekDays(startDate) {
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + safeDuration(night), 0);
     const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
+    const napDurations = naps
+      .slice()
+      .sort((a, b) => new Date(a.start) - new Date(b.start))
+      .map((nap) => safeDuration(nap));
+    const dayWakeCount = naps.length;
+    const nightWakeCount = nights.reduce((sum, night) => sum + normalizeAwakenings(night.awakenings || []).length, 0);
+    const napGoalPercents = naps.map((nap, index) => {
+      const goal = Number(nap.goalDuration) || napGoalMinutesForIndex(index + 1);
+      return Number(nap.goalPercent) || napGoalPercent(safeDuration(nap), goal);
+    });
+    const averageNapGoalPercent = napGoalPercents.length
+      ? Math.round(napGoalPercents.reduce((sum, value) => sum + value, 0) / napGoalPercents.length)
+      : 0;
+    const diaryEntries = naps.map((nap) => sleepDiaryEntry(napIdentity(nap)));
+    const wakeWindowsUsed = naps.map(wakeWindowUsedForNap).filter((value) => value > 0);
+    const diaryFilled = diaryEntries.filter((entry) => (
+      entry.sleepEndPlace || entry.wakeMood || entry.sleepLatency || entry.helpTypes.length || entry.pacifier || entry.pacifierWake
+    )).length;
+    const cribEnd = diaryEntries.filter((entry) => entry.sleepEndPlace === "crib-help" || entry.sleepEndPlace === "crib-alone").length;
+    const cribHelpYes = diaryEntries.filter((entry) => entry.sleepEndPlace === "crib-help").length;
+    const cribAlone = diaryEntries.filter((entry) => entry.sleepEndPlace === "crib-alone").length;
+    const pacifierYes = diaryEntries.filter((entry) => entry.pacifier === "yes").length;
+    const pacifierWakeYes = diaryEntries.filter((entry) => entry.pacifierWake === "yes").length;
+    const pacifierNoWake = diaryEntries.filter((entry) => entry.pacifier === "yes" && entry.pacifierWake === "no").length;
+    const sleepLatencies = diaryEntries.map((entry) => Number(entry.sleepLatency)).filter((value) => Number.isFinite(value) && value > 0);
+    const avgWakeWindowUsed = wakeWindowsUsed.length
+      ? Math.round(wakeWindowsUsed.reduce((sum, value) => sum + value, 0) / wakeWindowsUsed.length)
+      : 0;
+    const avgSleepLatency = sleepLatencies.length
+      ? Math.round(sleepLatencies.reduce((sum, value) => sum + value, 0) / sleepLatencies.length)
+      : 0;
 
     days.push({
       key,
@@ -1421,6 +1795,19 @@ function reportWeekDays(startDate) {
       napCount: naps.length,
       feedingCount: feedings.length,
       feedingInterval: averageFeedingInterval(feedings),
+      napGoalPercent: averageNapGoalPercent,
+      napDurations,
+      diaryFilled,
+      cribEnd,
+      cribHelpYes,
+      cribAlone,
+      pacifierYes,
+      pacifierWakeYes,
+      pacifierNoWake,
+      avgWakeWindowUsed,
+      avgSleepLatency,
+      dayWakeCount,
+      nightWakeCount,
       daySleep,
       nightSleep,
       nightAwake,
@@ -1456,15 +1843,303 @@ function reportSummaryText(activeDays) {
     : "";
   const awake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0);
   const awakeText = awake ? ` Acordada \u00e0 noite: ${formatDuration(awake)} no per\u00edodo.` : "";
-  return `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.${pattern}${awakeText}`;
+  const goalDays = activeDays.filter((day) => day.napGoalPercent);
+  const goalAverage = goalDays.length
+    ? Math.round(goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / goalDays.length)
+    : 0;
+  const goalText = goalDays.length ? ` Meta das sonecas atingida em m\u00e9dia: ${goalAverage}%.` : "";
+  return `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.${pattern}${awakeText}${goalText}`;
 }
 
-function shiftReportWeek(direction) {
-  reportWeekStart = addDays(reportWeekStart, direction * 7);
+function handleReportFilterClick(event) {
+  const shiftButton = event.target.closest("[data-report-shift]");
+  const currentButton = event.target.closest("[data-report-current]");
+  if (!shiftButton && !currentButton) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (shiftButton) {
+    shiftReportWeek(Number(shiftButton.dataset.reportShift || 0));
+    return;
+  }
+
+  reportWeekStart = startOfWeek(new Date());
   renderReport();
 }
 
+function handleReportDateChange() {
+  const selected = parseDateInputValue(els.reportDate.value);
+  if (!selected) return;
+  reportWeekStart = startOfWeek(selected);
+  renderReport();
+}
+
+function shiftReportWeek(direction) {
+  reportWeekStart = startOfWeek(addDays(reportWeekStart, direction * 7));
+  renderReport();
+}
+
+function nearestReportWeek(fromWeekStart, direction) {
+  for (let step = 1; step <= 26; step += 1) {
+    const candidate = addDays(fromWeekStart, direction * 7 * step);
+    if (weekHasReportData(candidate)) return candidate;
+  }
+  return null;
+}
+
+function latestReportWeekWithData() {
+  const dates = [
+    ...state.naps.map((nap) => new Date(nap.start)),
+    ...state.nights.map((night) => new Date(night.end || night.start)),
+    ...state.feedings.map((feeding) => new Date(feeding.at))
+  ]
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b - a);
+  return dates[0] ? startOfWeek(dates[0]) : null;
+}
+
+function weekHasReportData(weekStart) {
+  return reportWeekDays(weekStart).some((day) => (
+    day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.nightAwake
+  ));
+}
+
 function renderSleepReportChart(days) {
+  if (!els.reportCharts) return;
+  els.reportCharts.innerHTML = `
+    ${reportTotalSleepChart(days)}
+    ${reportNapDurationChart(days)}
+    ${reportSleepDiaryChart(days)}
+    ${reportDistributionChart(days)}
+    ${reportWakeChart(days)}
+  `;
+  els.sleepReportChart = document.querySelector("#sleepReportChart");
+}
+
+function reportTotalSleepChart(days) {
+  const width = 640;
+  const height = 260;
+  const padding = { top: 58, right: 20, bottom: 44, left: 46 };
+  const maxValue = Math.max(12 * 60, ...days.map((day) => day.totalSleep));
+  const roundedMax = Math.ceil(maxValue / 120) * 120;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const groupWidth = plotWidth / days.length;
+  const barWidth = Math.min(44, groupWidth * 0.58);
+  const baseY = padding.top + plotHeight;
+  const scaleHeight = (value) => (value / roundedMax) * plotHeight;
+  const ticks = [0, Math.round(roundedMax / 2), roundedMax];
+
+  return `
+    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sono total por dia">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Sono total por dia</text>
+      <text class="chart-subtitle" x="18" y="40">Cada barra soma sono noturno + sonecas do dia.</text>
+      <circle class="legend-dot-svg night" cx="412" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="424" y="28">Noite</text>
+      <circle class="legend-dot-svg day" cx="482" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="494" y="28">Sonecas</text>
+      ${ticks.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(baseY - scaleHeight(value))}" x2="${width - padding.right}" y2="${roundSvg(baseY - scaleHeight(value))}"></line><text class="chart-label" x="8" y="${roundSvg(baseY - scaleHeight(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const x = padding.left + groupWidth * index + (groupWidth - barWidth) / 2;
+        const nightHeight = scaleHeight(day.nightSleep);
+        const dayHeight = scaleHeight(day.daySleep);
+        const totalHeight = nightHeight + dayHeight;
+        const hasSleep = day.totalSleep > 0;
+        const labelY = Math.max(padding.top + 12, baseY - totalHeight - 8);
+        return `
+          ${hasSleep ? `
+            <rect class="chart-bar total-night" x="${roundSvg(x)}" y="${roundSvg(baseY - nightHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(nightHeight)}" rx="5"></rect>
+            <rect class="chart-bar total-day" x="${roundSvg(x)}" y="${roundSvg(baseY - totalHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(dayHeight)}" rx="5"></rect>
+            <text class="chart-total-value" x="${roundSvg(x + barWidth / 2)}" y="${roundSvg(labelY)}">${formatDuration(day.totalSleep)}</text>
+          ` : `
+            <rect class="chart-empty-day" x="${roundSvg(x)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(barWidth)}" height="4" rx="2"></rect>
+          `}
+          <text class="chart-label x" x="${roundSvg(x + barWidth / 2)}" y="${height - 14}">${day.label}</text>
+        `;
+      }).join("")}
+    </svg>`;
+}
+
+function reportLineChart(title, days, selector, typeClass, subtitle = "") {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 42, right: 18, bottom: 34, left: 46 };
+  const values = days.map(selector);
+  const maxValue = Math.max(60, ...values);
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
+  const path = values.map((value, index) => `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(value))}`).join(" ");
+  const ticks = [0, Math.round(maxValue / 2), maxValue];
+  return `
+    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">${title}</text>
+      ${subtitle ? `<text class="chart-subtitle" x="18" y="39">${subtitle}</text>` : ""}
+      ${ticks.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="8" y="${roundSvg(scaleY(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+      <path class="chart-line ${typeClass}" d="${path}"></path>
+      ${values.map((value, index) => value ? `<circle class="chart-point ${typeClass}" cx="${roundSvg(scaleX(index))}" cy="${roundSvg(scaleY(value))}" r="3"></circle>` : "").join("")}
+      ${days.map((day, index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${day.label}</text>`).join("")}
+    </svg>`;
+}
+
+function reportNapDurationChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 42, right: 18, bottom: 34, left: 46 };
+  const allDurations = days.flatMap((day) => day.napDurations || []);
+  const maxValue = Math.max(60, ...allDurations);
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
+  const barWidth = 7;
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Duração das sonecas do dia">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Duração das sonecas</text>
+      <text class="chart-subtitle" x="18" y="39">Cada barra é uma soneca registrada no dia.</text>
+      ${[0, Math.round(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="8" y="${roundSvg(scaleY(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+      ${days.map((day, dayIndex) => (day.napDurations || []).map((duration, napIndex) => {
+        const x = scaleX(dayIndex) - ((day.napDurations.length - 1) * (barWidth + 2) / 2) + napIndex * (barWidth + 2);
+        const y = scaleY(duration);
+        return `<rect class="chart-bar nap-duration" x="${roundSvg(x)}" y="${roundSvg(y)}" width="${barWidth}" height="${roundSvg(padding.top + plotHeight - y)}" rx="3"></rect>`;
+      }).join("")).join("")}
+      ${days.map((day, index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${day.label}</text>`).join("")}
+    </svg>`;
+}
+
+function reportSleepDiaryChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 48, right: 18, bottom: 34, left: 38 };
+  const maxValue = Math.max(1, ...days.flatMap((day) => [day.napCount - day.cribEnd, day.cribHelpYes, day.cribAlone]));
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const groupWidth = plotWidth / days.length;
+  const barWidth = Math.min(12, groupWidth / 5);
+  const baseY = padding.top + plotHeight;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Diário do sono na semana">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Diário do sono</text>
+      <text class="chart-subtitle" x="18" y="40">Migração de colo para berço com ajuda e berço sozinha.</text>
+      <circle class="legend-dot-svg lap" cx="338" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="350" y="28">Colo</text>
+      <circle class="legend-dot-svg crib-help" cx="398" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="410" y="28">Berço ajuda</text>
+      <circle class="legend-dot-svg crib" cx="510" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="522" y="28">Sozinha</text>
+      ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const center = padding.left + groupWidth * index + groupWidth / 2;
+        const lapCount = Math.max(0, day.napCount - day.cribEnd);
+        const bars = [
+          { value: lapCount, className: "diary-lap", offset: -barWidth - 3 },
+          { value: day.cribHelpYes, className: "diary-crib-help", offset: 0 },
+          { value: day.cribAlone, className: "diary-crib", offset: barWidth + 3 }
+        ];
+        return `
+          ${bars.map((bar) => {
+            const y = scaleY(bar.value);
+            return `<rect class="chart-bar ${bar.className}" x="${roundSvg(center + bar.offset - barWidth / 2)}" y="${roundSvg(y)}" width="${roundSvg(barWidth)}" height="${roundSvg(baseY - y)}" rx="3"></rect>`;
+          }).join("")}
+          <text class="chart-label x" x="${roundSvg(center)}" y="${height - 10}">${day.label}</text>
+        `;
+      }).join("")}
+    </svg>`;
+}
+
+function reportDistributionChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 42, right: 18, bottom: 34, left: 46 };
+  const maxValue = Math.max(60, ...days.map((day) => day.totalSleep));
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
+  const barWidth = 22;
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Distribuição do sono durante o dia">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Distribuição do sono</text>
+      <text class="chart-subtitle" x="18" y="39">Sonecas + sono noturno por dia da semana.</text>
+      ${[0, Math.round(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="8" y="${roundSvg(scaleY(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const x = scaleX(index) - barWidth / 2;
+        const nightY = scaleY(day.nightSleep);
+        const dayY = scaleY(day.totalSleep);
+        const base = padding.top + plotHeight;
+        return `
+          <rect class="chart-bar night-stack" x="${roundSvg(x)}" y="${roundSvg(nightY)}" width="${barWidth}" height="${roundSvg(base - nightY)}" rx="4"></rect>
+          <rect class="chart-bar day-stack" x="${roundSvg(x)}" y="${roundSvg(dayY)}" width="${barWidth}" height="${roundSvg(nightY - dayY)}" rx="4"></rect>
+        `;
+      }).join("")}
+      ${days.map((day, index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${day.label}</text>`).join("")}
+    </svg>`;
+}
+
+function reportDistributionChart(days) {
+  const width = 640;
+  const height = 230;
+  const daySleep = days.reduce((sum, day) => sum + day.daySleep, 0);
+  const nightSleep = days.reduce((sum, day) => sum + day.nightSleep, 0);
+  const total = Math.max(1, daySleep + nightSleep);
+  const radius = 62;
+  const circumference = 2 * Math.PI * radius;
+  const dayLength = circumference * (daySleep / total);
+  const nightLength = circumference - dayLength;
+  const dayPercent = Math.round((daySleep / total) * 100);
+  const nightPercent = 100 - dayPercent;
+
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Distribuicao do sono durante o dia">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Distribuicao do sono</text>
+      <text class="chart-subtitle" x="18" y="39">Rosca da semana: sonecas x sono noturno.</text>
+      <g transform="translate(168 124) rotate(-90)">
+        <circle class="donut-bg" cx="0" cy="0" r="${radius}"></circle>
+        <circle class="donut-segment night" cx="0" cy="0" r="${radius}" stroke-dasharray="${roundSvg(nightLength)} ${roundSvg(circumference - nightLength)}" stroke-dashoffset="0"></circle>
+        <circle class="donut-segment day" cx="0" cy="0" r="${radius}" stroke-dasharray="${roundSvg(dayLength)} ${roundSvg(circumference - dayLength)}" stroke-dashoffset="${roundSvg(-nightLength)}"></circle>
+      </g>
+      <text class="donut-total" x="168" y="116" text-anchor="middle">${formatDuration(total)}</text>
+      <text class="chart-subtitle" x="168" y="136" text-anchor="middle">sono total</text>
+      <circle class="legend-dot-svg day" cx="318" cy="88" r="5"></circle>
+      <text class="chart-label" x="332" y="92">Sonecas: ${formatDuration(daySleep)} (${dayPercent}%)</text>
+      <circle class="legend-dot-svg night" cx="318" cy="126" r="5"></circle>
+      <text class="chart-label" x="332" y="130">Sono noturno: ${formatDuration(nightSleep)} (${nightPercent}%)</text>
+    </svg>`;
+}
+
+function reportWakeChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 42, right: 18, bottom: 34, left: 46 };
+  const maxValue = Math.max(1, ...days.flatMap((day) => [day.dayWakeCount, day.nightWakeCount]));
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
+  const pathFor = (selector) => days.map((day, index) => `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(selector(day)))}`).join(" ");
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Despertares diurnos e noturnos">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Despertares</text>
+      <text class="chart-subtitle" x="18" y="39">Diurno considera fim de sonecas; noturno considera pausas acordada.</text>
+      ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="18" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
+      <path class="chart-line day" d="${pathFor((day) => day.dayWakeCount)}"></path>
+      <path class="chart-line awake" d="${pathFor((day) => day.nightWakeCount)}"></path>
+      ${days.map((day, index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${day.label}</text>`).join("")}
+    </svg>`;
+}
+
+function renderLegacySleepReportChart(days) {
   if (!els.sleepReportChart) return;
 
   const width = 640;
@@ -1532,19 +2207,21 @@ async function syncPendingNapsToSheet() {
 }
 
 async function syncFromSheetThenPending() {
-  const [sleepLoad, feedingLoad] = await Promise.allSettled([
+  const [sleepLoad, feedingLoad, diaryLoad] = await Promise.allSettled([
     loadNapsFromSheet({ deferRender: true }),
-    loadFeedingsFromSheet({ deferRender: true })
+    loadFeedingsFromSheet({ deferRender: true }),
+    loadSleepDiaryFromSheet({ deferRender: true })
   ]);
 
   const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
   const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
-  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0);
-  const errors = [loadedSleep, loadedFeedings]
+  const loadedDiary = diaryLoad.status === "fulfilled" ? diaryLoad.value : null;
+  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0);
+  const errors = [loadedSleep, loadedFeedings, loadedDiary]
     .filter((result) => result && result.error)
     .map((result) => result.error);
 
-  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed) {
+  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed) {
     saveState();
     render();
   }
@@ -1557,7 +2234,8 @@ async function syncFromSheetThenPending() {
 
   await Promise.allSettled([
     syncPendingNapsToSheet(),
-    syncPendingFeedingsToSheet()
+    syncPendingFeedingsToSheet(),
+    syncPendingSleepDiaryToSheet()
   ]);
 }
 
@@ -1691,6 +2369,97 @@ function sheetRecordToFeeding(record) {
   };
 }
 
+async function loadSleepDiaryFromSheet(options = {}) {
+  const { deferRender = false } = options;
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
+
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listSleepDiary&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao carregar diário do sono.");
+    if (!Array.isArray(result.records)) {
+      sleepDiarySheetSupport = false;
+      return { count: 0, changed: false };
+    }
+    sleepDiarySheetSupport = true;
+
+    const remoteEntries = (result.records || [])
+      .map(sheetRecordToSleepDiary)
+      .filter(Boolean);
+
+    const hadLocalUnsynced = Object.values(state.sleepDiary || {}).some((entry) => entry && entry.synced === false);
+    mergeSleepDiary(remoteEntries);
+    if (!deferRender) {
+      saveState();
+      render();
+      setHint(`Google Sheets carregado: ${remoteEntries.length} entrada(s) do diário encontrada(s).`);
+    }
+    return { count: remoteEntries.length, changed: hadLocalUnsynced || Boolean(remoteEntries.length) };
+  } catch (error) {
+    const message = `Nao consegui carregar o diario do sono do Google Sheets: ${error.message}`;
+    if (!deferRender) setHint(message);
+    return { count: 0, changed: false, error: message };
+  }
+}
+
+function sheetRecordToSleepDiary(record) {
+  if (!record.napId && !record.id) return null;
+  const id = String(record.napId || record.id);
+  return {
+    id,
+    sleepEndPlace: sleepEndPlaceKey(record.sleepEndPlace),
+    crib: yesNoKey(record.crib),
+    cribHelp: yesNoKey(record.cribHelp),
+    wakeMood: wakeMoodKey(record.wakeMood),
+    sleepLatency: Number.isFinite(Number(record.sleepLatency)) && Number(record.sleepLatency) > 0 ? String(Number(record.sleepLatency)) : "",
+    helpTypes: helpTypesFromLabel(record.helpTypes),
+    feedingBeforeNap: record.feedingBeforeNap || "",
+    pacifier: yesNoKey(record.pacifier),
+    pacifierWake: yesNoKey(record.pacifierWake),
+    synced: true
+  };
+}
+
+function sleepEndPlaceKey(value) {
+  const text = String(value || "").toLowerCase();
+  if (text === "berço (com ajuda)" || text === "berco (com ajuda)" || text === "crib-help") return "crib-help";
+  if (text === "berço (sozinha)" || text === "berco (sozinha)" || text === "crib-alone") return "crib-alone";
+  if (text === "berço" || text === "berco" || text === "crib" || text === "sim" || text === "yes") return "crib-help";
+  if (text === "colo" || text === "lap" || text === "não" || text === "nao" || text === "no") return "lap";
+  return "";
+}
+
+function wakeMoodKey(value) {
+  const text = String(value || "").toLowerCase();
+  if (text === "feliz" || text === "happy") return "happy";
+  if (text === "calma" || text === "calm") return "calm";
+  if (text === "irritada" || text === "upset") return "upset";
+  if (text === "chorando" || text === "crying") return "crying";
+  return "";
+}
+
+function helpTypesFromLabel(value) {
+  if (Array.isArray(value)) return normalizeHelpTypes(value);
+  const text = String(value || "").toLowerCase();
+  if (!text) return [];
+  const selected = [];
+  if (text.includes("colo") || text.includes("lap")) selected.push("lap");
+  if (text.includes("balanço") || text.includes("balanco") || text.includes("rocking")) selected.push("rocking");
+  if (text.includes("mão no peito") || text.includes("mao no peito") || text.includes("chest-hand")) selected.push("chest-hand");
+  if (text.includes("chupeta") || text.includes("pacifier")) selected.push("pacifier");
+  if (text.includes("voz") || text.includes("voice")) selected.push("voice");
+  if (text.includes("shhhh") || text.includes("shush")) selected.push("shush");
+  return selected;
+}
+
+function yesNoKey(value) {
+  const text = String(value || "").toLowerCase();
+  if (text === "yes" || text === "sim") return "yes";
+  if (text === "no" || text === "nao" || text === "não") return "no";
+  return "";
+}
+
 function mergeNaps(remoteNaps) {
   const byId = new Map();
   state.naps
@@ -1745,6 +2514,26 @@ function mergeFeedings(remoteFeedings) {
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, 160);
   hydrateFeedingOptions();
+}
+
+function mergeSleepDiary(remoteEntries) {
+  state.sleepDiary = state.sleepDiary || {};
+  remoteEntries.forEach((entry) => {
+    const current = state.sleepDiary[entry.id];
+    if (current && current.synced === false) return;
+    state.sleepDiary[entry.id] = {
+      sleepEndPlace: entry.sleepEndPlace || legacySleepEndPlace(entry.crib),
+      crib: entry.crib || "",
+      cribHelp: entry.cribHelp || "",
+      wakeMood: entry.wakeMood || "",
+      sleepLatency: entry.sleepLatency || "",
+      helpTypes: normalizeHelpTypes(entry.helpTypes),
+      feedingBeforeNap: entry.feedingBeforeNap || "",
+      pacifier: entry.pacifier || "",
+      pacifierWake: entry.pacifierWake || "",
+      synced: true
+    };
+  });
 }
 
 function applyProfileFromLatestNap() {
@@ -1832,7 +2621,7 @@ function sheetPayloadForNap(nap) {
     wakeWindow: `${formatDuration(prediction.minWindow)} - ${formatDuration(prediction.maxWindow)}`,
     nextWindow: `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`,
     nightSuggestion: recordType === "night" ? bedtime : minutesToTime(night.start),
-    note: recordType === "night" ? nightAwakeningsNote(nap) : ""
+    note: recordType === "night" ? nightAwakeningsNote(nap) : napGoalNote(nap)
   };
   return payload;
 }
@@ -1917,6 +2706,150 @@ function sheetPayloadForFeeding(feeding) {
     note: feeding.note || "",
     dayStart: normalizeTimeField(feeding.dayStart || state.dayStart)
   };
+}
+
+async function syncSleepDiaryEntryToSheet(napId) {
+  if (!SHEETS_WEB_APP_URL || !napId) return;
+  return syncSleepDiaryToSheet([napId], "Diário salvo no aparelho. Enviando para o Google Sheets...");
+}
+
+async function syncPendingSleepDiaryToSheet() {
+  const pendingIds = Object.entries(state.sleepDiary || {})
+    .filter(([, entry]) => entry && entry.synced === false)
+    .map(([id]) => id);
+  if (!pendingIds.length) return;
+  await syncSleepDiaryToSheet(pendingIds, "Sincronizando diário do sono com o Google Sheets...");
+}
+
+async function syncSleepDiaryToSheet(napIds, statusMessage) {
+  if (!SHEETS_WEB_APP_URL || !napIds.length) return;
+  const supported = await ensureSleepDiarySheetSupport(true);
+  if (!supported) {
+    setHint("Diário salvo no aparelho. Reimplante o Apps Script novo para criar/sincronizar a aba DiarioSono.");
+    return;
+  }
+
+  const records = napIds
+    .map((napId) => sheetPayloadForSleepDiary(napId))
+    .filter(Boolean);
+  if (!records.length) return;
+
+  const payload = {
+    token: SHEETS_SHARED_TOKEN,
+    action: records.length > 1 ? "bulkUpsertSleepDiary" : "upsertSleepDiary",
+    records,
+    ...records[0]
+  };
+
+  try {
+    setHint(statusMessage);
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar diário.");
+
+    const syncedIds = new Set([...(result.inserted || []), ...(result.updated || []), ...(result.skipped || [])].map(String));
+    syncedIds.forEach((id) => {
+      if (state.sleepDiary[id]) state.sleepDiary[id] = { ...state.sleepDiary[id], synced: true };
+    });
+    saveState();
+    setHint("Diário do sono sincronizado com o Google Sheets.");
+  } catch (error) {
+    setHint(`Diário salvo no aparelho, mas não foi enviado ao Google Sheets: ${error.message}`);
+  }
+}
+
+async function ensureSleepDiarySheetSupport(forceRetry = false) {
+  if (sleepDiarySheetSupport === true && !forceRetry) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listSleepDiary&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    sleepDiarySheetSupport = Boolean(result.ok && Array.isArray(result.records));
+  } catch {
+    if (!forceRetry) sleepDiarySheetSupport = false;
+    return false;
+  }
+  return sleepDiarySheetSupport;
+}
+
+function sheetPayloadForSleepDiary(napId) {
+  const entry = sleepDiaryEntry(napId);
+  const nap = state.naps.find((item) => String(item.id || napIdentity(item)) === String(napId));
+  if (!nap || !entry) return null;
+
+  const orderedNaps = state.naps
+    .filter((item) => recordDateInputValue(item) === recordDateInputValue(nap))
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  const napNumber = orderedNaps.findIndex((item) => String(item.id || napIdentity(item)) === String(napId)) + 1;
+  const startedAt = new Date(nap.start);
+  const endedAt = new Date(nap.end);
+
+  return {
+    id: napId,
+    napId,
+    babyName: nap.babyName || state.babyName || "Bebê",
+    babyAge: Number(nap.babyAge || currentBabyAgeMonths() || 0),
+    date: dateInputValue(startedAt),
+    napNumber,
+    start: toLocalDateTimeValue(startedAt),
+    end: toLocalDateTimeValue(endedAt),
+    duration: safeDuration(nap),
+    wakeWindowUsed: wakeWindowUsedForNap(nap),
+    wakeWindowUsedLabel: formatDuration(wakeWindowUsedForNap(nap)),
+    sleepEndPlace: entry.sleepEndPlace || legacySleepEndPlace(entry.crib),
+    sleepEndPlaceLabel: sleepEndPlaceLabel(entry.sleepEndPlace || legacySleepEndPlace(entry.crib)),
+    cribHelp: entry.cribHelp || "",
+    cribHelpLabel: yesNoLabel(entry.cribHelp),
+    wakeMood: entry.wakeMood || "",
+    wakeMoodLabel: wakeMoodLabel(entry.wakeMood),
+    sleepLatency: Number(entry.sleepLatency) || "",
+    helpTypes: normalizeHelpTypes(entry.helpTypes),
+    helpTypesLabel: helpTypesLabel(entry.helpTypes),
+    feedingBeforeNap: feedingBeforeNapLabel(nap),
+    crib: entry.crib || "",
+    cribLabel: yesNoLabel(entry.crib),
+    pacifier: entry.pacifier || "",
+    pacifierLabel: yesNoLabel(entry.pacifier),
+    pacifierWake: entry.pacifierWake || "",
+    pacifierWakeLabel: yesNoLabel(entry.pacifierWake)
+  };
+}
+
+function yesNoLabel(value) {
+  if (value === "yes") return "Sim";
+  if (value === "no") return "Não";
+  return "";
+}
+
+function sleepEndPlaceLabel(value) {
+  if (value === "crib" || value === "crib-help") return "Berço (com ajuda)";
+  if (value === "crib-alone") return "Berço (sozinha)";
+  if (value === "lap") return "Colo";
+  return "";
+}
+
+function wakeMoodLabel(value) {
+  if (value === "happy") return "Feliz";
+  if (value === "calm") return "Calma";
+  if (value === "upset") return "Irritada";
+  if (value === "crying") return "Chorando";
+  return "";
+}
+
+function helpTypesLabel(value) {
+  const labels = {
+    lap: "colo",
+    rocking: "balanço",
+    "chest-hand": "mão no peito",
+    pacifier: "chupeta",
+    voice: "voz",
+    shush: "shhhh"
+  };
+  return normalizeHelpTypes(value).map((item) => labels[item]).filter(Boolean).join(", ");
 }
 
 async function deleteNapFromSheet(id) {
@@ -2759,6 +3692,32 @@ function normalizeDayMinutes(minutes) {
   return ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60);
 }
 
+function normalizeSleepDiary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([id, entry]) => [
+    String(id),
+    {
+      sleepEndPlace: ["crib", "crib-help", "crib-alone", "lap"].includes(entry?.sleepEndPlace) ? sleepEndPlaceKey(entry.sleepEndPlace) : legacySleepEndPlace(entry?.crib),
+      crib: entry?.crib === "yes" || entry?.crib === "no" ? entry.crib : "",
+      cribHelp: entry?.cribHelp === "yes" || entry?.cribHelp === "no" ? entry.cribHelp : "",
+      wakeMood: ["happy", "calm", "upset", "crying"].includes(entry?.wakeMood) ? entry.wakeMood : "",
+      sleepLatency: Number.isFinite(Number(entry?.sleepLatency)) && Number(entry.sleepLatency) > 0 ? String(Number(entry.sleepLatency)) : "",
+      helpTypes: normalizeHelpTypes(entry?.helpTypes),
+      feedingBeforeNap: entry?.feedingBeforeNap || "",
+      pacifier: entry?.pacifier === "yes" || entry?.pacifier === "no" ? entry.pacifier : "",
+      pacifierWake: entry?.pacifierWake === "yes" || entry?.pacifierWake === "no" ? entry.pacifierWake : "",
+      synced: entry?.synced === true
+    }
+  ]));
+}
+
+function normalizeHelpTypes(value) {
+  const allowed = new Set(["lap", "rocking", "chest-hand", "pacifier", "voice", "shush"]);
+  return (Array.isArray(value) ? value : helpTypesFromLabel(value)).filter((item, index, list) => (
+    allowed.has(item) && list.indexOf(item) === index
+  ));
+}
+
 function roundSvg(value) {
   return Math.round(value * 100) / 100;
 }
@@ -2782,22 +3741,29 @@ function loadState() {
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
+    loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
     loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);
     loaded.babyBirthDate = normalizeDateInputValue(loaded.babyBirthDate);
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
     if (loaded.babyBirthDate) {
       loaded.babyAge = ageMonthsFromBirthDate(loaded.babyBirthDate);
     }
-    loaded.naps = (loaded.naps || []).map((nap) => ({
-      ...nap,
-      id: nap.id || stableNapId(nap),
-      dayStart: normalizeTimeField(nap.dayStart) || loaded.dayStart,
-      bedtime: normalizeTimeField(nap.bedtime) || loaded.bedtime,
-      lastWake: normalizeTimeField(nap.lastWake),
-      babyAge: Number.isFinite(Number(nap.babyAge)) ? Number(nap.babyAge) : loaded.babyAge,
-      duration: safeDuration(nap),
-      synced: Boolean(nap.synced)
-    }));
+    loaded.naps = (loaded.naps || []).map((nap) => {
+      const duration = safeDuration(nap);
+      const goalDuration = Number(nap.goalDuration) || 0;
+      return {
+        ...nap,
+        id: nap.id || stableNapId(nap),
+        dayStart: normalizeTimeField(nap.dayStart) || loaded.dayStart,
+        bedtime: normalizeTimeField(nap.bedtime) || loaded.bedtime,
+        lastWake: normalizeTimeField(nap.lastWake),
+        babyAge: Number.isFinite(Number(nap.babyAge)) ? Number(nap.babyAge) : loaded.babyAge,
+        duration,
+        goalDuration,
+        goalPercent: goalDuration ? napGoalPercent(duration, goalDuration) : Number(nap.goalPercent || 0),
+        synced: Boolean(nap.synced)
+      };
+    });
     loaded.nights = (loaded.nights || []).map((night) => ({
       ...night,
       type: "night",
@@ -2861,6 +3827,7 @@ function closeAllSheets(exceptSheet = null) {
     els.installSheet,
     els.profileSheet,
     els.historySheet,
+    els.diarySheet,
     els.reportSheet,
     els.moodSheet,
     els.startSheet,
@@ -2887,6 +3854,7 @@ function updateSheetOpenState() {
     els.installSheet,
     els.profileSheet,
     els.historySheet,
+    els.diarySheet,
     els.reportSheet,
     els.moodSheet,
     els.startSheet,
@@ -2910,9 +3878,16 @@ function toggleHistorySheet(open) {
   if (open) renderHistory();
 }
 
+function toggleDiarySheet(open) {
+  setSheetOpen(els.diarySheet, open);
+  if (open) renderSleepDiary();
+}
+
 function toggleReportSheet(open) {
   setSheetOpen(els.reportSheet, open);
-  if (open) renderReport();
+  if (open) {
+    renderReport();
+  }
 }
 
 function toggleMoodSheet(open) {
@@ -3251,6 +4226,59 @@ function minutesSinceDate(value) {
   return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 60000)) : 0;
 }
 
+function activeNapGoalMinutes() {
+  return napGoalMinutesForIndex(napsToday().length + 1);
+}
+
+function napGoalMinutesForIndex(napIndex) {
+  const samples = napDurationSamplesByIndex(napIndex);
+  if (samples.length) {
+    const average = Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length);
+    return clamp(average, 35, 140);
+  }
+
+  const age = currentBabyAgeMonths();
+  if (age <= 4) return 60;
+  if (age <= 8) return 75;
+  if (age <= 15) return napIndex === 1 ? 90 : 75;
+  return 90;
+}
+
+function napDurationSamplesByIndex(napIndex) {
+  const byDay = new Map();
+  state.naps.forEach((nap) => {
+    const start = new Date(nap.start);
+    if (Number.isNaN(start.getTime())) return;
+    const key = recordDateInputValue(nap);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(nap);
+  });
+
+  const samples = [];
+  byDay.forEach((naps) => {
+    const ordered = naps.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+    const nap = ordered[napIndex - 1];
+    if (nap) {
+      const duration = safeDuration(nap);
+      if (duration >= 15 && duration <= 180) samples.push(duration);
+    }
+  });
+  return samples.slice(-10);
+}
+
+function napIndexForStart(startedAt) {
+  const key = dateInputValue(startedAt);
+  return state.naps.filter((nap) => {
+    const start = new Date(nap.start);
+    return !Number.isNaN(start.getTime()) && dateInputValue(start) === key && start < startedAt;
+  }).length + 1;
+}
+
+function napGoalPercent(duration, goal) {
+  const safeGoal = Math.max(1, Math.round(Number(goal) || 1));
+  return clamp(Math.round((Math.max(0, Number(duration) || 0) / safeGoal) * 100), 0, 150);
+}
+
 function safeDuration(nap) {
   const direct = Number(nap.duration);
   if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
@@ -3280,6 +4308,14 @@ function toLocalDateTimeValue(date) {
 function dateInputValue(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateInputValue(value) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function recordDateInputValue(record) {
@@ -3314,6 +4350,14 @@ function shortWeekdayLabel(date) {
 function dateLabel(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "--/--";
   return date.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+}
+
+function escapeAttribute(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function clamp(value, min, max) {
