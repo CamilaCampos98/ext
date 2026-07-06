@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=72">
+    <link rel="stylesheet" href="styles.css?v=74">
   </head>
   <body>
     <div class="app-shell">
@@ -270,6 +270,14 @@
             <span>Média total</span>
             <strong id="avgTotalSleep">0h</strong>
           </div>
+          <div>
+            <span>MÃ©dia mamadas/dia</span>
+            <strong id="avgFeedingCount">0</strong>
+          </div>
+          <div>
+            <span>Acordada Ã  noite</span>
+            <strong id="avgNightAwake">0min</strong>
+          </div>
         </div>
         <div class="report-chart-wrap">
           <svg id="sleepReportChart" class="report-chart" viewBox="0 0 640 260" role="img" aria-label="Progressão do sono na semana"></svg>
@@ -278,6 +286,8 @@
           <span class="legend-item"><i class="legend-dot nap"></i>Diurno</span>
           <span class="legend-item"><i class="legend-dot night"></i>Noturno</span>
           <span class="legend-item"><i class="legend-dot total"></i>Total</span>
+          <span class="legend-item"><i class="legend-dot feed"></i>Mamadas</span>
+          <span class="legend-item"><i class="legend-dot awake"></i>Acordada</span>
         </div>
         <p class="fineprint" id="reportSummary">Sem registros suficientes para calcular a média.</p>
       </div>
@@ -336,6 +346,16 @@
             <i class="fa-solid fa-cloud-sun" aria-hidden="true"></i>
             <strong>Acordou</strong>
             <span>Encerra o sono noturno e inicia o novo dia</span>
+          </button>
+          <button class="manual-card-button night" id="startNightAwake" type="button">
+            <i class="fa-solid fa-mug-saucer" aria-hidden="true"></i>
+            <strong>Acordou na madrugada</strong>
+            <span>Marca uma pausa acordada sem encerrar a noite</span>
+          </button>
+          <button class="manual-card-button night" id="endNightAwake" type="button">
+            <i class="fa-solid fa-bed" aria-hidden="true"></i>
+            <strong>Voltou a dormir</strong>
+            <span>Continua o sono noturno depois da pausa</span>
           </button>
           <button class="manual-card-button" id="openManualNap" type="button">
             <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
@@ -428,6 +448,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=87" defer></script>
+    <script src="app.js?v=93" defer></script>
   </body>
 </html>

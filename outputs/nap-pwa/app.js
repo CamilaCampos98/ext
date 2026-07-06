@@ -7,6 +7,7 @@ const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyXhag4VlD-y5IbQWcYoU2TMoF6RMri96HrzylzMwsRMgJPZQN-pTs1MFPJqFpdKCl-Zg/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
+const CYCLE_START_GRACE_MINUTES = 5;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -30,6 +31,8 @@ const defaultState = {
   plannedNapCount: 5,
   activeNapStart: null,
   activeNightStart: null,
+  activeNightAwakeStart: null,
+  activeNightAwakenings: [],
   cycleStartAt: null,
   naps: [],
   nights: [],
@@ -84,6 +87,8 @@ const els = {
   endNap: document.querySelector("#endNap"),
   startNight: document.querySelector("#startNight"),
   endNight: document.querySelector("#endNight"),
+  startNightAwake: document.querySelector("#startNightAwake"),
+  endNightAwake: document.querySelector("#endNightAwake"),
   openManualNap: document.querySelector("#openManualNap"),
   openManualNight: document.querySelector("#openManualNight"),
   openFeeding: document.querySelector("#openFeeding"),
@@ -128,6 +133,8 @@ const els = {
   avgDaySleep: document.querySelector("#avgDaySleep"),
   avgNightSleep: document.querySelector("#avgNightSleep"),
   avgTotalSleep: document.querySelector("#avgTotalSleep"),
+  avgFeedingCount: document.querySelector("#avgFeedingCount"),
+  avgNightAwake: document.querySelector("#avgNightAwake"),
   sleepReportChart: document.querySelector("#sleepReportChart"),
   reportSummary: document.querySelector("#reportSummary"),
   reportWeekLabel: document.querySelector("#reportWeekLabel"),
@@ -252,6 +259,14 @@ function bindEvents() {
   els.endNight.addEventListener("click", () => {
     toggleStartSheet(false);
     completeNightSleep();
+  });
+  els.startNightAwake.addEventListener("click", () => {
+    toggleStartSheet(false);
+    startNightAwake();
+  });
+  els.endNightAwake.addEventListener("click", () => {
+    toggleStartSheet(false);
+    endNightAwake();
   });
   els.openManualNap.addEventListener("click", () => {
     toggleStartSheet(false);
@@ -403,7 +418,35 @@ function startNap() {
 function startNightSleep() {
   if (state.activeNapStart || state.activeNightStart) return;
   state.activeNightStart = new Date().toISOString();
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = [];
   clearNotificationTimers();
+  syncRemoteNotificationScheduleAbsolute([]);
+  saveState();
+  if (canNotify()) {
+    notify("Sono noturno iniciado \ud83c\udf19", `${babyDisplayName()} dormiu! Hora de descansar \ud83d\udc9e`, "soneca-noite-iniciada");
+  }
+  render();
+}
+
+function startNightAwake() {
+  if (!state.activeNightStart || state.activeNightAwakeStart) return;
+  state.activeNightAwakeStart = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function endNightAwake() {
+  if (!state.activeNightStart || !state.activeNightAwakeStart) return;
+  const startedAt = new Date(state.activeNightAwakeStart);
+  const endedAt = new Date();
+  if (!Number.isNaN(startedAt.getTime()) && endedAt > startedAt) {
+    state.activeNightAwakenings = [
+      ...(state.activeNightAwakenings || []),
+      { start: startedAt.toISOString(), end: endedAt.toISOString() }
+    ];
+  }
+  state.activeNightAwakeStart = null;
   saveState();
   render();
 }
@@ -415,14 +458,18 @@ function completeNightSleep() {
 
   if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
     state.activeNightStart = null;
+    state.activeNightAwakeStart = null;
+    state.activeNightAwakenings = [];
     saveState();
     render();
     return;
   }
 
-  const night = createNightRecord(startedAt, endedAt);
+  const night = createNightRecord(startedAt, endedAt, activeNightAwakeningsUntil(endedAt));
   addNightRecord(night);
   state.activeNightStart = null;
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = [];
   applyNightAsCycleStartIfLatest(night);
   saveState();
   syncNightToSheet(night);
@@ -504,7 +551,9 @@ function createNapRecord(startedAt, endedAt, mood) {
   };
 }
 
-function createNightRecord(startedAt, endedAt) {
+function createNightRecord(startedAt, endedAt, awakenings = []) {
+  const awakeMinutes = totalAwakeMinutes(awakenings);
+  const grossDuration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
     id: `night-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     type: "night",
@@ -515,7 +564,9 @@ function createNightRecord(startedAt, endedAt) {
     lastWake: minutesToTime(dateToDayMinutes(endedAt)),
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
-    duration: Math.max(1, Math.round((endedAt - startedAt) / 60000)),
+    duration: Math.max(1, grossDuration - awakeMinutes),
+    awakeDuration: awakeMinutes,
+    awakenings,
     mood: "",
     synced: false
   };
@@ -533,6 +584,42 @@ function createFeedingRecord(fedAt, type, side, note) {
     dayStart: state.dayStart,
     synced: false
   };
+}
+
+function activeNightAwakeningsUntil(endedAt = new Date()) {
+  const awakenings = normalizeAwakenings(state.activeNightAwakenings || []);
+  const awakeStart = new Date(state.activeNightAwakeStart || "");
+  if (!Number.isNaN(awakeStart.getTime()) && endedAt > awakeStart) {
+    awakenings.push({ start: awakeStart.toISOString(), end: endedAt.toISOString() });
+  }
+  return awakenings;
+}
+
+function normalizeAwakenings(awakenings = []) {
+  return awakenings
+    .map((item) => {
+      const start = new Date(item.start);
+      const end = new Date(item.end);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+      return { start: start.toISOString(), end: end.toISOString() };
+    })
+    .filter(Boolean);
+}
+
+function totalAwakeMinutes(awakenings = []) {
+  return normalizeAwakenings(awakenings).reduce((sum, item) => {
+    return sum + Math.max(1, Math.round((new Date(item.end) - new Date(item.start)) / 60000));
+  }, 0);
+}
+
+function nightAwakeningsNote(night) {
+  const awakenings = normalizeAwakenings(night.awakenings || []);
+  const awakeMinutes = Number(night.awakeDuration || totalAwakeMinutes(awakenings));
+  if (!awakenings.length && !awakeMinutes) return "";
+  const ranges = awakenings
+    .map((item) => `${timeLabel(new Date(item.start))}-${timeLabel(new Date(item.end))}`)
+    .join(", ");
+  return `Acordada na noite: ${formatDuration(awakeMinutes)}${ranges ? ` (${ranges})` : ""}`;
 }
 
 function addNapRecord(nap) {
@@ -715,20 +802,21 @@ function renderProfile() {
 
 function calculatePrediction() {
   const age = currentBabyAgeMonths();
-  const profile = wakeWindowForAge(age);
+  const ageProfile = wakeWindowForAge(age);
   const today = napsToday();
   const recent = state.naps.slice(0, 7);
   const lastNap = today[0] || recent[0];
   const sleep24 = sleepInLast24Hours();
   const bedtimeMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
   const lastWakeMinutes = effectiveLastWakeMinutes(today);
+  const profile = customWakeWindowProfile(ageProfile, today);
 
   let adjustment = 0;
   if (lastNap && lastNap.duration < 35) adjustment -= 20;
   if (lastNap && lastNap.duration > 100) adjustment += 15;
 
   const averageWindow = averageRecentWakeWindow(recent);
-  if (averageWindow) {
+  if (averageWindow && !profile.custom) {
     adjustment += clamp(Math.round((averageWindow - profile.target) * 0.35), -25, 25);
   }
 
@@ -775,9 +863,33 @@ function renderPrediction(prediction) {
     return;
   }
 
+  if (state.activeNightStart && state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    const awakeMinutes = Number.isNaN(awakeStart.getTime())
+      ? 0
+      : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
+    if (els.nextWindow) els.nextWindow.textContent = "Acordada na madrugada";
+    if (els.nextHint) els.nextHint.textContent = `Acordada h\u00e1 ${formatRingDuration(awakeMinutes)}. O sono noturno continua quando voltar a dormir.`;
+    return;
+  }
+
+  if (state.activeNightStart && totalAwakeMinutes(state.activeNightAwakenings || []) > 0) {
+    if (els.nextWindow) els.nextWindow.textContent = "Sono noturno";
+    if (els.nextHint) els.nextHint.textContent = `Acordada na noite: ${formatRingDuration(totalAwakeMinutes(state.activeNightAwakenings || []))}.`;
+    return;
+  }
+
   if (state.activeNightStart) {
     if (els.nextWindow) els.nextWindow.textContent = "Sono noturno";
     if (els.nextHint) els.nextHint.textContent = "O novo ciclo do dia começa quando o sono noturno for encerrado.";
+    return;
+  }
+
+  if (!hasPlannedNapSlot()) {
+    const night = calculateNightSuggestion(prediction);
+    const delay = minutesUntilReminder(night.start, nowMinutes());
+    if (els.nextWindow) els.nextWindow.textContent = `Sono noturno em ${formatDuration(delay)}`;
+    if (els.nextHint) els.nextHint.textContent = `Sonecas previstas conclu\u00eddas. Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`;
     return;
   }
 
@@ -795,6 +907,11 @@ function renderPrediction(prediction) {
 }
 
 function renderDayPlanner(prediction) {
+  if (state.activeNightStart) {
+    renderNightPlanner();
+    return;
+  }
+
   const now = nowMinutes();
   const night = calculateNightSuggestion(prediction);
   const today = napsToday();
@@ -817,7 +934,7 @@ function renderDayPlanner(prediction) {
     ...(state.activeNapStart ? [{ type: "nap", at: dateToDayMinutes(new Date(state.activeNapStart)), label: timeLabel(new Date(state.activeNapStart)) }] : []),
     ...feedings.map((feeding) => ({
       type: "feed",
-      at: dateToDayMinutes(new Date(feeding.at)),
+      at: ringMarkerMinute(new Date(feeding.at)),
       id: feedingIdentity(feeding)
     })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
@@ -842,6 +959,79 @@ function renderDayPlanner(prediction) {
   els.ringCaptions.innerHTML = "";
   if (els.dayLegend) {
     els.dayLegend.innerHTML = "";
+  }
+}
+
+function renderNightPlanner() {
+  const startedAt = new Date(state.activeNightStart);
+  const now = new Date();
+  if (Number.isNaN(startedAt.getTime())) return;
+
+  const nightStart = dateToDayMinutes(startedAt);
+  currentRingStartMinutes = nightStart;
+  currentRingEndMinutes = normalizeDayMinutes(nightStart + 12 * 60);
+  const nowMinute = dateToDayMinutes(now);
+  const awakenings = activeNightAwakeningsUntil(now);
+  const feedings = feedingsInActiveNight();
+
+  els.daySegments.innerHTML = [
+    arcPath(nightStart, nowMinute, "night"),
+    ...awakenings.map((item) => arcPath(dateToDayMinutes(new Date(item.start)), dateToDayMinutes(new Date(item.end)), "awake"))
+  ].join("");
+
+  els.dayMarkers.innerHTML = [
+    { type: "day-end", at: nightStart, label: timeLabel(startedAt) },
+    ...feedings.map((feeding) => ({
+      type: "feed",
+      at: dateToDayMinutes(new Date(feeding.at)),
+      id: feedingIdentity(feeding)
+    })),
+    ...awakenings.map((item) => ({
+      type: "awake",
+      at: dateToDayMinutes(new Date(item.start)),
+      label: timeLabel(new Date(item.start))
+    }))
+  ]
+    .filter((marker) => Number.isFinite(marker.at))
+    .map((marker) => markerSvg(marker))
+    .join("");
+
+  const nowPoint = pointOnCircle(nowMinute, 92);
+  els.dayNowHand.setAttribute("x2", String(nowPoint.x));
+  els.dayNowHand.setAttribute("y2", String(nowPoint.y));
+  renderNightRingCenter(startedAt, now, awakenings, feedings);
+  renderNightRingLabels(startedAt, now);
+  if (els.bedtimeSuggestion) els.bedtimeSuggestion.textContent = timeLabel(startedAt);
+  if (els.bedtimeReason) els.bedtimeReason.textContent = "Concha noturna ativa: mamadas e despertares aparecem nesta linha da noite.";
+  if (els.ringCaptions) els.ringCaptions.innerHTML = "";
+  if (els.dayLegend) els.dayLegend.innerHTML = "";
+}
+
+function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
+  if (state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    els.dayCenterLabel.textContent = "acordada h\u00e1";
+    els.dayCenterTime.textContent = formatRingDuration(minutesSinceDate(awakeStart));
+    els.dayCenterHint.textContent = feedings.length ? `mamada ${timeLabel(new Date(feedings[0].at))}` : "mamada e colo ficam na concha da noite";
+    return;
+  }
+
+  const elapsed = Math.max(0, Math.floor((now - startedAt) / 60000));
+  const awake = totalAwakeMinutes(awakenings);
+  els.dayCenterLabel.textContent = "dormindo h\u00e1";
+  els.dayCenterTime.textContent = formatRingDuration(Math.max(0, elapsed - awake));
+  const lastFeeding = feedings[0];
+  els.dayCenterHint.textContent = lastFeeding
+    ? `\u00faltima mamada ${timeLabel(new Date(lastFeeding.at))}`
+    : awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
+}
+
+function renderNightRingLabels(startedAt, now) {
+  if (els.ringDayStart) {
+    els.ringDayStart.querySelector("strong").textContent = timeLabel(startedAt);
+  }
+  if (els.ringDayEnd) {
+    els.ringDayEnd.querySelector("strong").textContent = timeLabel(now);
   }
 }
 
@@ -945,10 +1135,36 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
+  if (state.activeNightStart && state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    const awakeMinutes = Number.isNaN(awakeStart.getTime())
+      ? 0
+      : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
+    els.dayCenterLabel.textContent = "acordada h\u00e1";
+    els.dayCenterTime.textContent = formatRingDuration(awakeMinutes);
+    els.dayCenterHint.textContent = "sono noturno continua";
+    return;
+  }
+
+  if (state.activeNightStart && totalAwakeMinutes(state.activeNightAwakenings || []) > 0) {
+    els.dayCenterLabel.textContent = "sono noturno";
+    els.dayCenterTime.textContent = "em andamento";
+    els.dayCenterHint.textContent = `acordada na noite: ${formatRingDuration(totalAwakeMinutes(state.activeNightAwakenings || []))}`;
+    return;
+  }
+
   if (state.activeNightStart) {
     els.dayCenterLabel.textContent = "sono noturno";
     els.dayCenterTime.textContent = "em andamento";
     els.dayCenterHint.textContent = "O novo ciclo começa ao encerrar a noite.";
+    return;
+  }
+
+  if (!hasPlannedNapSlot(today)) {
+    const night = calculateNightSuggestion(prediction);
+    els.dayCenterLabel.textContent = "sono noturno em";
+    els.dayCenterTime.textContent = formatDuration(minutesUntilReminder(night.start, now));
+    els.dayCenterHint.textContent = `previsto ${minutesToTime(night.start)}`;
     return;
   }
 
@@ -1073,6 +1289,7 @@ function effectiveLastWakeMinutes(today = napsToday()) {
 function renderTimer() {
   const active = Boolean(state.activeNapStart);
   const nightActive = Boolean(state.activeNightStart);
+  const nightAwake = Boolean(state.activeNightAwakeStart);
   els.timerPanel.classList.toggle("is-idle", !active && !nightActive);
   els.timerPanel.classList.toggle("is-active", active || nightActive);
   els.openStartSheet.disabled = false;
@@ -1080,13 +1297,15 @@ function renderTimer() {
   els.endNap.disabled = !active;
   els.startNight.disabled = active || nightActive;
   els.endNight.disabled = !nightActive;
+  els.startNightAwake.disabled = !nightActive || nightAwake;
+  els.endNightAwake.disabled = !nightActive || !nightAwake;
 
   if (nightActive) {
     const startedAt = new Date(state.activeNightStart);
     els.timer.textContent = "noite";
-    els.napStatus.textContent = "Sono noturno em andamento";
+    els.napStatus.textContent = nightAwake ? "Acordada durante o sono noturno" : "Sono noturno em andamento";
     els.currentStart.textContent = timeLabel(startedAt);
-    els.currentEnd.textContent = "ao acordar";
+    els.currentEnd.textContent = nightAwake ? "voltou a dormir" : "ao acordar";
     els.currentMood.textContent = "Noite";
     return;
   }
@@ -1159,12 +1378,14 @@ function renderHistory() {
 
 function renderReport() {
   const days = reportWeekDays(reportWeekStart);
-  const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep);
+  const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.nightAwake);
   const divisor = activeDays.length || 1;
   const avgNapCount = activeDays.reduce((sum, day) => sum + day.napCount, 0) / divisor;
   const avgDaySleep = activeDays.reduce((sum, day) => sum + day.daySleep, 0) / divisor;
   const avgNightSleep = activeDays.reduce((sum, day) => sum + day.nightSleep, 0) / divisor;
   const avgTotalSleep = activeDays.reduce((sum, day) => sum + day.totalSleep, 0) / divisor;
+  const avgFeedingCount = activeDays.reduce((sum, day) => sum + day.feedingCount, 0) / divisor;
+  const avgNightAwake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0) / divisor;
   const weekEnd = addDays(reportWeekStart, 6);
 
   els.reportWeekLabel.textContent = `${shortDateLabel(reportWeekStart)} - ${shortDateLabel(weekEnd)}`;
@@ -1172,8 +1393,10 @@ function renderReport() {
   els.avgDaySleep.textContent = formatDuration(Math.round(avgDaySleep));
   els.avgNightSleep.textContent = formatDuration(Math.round(avgNightSleep));
   els.avgTotalSleep.textContent = formatDuration(Math.round(avgTotalSleep));
+  if (els.avgFeedingCount) els.avgFeedingCount.textContent = activeDays.length ? avgFeedingCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgNightAwake) els.avgNightAwake.textContent = formatDuration(Math.round(avgNightAwake));
   els.reportSummary.textContent = activeDays.length
-    ? `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.`
+    ? reportSummaryText(activeDays)
     : "Sem registros suficientes para calcular a media.";
 
   renderSleepReportChart(days);
@@ -1187,20 +1410,53 @@ function reportWeekDays(startDate) {
     const key = dateInputValue(date);
     const naps = state.naps.filter((nap) => recordDateInputValue(nap) === key);
     const nights = state.nights.filter((night) => recordDateInputValue({ ...night, start: night.end }) === key);
+    const feedings = state.feedings.filter((feeding) => recordDateInputValue({ start: feeding.at }) === key);
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + safeDuration(night), 0);
+    const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
 
     days.push({
       key,
       label: shortWeekdayLabel(date),
       napCount: naps.length,
+      feedingCount: feedings.length,
+      feedingInterval: averageFeedingInterval(feedings),
       daySleep,
       nightSleep,
+      nightAwake,
       totalSleep: daySleep + nightSleep
     });
   }
 
   return days;
+}
+
+function averageFeedingInterval(feedings) {
+  const times = feedings
+    .map((feeding) => new Date(feeding.at).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (times.length < 2) return 0;
+  const intervals = [];
+  for (let index = 1; index < times.length; index += 1) {
+    const minutes = Math.round((times[index] - times[index - 1]) / 60000);
+    if (minutes > 10 && minutes < 8 * 60) intervals.push(minutes);
+  }
+  return intervals.length ? Math.round(intervals.reduce((sum, value) => sum + value, 0) / intervals.length) : 0;
+}
+
+function reportSummaryText(activeDays) {
+  const feedingDays = activeDays.filter((day) => day.feedingInterval);
+  const firstInterval = feedingDays[0]?.feedingInterval || 0;
+  const lastInterval = feedingDays[feedingDays.length - 1]?.feedingInterval || 0;
+  const pattern = firstInterval && lastInterval
+    ? Math.abs(lastInterval - firstInterval) <= 20
+      ? ` Mamadas com intervalo est\u00e1vel perto de ${formatDuration(lastInterval)}.`
+      : ` Intervalo das mamadas mudou de ${formatDuration(firstInterval)} para ${formatDuration(lastInterval)}.`
+    : "";
+  const awake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0);
+  const awakeText = awake ? ` Acordada \u00e0 noite: ${formatDuration(awake)} no per\u00edodo.` : "";
+  return `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.${pattern}${awakeText}`;
 }
 
 function shiftReportWeek(direction) {
@@ -1216,19 +1472,27 @@ function renderSleepReportChart(days) {
   const padding = { top: 18, right: 18, bottom: 34, left: 42 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
-  const maxValue = Math.max(60, ...days.flatMap((day) => [day.daySleep, day.nightSleep, day.totalSleep]));
+  const maxValue = Math.max(60, ...days.flatMap((day) => [day.daySleep, day.nightSleep, day.totalSleep, day.nightAwake]));
+  const maxCount = Math.max(1, ...days.flatMap((day) => [day.napCount, day.feedingCount]));
   const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+  const scaleCountY = (value) => padding.top + plotHeight - (value / maxCount) * Math.min(90, plotHeight * 0.46);
   const scaleX = (index) => padding.left + (days.length <= 1 ? 0 : (index / (days.length - 1)) * plotWidth);
   const pathFor = (selector) => days.map((day, index) => `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(selector(day)))}`).join(" ");
+  const countPathFor = (selector) => days.map((day, index) => `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleCountY(selector(day)))}`).join(" ");
   const tickValues = [0, Math.round(maxValue / 2), maxValue];
   const labelIndexes = [0, Math.floor((days.length - 1) / 2), days.length - 1];
+  const barWidth = 10;
 
   els.sleepReportChart.innerHTML = `
     <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
     ${tickValues.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="8" y="${roundSvg(scaleY(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+    ${days.map((day, index) => `<rect class="chart-bar nap-count" x="${roundSvg(scaleX(index) - barWidth - 1)}" y="${roundSvg(scaleCountY(day.napCount))}" width="${barWidth}" height="${roundSvg(padding.top + plotHeight - scaleCountY(day.napCount))}" rx="3"></rect>`).join("")}
+    ${days.map((day, index) => `<rect class="chart-bar feed-count" x="${roundSvg(scaleX(index) + 1)}" y="${roundSvg(scaleCountY(day.feedingCount))}" width="${barWidth}" height="${roundSvg(padding.top + plotHeight - scaleCountY(day.feedingCount))}" rx="3"></rect>`).join("")}
     <path class="chart-line day" d="${pathFor((day) => day.daySleep)}"></path>
     <path class="chart-line night" d="${pathFor((day) => day.nightSleep)}"></path>
     <path class="chart-line total" d="${pathFor((day) => day.totalSleep)}"></path>
+    <path class="chart-line awake" d="${pathFor((day) => day.nightAwake)}"></path>
+    <path class="chart-line feed" d="${countPathFor((day) => day.feedingCount)}"></path>
     ${days.map((day, index) => day.totalSleep ? `<circle class="chart-point total" cx="${roundSvg(scaleX(index))}" cy="${roundSvg(scaleY(day.totalSleep))}" r="3"></circle>` : "").join("")}
     ${labelIndexes.map((index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${days[index] ? days[index].label : ""}</text>`).join("")}
   `;
@@ -1568,7 +1832,7 @@ function sheetPayloadForNap(nap) {
     wakeWindow: `${formatDuration(prediction.minWindow)} - ${formatDuration(prediction.maxWindow)}`,
     nextWindow: `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`,
     nightSuggestion: recordType === "night" ? bedtime : minutesToTime(night.start),
-    note: ""
+    note: recordType === "night" ? nightAwakeningsNote(nap) : ""
   };
   return payload;
 }
@@ -1704,6 +1968,7 @@ function scheduleUpcomingNotifications() {
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
+  const hasNapSlot = hasPlannedNapSlot();
   const reminders = [
     {
       at: prediction.start - 15,
@@ -1738,13 +2003,17 @@ function scheduleUpcomingNotifications() {
       tag: "soneca-noite"
     }
   ];
+  if (!hasNapSlot) {
+    reminders.splice(0, 3);
+  }
   reminders.forEach((reminder) => {
+    applyFriendlyReminderCopy(reminder, prediction, night);
     scheduleReminder(reminder, now);
   });
   syncRemoteNotificationSchedule(reminders, now);
   const nextReminder = nextUpcomingReminder(reminders, now);
   const nextReminderDelay = nextReminder ? nextReminder.delay : null;
-  updateNotificationHelp(minutesToWindow <= 15
+  updateNotificationHelp(hasNapSlot && minutesToWindow <= 15
     ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
     : nextReminderDelay
       ? `Avisos ligados. Próximo lembrete em ${formatDuration(nextReminderDelay)} (${minutesToTime(nextReminder.at)}).`
@@ -1764,6 +2033,7 @@ function scheduleActiveNapNotifications() {
     { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa.", tag: "soneca-ativa-45" },
     { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia.", tag: "soneca-ativa-90" }
   ];
+  activeReminders.forEach(applyFriendlyActiveNapCopy);
   let nextDelay = null;
   activeReminders.forEach((item) => {
     const delay = started + item.minute * 60000 - Date.now();
@@ -1771,19 +2041,19 @@ function scheduleActiveNapNotifications() {
       nextDelay = nextDelay === null ? delay : Math.min(nextDelay, delay);
       notificationTimers.push(setTimeout(() => {
         markActiveNapNoticeSent(item.tag);
-        notify("Soneca em andamento", item.body, item.tag);
+        notify("Soneca em andamento ☁️", item.body, item.tag);
       }, delay));
       return;
     }
 
     if (elapsedMinutes >= item.minute && elapsedMinutes <= item.minute + 10 && !wasActiveNapNoticeSent(item.tag)) {
       markActiveNapNoticeSent(item.tag);
-      notify("Soneca em andamento", item.body, item.tag);
+      notify("Soneca em andamento ☁️", item.body, item.tag);
     }
   });
   syncRemoteNotificationScheduleAbsolute(activeReminders.map((item) => ({
     at: new Date(started + item.minute * 60000).toISOString(),
-    title: "Soneca em andamento",
+    title: "Soneca em andamento ☁️",
     body: item.body,
     tag: item.tag
   })));
@@ -1791,6 +2061,43 @@ function scheduleActiveNapNotifications() {
     ? "Avisos ligados para esta soneca. Os marcos de acompanhamento previstos já passaram."
     : `Avisos ligados para esta soneca. Próximo acompanhamento em ${formatDuration(nextDelay / 60000)}.`
   );
+}
+
+function applyFriendlyActiveNapCopy(reminder) {
+  const name = babyDisplayName();
+  const copies = {
+    "soneca-ativa-30": `${name} est\u00e1 dormindo h\u00e1 30min ☁️ Observe se ela emenda outro ciclo.`,
+    "soneca-ativa-45": `${name} chegou em 45min de soneca ✨ Essa faixa costuma ser transi\u00e7\u00e3o de ciclo.`,
+    "soneca-ativa-90": `${name} dormiu 1h30. Boa soneca; vale observar o impacto no sono noturno 💞`
+  };
+  reminder.body = copies[reminder.tag] || reminder.body;
+}
+
+function applyFriendlyReminderCopy(reminder, prediction, night) {
+  const name = babyDisplayName();
+  const copies = {
+    "soneca-janela-chegando": {
+      title: "Janela do sono se aproximando… ☁️",
+      body: `Faltam 15min para abrir. A janela vai at\u00e9 ${minutesToTime(prediction.end)} 🫩`
+    },
+    "soneca-janela-aberta": {
+      title: "Janela de soneca aberta ☁️",
+      body: `Janela aberta agora. Tempo at\u00e9 o fim: ${formatDuration(minutesBetweenClock(prediction.start, prediction.end))} 🫩`
+    },
+    "soneca-alvo": {
+      title: "Sono chegando por aqui ✨",
+      body: `${name} est\u00e1 perto do alvo da soneca. Observe os sinais.`
+    },
+    "soneca-noite-chegando": {
+      title: "Sono noturno chegando 🌙",
+      body: `${name} pode estar pronta para desacelerar. Previs\u00e3o: ${minutesToTime(night.start)} 💞`
+    },
+    "soneca-noite": {
+      title: "Hora do soninho da noite 🌙",
+      body: `${name} dormiu? Se sim, toque em Hora de dormir. Hora de descansar 💞`
+    }
+  };
+  Object.assign(reminder, copies[reminder.tag] || {});
 }
 
 function scheduleReminder(reminder, now = nowMinutes()) {
@@ -2058,6 +2365,55 @@ function averageRecentWakeWindow(naps) {
   return Math.round(windows.reduce((sum, value) => sum + value, 0) / windows.length);
 }
 
+function customWakeWindowProfile(baseProfile, today = napsToday()) {
+  const nextIndex = today.length + (state.activeNapStart ? 1 : 0) + 1;
+  const samples = wakeWindowSamplesByNapIndex(nextIndex);
+  if (!samples.length) return { ...baseProfile, custom: false, samples: 0 };
+
+  const average = Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length);
+  const spread = samples.length >= 3 ? 20 : 15;
+  return {
+    ...baseProfile,
+    min: clamp(average - spread, Math.max(30, baseProfile.min - 35), baseProfile.max + 30),
+    target: clamp(average, Math.max(35, baseProfile.min - 20), baseProfile.max + 40),
+    max: clamp(average + spread, baseProfile.min, baseProfile.max + 60),
+    custom: true,
+    samples: samples.length
+  };
+}
+
+function wakeWindowSamplesByNapIndex(napIndex) {
+  const byDay = new Map();
+  state.naps.forEach((nap) => {
+    const start = new Date(nap.start);
+    const end = new Date(nap.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const key = recordDateInputValue(nap);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(nap);
+  });
+
+  const samples = [];
+  byDay.forEach((naps) => {
+    const ordered = naps.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+    const nap = ordered[napIndex - 1];
+    if (!nap) return;
+    let windowMinutes = null;
+    if (napIndex === 1) {
+      const dayStart = safeTimeToMinutes(nap.dayStart || state.dayStart || DEFAULT_DAY_START, 7 * 60);
+      const startMinutes = dateToDayMinutes(new Date(nap.start));
+      windowMinutes = minutesBetweenClock(dayStart, startMinutes);
+    } else {
+      const previous = ordered[napIndex - 2];
+      if (!previous) return;
+      windowMinutes = Math.round((new Date(nap.start) - new Date(previous.end)) / 60000);
+    }
+    if (windowMinutes >= 35 && windowMinutes <= 360) samples.push(windowMinutes);
+  });
+
+  return samples.slice(-10);
+}
+
 function sleepInLast24Hours() {
   return clamp(dayNapSleepMinutes() + latestNightSleepMinutes(), 0, 24 * 60);
 }
@@ -2100,6 +2456,44 @@ function goalStatus(value, target) {
 function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   const today = napsToday();
   const lastNap = today[0];
+  const napCount = today.length;
+  const planned = plannedNapCount();
+  const lastFeeding = latestPastFeeding();
+  const feedingAge = lastFeeding ? formatFeedingAge(lastFeeding) : "";
+
+  if (state.activeNightStart && state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    const awakeMinutes = Number.isNaN(awakeStart.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
+    return `${babyDisplayName()} acordou na madrugada. Registre a mamada se acontecer e toque em Voltou a dormir quando ela pegar no sono. Acordada h\u00e1 ${formatRingDuration(awakeMinutes)}.`;
+  }
+
+  if (state.activeNightStart) {
+    const awakeMinutes = totalAwakeMinutes(state.activeNightAwakenings || []);
+    return awakeMinutes
+      ? `Sono noturno em curso. Ela j\u00e1 ficou acordada ${formatRingDuration(awakeMinutes)} nesta noite. Sem c\u00e1lculo de soneca at\u00e9 encerrar a noite.`
+      : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
+  }
+
+  if (napCount >= planned) {
+    const night = calculateNightSuggestion(prediction);
+    return `${napCount} soneca${napCount === 1 ? "" : "s"} registrada${napCount === 1 ? "" : "s"} de ${planned} prevista${planned === 1 ? "" : "s"}. Agora acompanhe sinais para o sono noturno por volta de ${minutesToTime(night.start)}.`;
+  }
+
+  if (prediction.profile?.custom) {
+    return `Pelo hist\u00f3rico da ${babyDisplayName()}, a ${ordinalFeminine(napCount + 1)} soneca costuma acontecer entre ${formatDuration(prediction.minWindow)} e ${formatDuration(prediction.maxWindow)} depois que ela acorda. Baseado em ${prediction.profile.samples} registro${prediction.profile.samples === 1 ? "" : "s"} parecido${prediction.profile.samples === 1 ? "" : "s"}.`;
+  }
+
+  if (lastNap && safeDuration(lastNap) < 35) {
+    return `A \u00faltima soneca foi curta (${safeDuration(lastNap)} min). A pr\u00f3xima janela pode precisar ser mais curta; observe bocejos, olhar parado e irrita\u00e7\u00e3o.`;
+  }
+
+  if (lastNap && safeDuration(lastNap) >= 90) {
+    return `Boa soneca de ${formatDuration(safeDuration(lastNap))}. Ela pode sustentar um pouco melhor at\u00e9 a pr\u00f3xima janela, mantendo a previs\u00e3o atual.`;
+  }
+
+  if (lastFeeding && feedingAge && minutesSinceDate(lastFeeding.at) >= 150) {
+    return `A \u00faltima mamada foi h\u00e1 ${feedingAge}. Se ela mostrar fome junto com sono, vale alimentar antes de tentar a soneca.`;
+  }
 
   if (lastNap && safeDuration(lastNap) < 35) {
     return `Sugestão: como a última soneca foi curta (${safeDuration(lastNap)} min), tente encurtar a próxima janela de vigília em 15 minutos.`;
@@ -2130,9 +2524,20 @@ function napsToday() {
 }
 
 function feedingsToday() {
-  const start = currentCycleStartDate();
+  const cycleStart = currentCycleStartDate();
+  const start = new Date(cycleStart.getTime() - CYCLE_START_GRACE_MINUTES * 60000);
   const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
 
+  return state.feedings.filter((feeding) => {
+    const fedAt = new Date(feeding.at);
+    return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+function feedingsInActiveNight() {
+  if (!state.activeNightStart) return [];
+  const start = new Date(state.activeNightStart);
+  const end = new Date();
   return state.feedings.filter((feeding) => {
     const fedAt = new Date(feeding.at);
     return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
@@ -2193,6 +2598,10 @@ function plannedNapCount() {
   return clamp(Math.round(Number(raw) || defaultState.plannedNapCount), 1, 8);
 }
 
+function hasPlannedNapSlot(today = napsToday()) {
+  return today.length + (state.activeNapStart ? 1 : 0) < plannedNapCount();
+}
+
 function minutesBetweenClock(start, end) {
   let diff = normalizeDayMinutes(end) - normalizeDayMinutes(start);
   if (diff < 0) diff += 24 * 60;
@@ -2210,6 +2619,15 @@ function ordinalFeminine(number) {
 
 function dateToDayMinutes(date) {
   return date.getHours() * 60 + date.getMinutes();
+}
+
+function ringMarkerMinute(date) {
+  const minutes = dateToDayMinutes(date);
+  const deltaBeforeStart = currentRingStartMinutes - minutes;
+  if (deltaBeforeStart > 0 && deltaBeforeStart <= CYCLE_START_GRACE_MINUTES) {
+    return currentRingStartMinutes;
+  }
+  return minutes;
 }
 
 function arcPath(startMinutes, endMinutes, type) {
@@ -2262,6 +2680,7 @@ function markerSvg(marker) {
 
 function markerAttributes(marker) {
   if (!marker.id) return "";
+  if (marker.type === "awake") return "";
   if (marker.type === "feed") {
     return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
   }
@@ -2291,6 +2710,7 @@ function markerIconFa(type) {
     nap: "\uf0c2",
     next: "\uf0c2",
     feed: "\ue4c4",
+    awake: "\uf186",
     "day-start": "\uf6c4",
     "day-end": "\uf6c3"
   };
@@ -2362,6 +2782,7 @@ function loadState() {
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
+    loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);
     loaded.babyBirthDate = normalizeDateInputValue(loaded.babyBirthDate);
     loaded.babyAge = Number.isFinite(Number(loaded.babyAge)) ? clamp(Number(loaded.babyAge), 0, 36) : defaultState.babyAge;
     if (loaded.babyBirthDate) {
@@ -2385,6 +2806,8 @@ function loadState() {
       bedtime: normalizeTimeField(night.bedtime) || loaded.bedtime,
       lastWake: normalizeTimeField(night.lastWake),
       babyAge: Number.isFinite(Number(night.babyAge)) ? Number(night.babyAge) : loaded.babyAge,
+      awakenings: normalizeAwakenings(night.awakenings || []),
+      awakeDuration: totalAwakeMinutes(night.awakenings || []),
       duration: safeDuration(night),
       synced: Boolean(night.synced)
     })).sort((a, b) => new Date(b.end) - new Date(a.end));
@@ -2821,6 +3244,11 @@ function formatFeedingAge(feeding) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return `${String(hours).padStart(2, "0")}h${String(rest).padStart(2, "0")} min`;
+}
+
+function minutesSinceDate(value) {
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 60000)) : 0;
 }
 
 function safeDuration(nap) {

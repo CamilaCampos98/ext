@@ -270,6 +270,12 @@ h2 {
   stroke: var(--night-color);
 }
 
+.day-ring-segment.awake {
+  stroke: #ff986c;
+  stroke-width: 9;
+  stroke-dasharray: 2 8;
+}
+
 .day-ring-now {
   display: none;
   stroke: #F8FBFD;
@@ -331,6 +337,13 @@ h2 {
   stroke-dasharray: none;
 }
 
+.day-marker-group.awake .marker-orb {
+  fill: var(--marker-shell-fill);
+  stroke: #ff986c;
+  stroke-width: 1.15;
+  stroke-dasharray: 2 3;
+}
+
 .marker-icon {
   fill: var(--ink);
   font-family: "Font Awesome 6 Free";
@@ -361,6 +374,10 @@ h2 {
 }
 
 .day-marker-group.day-end .marker-icon {
+  fill: #F8FBFD;
+}
+
+.day-marker-group.awake .marker-icon {
   fill: #F8FBFD;
 }
 
@@ -1010,6 +1027,7 @@ body.sheet-open .bottom-nav {
 label {
   display: grid;
   gap: 7px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 700;
@@ -1017,6 +1035,7 @@ label {
 
 input {
   width: 100%;
+  min-width: 0;
   min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1027,6 +1046,7 @@ input {
 
 select {
   width: 100%;
+  min-width: 0;
   min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1037,6 +1057,7 @@ select {
 
 .inline-input {
   overflow: hidden;
+  min-width: 0;
   min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1265,6 +1286,7 @@ select {
 
 .profile-sheet-card {
   width: min(720px, 100%);
+  overflow-x: hidden;
 }
 
 .report-sheet-card,
@@ -1278,7 +1300,7 @@ select {
 
 .report-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -1386,8 +1408,36 @@ select {
   fill: var(--accent);
 }
 
+.chart-line.feed {
+  stroke: var(--feed);
+  stroke-width: 2;
+  stroke-dasharray: 5 6;
+}
+
+.chart-line.awake {
+  stroke: #ff986c;
+  stroke-width: 2.4;
+  stroke-dasharray: 2 7;
+}
+
+.chart-bar {
+  opacity: 0.42;
+}
+
+.chart-bar.nap-count {
+  fill: var(--nap-color);
+}
+
+.chart-bar.feed-count {
+  fill: var(--feed);
+}
+
 .legend-dot.total {
   background: var(--accent);
+}
+
+.legend-dot.awake {
+  background: #ff986c;
 }
 
 .report-legend {
