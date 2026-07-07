@@ -328,6 +328,7 @@ function bindEvents() {
   els.saveManualNap.addEventListener("click", saveManualNap);
   els.closeFeeding.addEventListener("click", () => toggleFeedingSheet(false));
   els.saveFeeding.addEventListener("click", saveFeeding);
+  els.sleepDiaryList.addEventListener("click", handleSleepDiaryOptionClick);
   els.sleepDiaryList.addEventListener("change", handleSleepDiaryChange);
   document.querySelectorAll("[data-feed-side]").forEach((button) => {
     button.addEventListener("click", () => selectFeedSide(button.dataset.feedSide));
@@ -1450,34 +1451,29 @@ function sleepDiaryCard(nap, napNumber) {
         </div>
       </div>
       <div class="diary-fields">
-        <label>
-          Onde terminou de dormir?
-          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="sleepEndPlace">
-            ${sleepEndPlaceOptions(entry.sleepEndPlace)}
-          </select>
-        </label>
-        <label>
-          Humor ao acordar
-          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="wakeMood">
-            ${wakeMoodOptions(entry.wakeMood)}
-          </select>
-        </label>
+        ${diaryChoiceGroup(id, "sleepEndPlace", "Onde terminou de dormir?", entry.sleepEndPlace, [
+          ["lap", "Colo"],
+          ["crib-help", "Berço com ajuda"],
+          ["crib-alone", "Berço sozinha"]
+        ])}
+        ${diaryChoiceGroup(id, "wakeMood", "Humor ao acordar", entry.wakeMood, [
+          ["happy", "Feliz"],
+          ["calm", "Calma"],
+          ["upset", "Irritada"],
+          ["crying", "Chorando"]
+        ])}
         <label>
           Tempo para dormir (min)
           <input type="number" min="0" max="90" inputmode="numeric" value="${escapeAttribute(entry.sleepLatency || "")}" data-diary-id="${escapeAttribute(id)}" data-diary-field="sleepLatency">
         </label>
-        <label>
-          Usou chupeta para dormir?
-          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="pacifier">
-            ${diaryOptions(entry.pacifier)}
-          </select>
-        </label>
-        <label>
-          Acordou quando caiu?
-          <select data-diary-id="${escapeAttribute(id)}" data-diary-field="pacifierWake">
-            ${diaryOptions(entry.pacifierWake)}
-          </select>
-        </label>
+        ${diaryChoiceGroup(id, "pacifier", "Usou chupeta para dormir?", entry.pacifier, [
+          ["yes", "Sim"],
+          ["no", "Não"]
+        ])}
+        ${diaryChoiceGroup(id, "pacifierWake", "Acordou quando caiu?", entry.pacifierWake, [
+          ["yes", "Sim"],
+          ["no", "Não"]
+        ])}
         <label>
           Duração da soneca
           <input type="text" value="${formatDuration(safeDuration(nap))}" readonly>
@@ -1498,6 +1494,26 @@ function sleepDiaryCard(nap, napNumber) {
         </div>
       </div>
     </article>
+  `;
+}
+
+function diaryChoiceGroup(id, field, label, currentValue, options) {
+  return `
+    <div class="diary-choice-field">
+      <span>${label}</span>
+      <div class="diary-choice-group" role="group" aria-label="${escapeAttribute(label)}">
+        ${options.map(([value, text]) => `
+          <button
+            class="diary-choice${currentValue === value ? " is-selected" : ""}"
+            type="button"
+            data-diary-id="${escapeAttribute(id)}"
+            data-diary-field="${escapeAttribute(field)}"
+            data-diary-value="${escapeAttribute(value)}"
+            aria-pressed="${currentValue === value ? "true" : "false"}"
+          >${text}</button>
+        `).join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -1603,6 +1619,26 @@ function sleepDiaryEntry(id) {
     pacifierWake: entry.pacifierWake || "",
     synced: entry.synced === true
   };
+}
+
+function handleSleepDiaryOptionClick(event) {
+  const button = event.target.closest("[data-diary-value]");
+  if (!button) return;
+
+  const id = button.dataset.diaryId;
+  const field = button.dataset.diaryField;
+  const value = button.dataset.diaryValue;
+  if (!id || !field) return;
+
+  state.sleepDiary = state.sleepDiary || {};
+  state.sleepDiary[id] = {
+    ...sleepDiaryEntry(id),
+    [field]: value,
+    synced: false
+  };
+  saveState();
+  renderSleepDiary();
+  syncSleepDiaryEntryToSheet(id);
 }
 
 function handleSleepDiaryChange(event) {
@@ -1752,10 +1788,10 @@ function reportWeekDays(startDate) {
     const date = addDays(startDate, offset);
     const key = dateInputValue(date);
     const naps = state.naps.filter((nap) => recordDateInputValue(nap) === key);
-    const nights = state.nights.filter((night) => recordDateInputValue({ ...night, start: night.end }) === key);
+    const nights = reportNightsForDay(key);
     const feedings = state.feedings.filter((feeding) => recordDateInputValue({ start: feeding.at }) === key);
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
-    const nightSleep = nights.reduce((sum, night) => sum + safeDuration(night), 0);
+    const nightSleep = nights.reduce((sum, night) => sum + nightDuration(night), 0);
     const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
     const napDurations = naps
       .slice()
@@ -1816,6 +1852,63 @@ function reportWeekDays(startDate) {
   }
 
   return days;
+}
+
+function reportNightsForDay(dayKey) {
+  const nights = state.nights
+    .filter((night) => recordDateInputValue({ ...night, start: night.end }) === dayKey)
+    .map((night) => ({
+      ...night,
+      startTime: new Date(night.start).getTime(),
+      endTime: new Date(night.end).getTime()
+    }))
+    .filter((night) => Number.isFinite(night.startTime) && Number.isFinite(night.endTime) && night.endTime > night.startTime)
+    .sort((a, b) => a.startTime - b.startTime);
+
+  const merged = [];
+  nights.forEach((night) => {
+    const last = merged[merged.length - 1];
+    if (!last || night.startTime >= last.endTime) {
+      merged.push(night);
+      return;
+    }
+
+    const sameWindow = Math.abs(night.startTime - last.startTime) <= 15 * 60000
+      && Math.abs(night.endTime - last.endTime) <= 15 * 60000;
+    if (sameWindow) {
+      const nightHasAwake = hasNightAwakeInfo(night);
+      const lastHasAwake = hasNightAwakeInfo(last);
+      if ((nightHasAwake && !lastHasAwake) || (nightHasAwake === lastHasAwake && nightDuration(night) < nightDuration(last))) {
+        merged[merged.length - 1] = night;
+      }
+      return;
+    }
+
+    if (nightDuration(night) > nightDuration(last)) {
+      merged[merged.length - 1] = night;
+    }
+  });
+
+  return merged;
+}
+
+function nightDuration(night) {
+  const start = new Date(night.start).getTime();
+  const end = new Date(night.end).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+
+  const elapsed = Math.round((end - start) / 60000);
+  const awake = Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])) || 0;
+  return clamp(elapsed - awake, 0, 16 * 60);
+}
+
+function hasNightAwakeInfo(night) {
+  return Number(night.awakeDuration || 0) > 0 || normalizeAwakenings(night.awakenings || []).length > 0;
+}
+
+function awakeDurationFromNightNote(note) {
+  const match = String(note || "").match(/Acordada na noite:\s*(\d+)min/i);
+  return match ? Number(match[1]) : 0;
 }
 
 function averageFeedingInterval(feedings) {
@@ -1911,7 +2004,6 @@ function renderSleepReportChart(days) {
     ${reportTotalSleepChart(days)}
     ${reportNapDurationChart(days)}
     ${reportSleepDiaryChart(days)}
-    ${reportDistributionChart(days)}
     ${reportWakeChart(days)}
   `;
   els.sleepReportChart = document.querySelector("#sleepReportChart");
@@ -2117,6 +2209,46 @@ function reportDistributionChart(days) {
     </svg>`;
 }
 
+function reportDistributionChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 58, right: 20, bottom: 42, left: 46 };
+  const maxValue = Math.max(12 * 60, ...days.map((day) => day.totalSleep));
+  const roundedMax = Math.ceil(maxValue / 120) * 120;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const groupWidth = plotWidth / days.length;
+  const barWidth = Math.min(38, groupWidth * 0.55);
+  const baseY = padding.top + plotHeight;
+  const scaleHeight = (value) => (value / roundedMax) * plotHeight;
+  const ticks = [0, Math.round(roundedMax / 2), roundedMax];
+
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Distribuicao do sono por dia da semana">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Distribuicao do sono</text>
+      <text class="chart-subtitle" x="18" y="40">Por dia da semana selecionada: sono noturno + sonecas.</text>
+      <circle class="legend-dot-svg night" cx="398" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="410" y="28">Noite</text>
+      <circle class="legend-dot-svg day" cx="470" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="482" y="28">Sonecas</text>
+      ${ticks.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(baseY - scaleHeight(value))}" x2="${width - padding.right}" y2="${roundSvg(baseY - scaleHeight(value))}"></line><text class="chart-label" x="8" y="${roundSvg(baseY - scaleHeight(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const x = padding.left + groupWidth * index + (groupWidth - barWidth) / 2;
+        const nightHeight = scaleHeight(day.nightSleep);
+        const dayHeight = scaleHeight(day.daySleep);
+        const totalHeight = nightHeight + dayHeight;
+        return `
+          ${day.totalSleep ? `
+            <rect class="chart-bar night-stack" x="${roundSvg(x)}" y="${roundSvg(baseY - nightHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(nightHeight)}" rx="5"></rect>
+            <rect class="chart-bar day-stack" x="${roundSvg(x)}" y="${roundSvg(baseY - totalHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(dayHeight)}" rx="5"></rect>
+          ` : `<rect class="chart-empty-day" x="${roundSvg(x)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(barWidth)}" height="4" rx="2"></rect>`}
+          <text class="chart-label x" x="${roundSvg(x + barWidth / 2)}" y="${height - 14}">${day.label}</text>
+        `;
+      }).join("")}
+    </svg>`;
+}
+
 function reportWakeChart(days) {
   const width = 640;
   const height = 230;
@@ -2301,6 +2433,7 @@ function sheetRecordToNight(record) {
   const startedAt = new Date(record.start);
   const endedAt = new Date(record.end);
   if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return null;
+  const awakeDuration = Number(record.awakeDuration || awakeDurationFromNightNote(record.note));
   return {
     id: String(record.id),
     type: "night",
@@ -2311,7 +2444,13 @@ function sheetRecordToNight(record) {
     lastWake: normalizeTimeField(record.lastWake) || minutesToTime(dateToDayMinutes(endedAt)),
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
-    duration: safeDuration({ ...record, start: startedAt.toISOString(), end: endedAt.toISOString() }),
+    awakeDuration,
+    duration: nightDuration({
+      ...record,
+      start: startedAt.toISOString(),
+      end: endedAt.toISOString(),
+      awakeDuration
+    }),
     mood: "",
     synced: true
   };
@@ -3361,7 +3500,7 @@ function nightSleepInLast24Hours() {
 
 function latestNightSleepMinutes() {
   const latestNight = latestNightRecord();
-  return latestNight ? safeDuration(latestNight) : 0;
+  return latestNight ? nightDuration(latestNight) : 0;
 }
 
 function latestNightRecord() {
@@ -3943,7 +4082,7 @@ function openFeedingSheet(manual = false) {
   els.feedingTitle.textContent = manual ? "Adicionar mamada anterior" : "Registrar mamada";
   const fedAt = new Date();
   if (manual) fedAt.setMinutes(fedAt.getMinutes() - 60);
-  els.feedingTime.value = toDateTimeLocalValue(fedAt);
+  els.feedingTime.value = manual ? toDateTimeLocalValue(fedAt) : "";
   els.feedingNote.value = "";
   selectFeedSide(selectedFeedSide || "left");
   updateFeedingSideVisibility();
@@ -3979,9 +4118,15 @@ function updateFeedingSideVisibility() {
 function saveFeeding() {
   if (els.saveFeeding.disabled) return;
   els.saveFeeding.disabled = true;
-  const fedAt = new Date(els.feedingTime.value);
-  if (!els.feedingTime.value || Number.isNaN(fedAt.getTime())) {
-    showFeedingError("Informe o horario da mamada.");
+  const fedAt = els.feedingTime.value ? new Date(els.feedingTime.value) : new Date();
+  if (Number.isNaN(fedAt.getTime())) {
+    showFeedingError("Horario da mamada invalido.");
+    els.saveFeeding.disabled = false;
+    return;
+  }
+
+  if (fedAt > new Date()) {
+    showFeedingError("O horario da mamada nao pode ser no futuro.");
     els.saveFeeding.disabled = false;
     return;
   }

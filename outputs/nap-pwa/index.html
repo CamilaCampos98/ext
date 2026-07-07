@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=86">
+    <link rel="stylesheet" href="styles.css?v=87">
   </head>
   <body>
     <div class="app-shell">
@@ -357,7 +357,7 @@
           <button class="manual-card-button feeding" id="openFeeding" type="button">
             <i class="fa-solid fa-bottle-baby" aria-hidden="true"></i>
             <strong>Mamada</strong>
-            <span>Registra com o horário atual</span>
+            <span>Registra com o horário informado</span>
           </button>
           <button class="manual-card-button night" id="startNight" type="button">
             <i class="fa-solid fa-cloud-moon" aria-hidden="true"></i>
@@ -450,6 +450,7 @@
           <label>
             Horário
             <input id="feedingTime" type="datetime-local">
+            <small>Opcional. Se ficar vazio, usa o horário atual.</small>
           </label>
           <label>
             Tipo
@@ -470,6 +471,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=109" defer></script>
+    <script src="app.js?v=113" defer></script>
   </body>
 </html>
