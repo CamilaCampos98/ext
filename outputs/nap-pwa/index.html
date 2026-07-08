@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=87">
+    <link rel="stylesheet" href="styles.css?v=89">
   </head>
   <body>
     <div class="app-shell">
@@ -191,6 +191,9 @@
         <button class="bottom-nav-start" id="openStartSheet" type="button" aria-label="Abrir ações" title="Start">
           <i class="fa-solid fa-play" aria-hidden="true"></i>
         </button>
+        <button class="bottom-nav-button" id="activitiesMenu" type="button" aria-label="Atividades" title="Atividades">
+          <i class="fa-solid fa-shapes" aria-hidden="true"></i>
+        </button>
         <button class="bottom-nav-button" id="reportMenu" type="button" aria-label="Relatório" title="Relatório">
           <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
         </button>
@@ -250,6 +253,16 @@
         <div class="diary-stats" id="diaryStats"></div>
         <div class="sleep-diary-list" id="sleepDiaryList"></div>
         <div class="diary-tips" id="diaryTips"></div>
+      </div>
+    </div>
+
+    <div class="sheet" id="activitiesSheet" aria-hidden="true">
+      <div class="sheet-card activities-sheet-card">
+        <button class="icon-button close" id="closeActivities" aria-label="Fechar">x</button>
+        <p class="label">Atividades</p>
+        <h2>Para a idade dela</h2>
+        <p class="fineprint" id="activityAgeLabel"></p>
+        <div class="activity-list" id="activityList"></div>
       </div>
     </div>
 
@@ -452,10 +465,11 @@
             <input id="feedingTime" type="datetime-local">
             <small>Opcional. Se ficar vazio, usa o horário atual.</small>
           </label>
-          <label>
-            Tipo
-            <select id="feedingType"></select>
-          </label>
+          <div class="feeding-type-field">
+            <span>Tipo</span>
+            <input id="feedingType" type="hidden">
+            <div class="side-options feeding-type-options" id="feedingTypeGroup" role="group" aria-label="Tipo de mamada"></div>
+          </div>
         </div>
         <div class="side-options" id="feedingSideGroup" role="group" aria-label="Peito usado">
           <button class="side-option" type="button" data-feed-side="left">Esquerdo</button>
@@ -471,6 +485,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=113" defer></script>
+    <script src="app.js?v=117" defer></script>
   </body>
 </html>

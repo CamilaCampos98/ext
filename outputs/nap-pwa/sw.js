@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-v137";
+const CACHE_NAME = "soneca-pwa-v141";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,8 +11,8 @@ const ASSETS = [
   "./vendor/fontawesome/webfonts/fa-brands-400.ttf",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
-  "./styles.css?v=87",
-  "./app.js?v=113",
+  "./styles.css?v=89",
+  "./app.js?v=117",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
@@ -33,6 +33,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
 
   if (event.request.mode === "navigate") {
     event.respondWith(
@@ -43,6 +44,19 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  if (event.request.destination === "script" || event.request.destination === "style" || url.pathname.endsWith("/app.js") || url.pathname.endsWith("/styles.css")) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }

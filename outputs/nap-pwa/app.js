@@ -21,6 +21,73 @@ const wakeWindows = [
   { minAge: 25, maxAge: 36, min: 300, target: 360, max: 420, naps: "0-1" }
 ];
 
+const activityCatalog = [
+  {
+    minAge: 0,
+    maxAge: 2,
+    items: [
+      { area: "Motor", title: "Barriguinha no peito", time: "2-5 min", description: "Deite reclinada e coloque o bebê de barriga para baixo no seu peito para fortalecer pescoço e tronco." },
+      { area: "Visual", title: "Rosto perto", time: "3 min", description: "Fique a 20-30 cm, fale devagar e mude sua expressão para ela acompanhar seu rosto." },
+      { area: "Auditivo", title: "Voz de um lado", time: "3 min", description: "Chame suavemente de um lado e depois do outro, observando se ela procura o som." }
+    ]
+  },
+  {
+    minAge: 3,
+    maxAge: 4,
+    items: [
+      { area: "Motor", title: "Barriguinha com brinquedo", time: "5-8 min", description: "Coloque um brinquedo à frente durante o tummy time para incentivar levantar a cabeça e apoiar os braços." },
+      { area: "Coordenação", title: "Alcançar paninho", time: "5 min", description: "Ofereça um paninho leve próximo das mãos e espere ela tentar tocar, agarrar ou puxar." },
+      { area: "Social", title: "Espelho com conversa", time: "5 min", description: "Mostre o rosto dela no espelho, sorria e nomeie expressões: feliz, surpresa, calma." },
+      { area: "Linguagem", title: "Pausa para responder", time: "3-5 min", description: "Faça sons simples, pause e espere qualquer vocalização ou movimento como resposta." }
+    ]
+  },
+  {
+    minAge: 5,
+    maxAge: 6,
+    items: [
+      { area: "Motor", title: "Rolar com apoio", time: "5 min", description: "Com ela de barriga para cima, incentive virar para o lado usando um brinquedo colorido." },
+      { area: "Coordenação", title: "Troca de mãos", time: "5 min", description: "Ofereça um brinquedo leve e observe se ela leva ao centro ou tenta passar de uma mão para outra." },
+      { area: "Sensorial", title: "Texturas seguras", time: "5 min", description: "Apresente tecidos diferentes, sempre limpos e grandes o suficiente para não ir inteiro à boca." }
+    ]
+  },
+  {
+    minAge: 7,
+    maxAge: 9,
+    items: [
+      { area: "Motor", title: "Brinquedo fora do alcance", time: "5-10 min", description: "Coloque um brinquedo um pouco à frente para incentivar deslocamento, pivô ou tentativa de engatinhar." },
+      { area: "Cognitivo", title: "Cadê? Achou!", time: "5 min", description: "Cubra parcialmente um brinquedo com pano e convide ela a procurar." },
+      { area: "Linguagem", title: "Imitar sílabas", time: "3-5 min", description: "Repita sons como ba, ma e da, dando tempo para ela tentar responder." }
+    ]
+  },
+  {
+    minAge: 10,
+    maxAge: 12,
+    items: [
+      { area: "Motor", title: "Apoio para ficar em pé", time: "5 min", description: "Com supervisão, deixe ela se apoiar em móvel firme e baixo, sem puxar pelos braços." },
+      { area: "Cognitivo", title: "Colocar e tirar", time: "5-8 min", description: "Use potes grandes e objetos seguros para ela colocar dentro e tirar." },
+      { area: "Linguagem", title: "Nomear rotina", time: "3 min", description: "Durante troca, banho ou comida, nomeie ações simples: abre, fecha, pegou, caiu." }
+    ]
+  },
+  {
+    minAge: 13,
+    maxAge: 18,
+    items: [
+      { area: "Motor", title: "Caminho com almofadas", time: "8-10 min", description: "Monte um percurso baixo com almofadas para subir, descer e equilibrar com supervisão." },
+      { area: "Cognitivo", title: "Encaixe simples", time: "5-8 min", description: "Ofereça potes, argolas ou formas grandes para testar encaixe e tentativa." },
+      { area: "Social", title: "Dar e receber", time: "5 min", description: "Peça um objeto com a mão aberta, agradeça e devolva para ela repetir a troca." }
+    ]
+  },
+  {
+    minAge: 19,
+    maxAge: 36,
+    items: [
+      { area: "Linguagem", title: "Escolha entre dois", time: "5 min", description: "Mostre duas opções e pergunte qual quer. Espere gesto, palavra ou tentativa." },
+      { area: "Motor", title: "Dança com comandos", time: "5-8 min", description: "Coloque música curta e alterne comandos simples: para, gira, bate palma." },
+      { area: "Cognitivo", title: "Separar por cor", time: "8 min", description: "Use objetos grandes e seguros para separar em dois grupos de cores." }
+    ]
+  }
+];
+
 const defaultState = {
   babyName: "",
   babyAge: 6,
@@ -124,6 +191,7 @@ const els = {
   profileMenu: document.querySelector("#profileMenu"),
   historyMenu: document.querySelector("#historyMenu"),
   diaryMenu: document.querySelector("#diaryMenu"),
+  activitiesMenu: document.querySelector("#activitiesMenu"),
   reportMenu: document.querySelector("#reportMenu"),
   profileSheet: document.querySelector("#profileSheet"),
   closeProfile: document.querySelector("#closeProfile"),
@@ -134,6 +202,10 @@ const els = {
   sleepDiaryList: document.querySelector("#sleepDiaryList"),
   diaryStats: document.querySelector("#diaryStats"),
   diaryTips: document.querySelector("#diaryTips"),
+  activitiesSheet: document.querySelector("#activitiesSheet"),
+  closeActivities: document.querySelector("#closeActivities"),
+  activityAgeLabel: document.querySelector("#activityAgeLabel"),
+  activityList: document.querySelector("#activityList"),
   reportSheet: document.querySelector("#reportSheet"),
   closeReport: document.querySelector("#closeReport"),
   avgNapCount: document.querySelector("#avgNapCount"),
@@ -173,6 +245,7 @@ const els = {
   feedingTitle: document.querySelector("#feedingTitle"),
   feedingTime: document.querySelector("#feedingTime"),
   feedingType: document.querySelector("#feedingType"),
+  feedingTypeGroup: document.querySelector("#feedingTypeGroup"),
   feedingSideGroup: document.querySelector("#feedingSideGroup"),
   feedingNote: document.querySelector("#feedingNote"),
   saveFeeding: document.querySelector("#saveFeeding"),
@@ -307,6 +380,7 @@ function bindEvents() {
   els.profileMenu.addEventListener("click", () => toggleProfileSheet(true));
   els.historyMenu.addEventListener("click", () => toggleHistorySheet(true));
   els.diaryMenu.addEventListener("click", () => toggleDiarySheet(true));
+  els.activitiesMenu.addEventListener("click", () => toggleActivitiesSheet(true));
   els.reportMenu.addEventListener("click", () => toggleReportSheet(true));
   els.reportFilter.addEventListener("click", handleReportFilterClick);
   els.reportDate.addEventListener("change", handleReportDateChange);
@@ -314,6 +388,7 @@ function bindEvents() {
   els.closeProfile.addEventListener("click", () => toggleProfileSheet(false));
   els.closeHistory.addEventListener("click", () => toggleHistorySheet(false));
   els.closeDiary.addEventListener("click", () => toggleDiarySheet(false));
+  els.closeActivities.addEventListener("click", () => toggleActivitiesSheet(false));
   els.closeReport.addEventListener("click", () => toggleReportSheet(false));
   els.closeInstall.addEventListener("click", () => toggleInstallSheet(false));
   els.closeMood.addEventListener("click", () => toggleMoodSheet(false));
@@ -333,7 +408,7 @@ function bindEvents() {
   document.querySelectorAll("[data-feed-side]").forEach((button) => {
     button.addEventListener("click", () => selectFeedSide(button.dataset.feedSide));
   });
-  els.feedingType.addEventListener("change", updateFeedingSideVisibility);
+  els.feedingTypeGroup.addEventListener("click", handleFeedingTypeClick);
   els.installSheet.addEventListener("click", (event) => {
     if (event.target === els.installSheet) toggleInstallSheet(false);
   });
@@ -345,6 +420,9 @@ function bindEvents() {
   });
   els.diarySheet.addEventListener("click", (event) => {
     if (event.target === els.diarySheet) toggleDiarySheet(false);
+  });
+  els.activitiesSheet.addEventListener("click", (event) => {
+    if (event.target === els.activitiesSheet) toggleActivitiesSheet(false);
   });
   els.reportSheet.addEventListener("click", (event) => {
     if (event.target === els.reportSheet) toggleReportSheet(false);
@@ -813,6 +891,7 @@ function render() {
   renderInsights(prediction);
   renderHistory();
   renderSleepDiary();
+  renderActivities();
   renderReport();
 }
 
@@ -1517,30 +1596,11 @@ function diaryChoiceGroup(id, field, label, currentValue, options) {
   `;
 }
 
-function sleepEndPlaceOptions(value) {
-  return `
-    <option value=""${value ? "" : " selected"}>Selecionar</option>
-    <option value="lap"${value === "lap" ? " selected" : ""}>Colo</option>
-    <option value="crib-help"${value === "crib-help" ? " selected" : ""}>Berço (com ajuda)</option>
-    <option value="crib-alone"${value === "crib-alone" ? " selected" : ""}>Berço (sozinha)</option>
-  `;
-}
-
 function legacySleepEndPlace(value) {
   if (value === "yes") return "crib-help";
   if (value === "no") return "lap";
   if (value === "crib") return "crib-help";
   return "";
-}
-
-function wakeMoodOptions(value) {
-  return `
-    <option value=""${value ? "" : " selected"}>Selecionar</option>
-    <option value="happy"${value === "happy" ? " selected" : ""}>Feliz</option>
-    <option value="calm"${value === "calm" ? " selected" : ""}>Calma</option>
-    <option value="upset"${value === "upset" ? " selected" : ""}>Irritada</option>
-    <option value="crying"${value === "crying" ? " selected" : ""}>Chorando</option>
-  `;
 }
 
 function helpTypeOptions(selected, napId) {
@@ -1595,14 +1655,6 @@ function feedingBeforeNapLabel(nap) {
   if (minutes <= 20) return "Mamou há 15 min";
   if (minutes <= 45) return "Mamou há 30 min";
   return `Mamou há ${formatDuration(minutes)}`;
-}
-
-function diaryOptions(value) {
-  return `
-    <option value=""${value ? "" : " selected"}>Selecionar</option>
-    <option value="yes"${value === "yes" ? " selected" : ""}>Sim</option>
-    <option value="no"${value === "no" ? " selected" : ""}>Não</option>
-  `;
 }
 
 function sleepDiaryEntry(id) {
@@ -1749,6 +1801,26 @@ function sleepDiaryTips(naps, entries, avgDuration, cribRate, pacifierYes, pacif
   }
 
   return `<strong>Estatísticas e dicas</strong>${tips.map((tip) => `<p>${tip}</p>`).join("")}`;
+}
+
+function renderActivities() {
+  if (!els.activityList) return;
+  const age = currentBabyAgeMonths();
+  const group = activityCatalog.find((item) => age >= item.minAge && age <= item.maxAge) || activityCatalog[activityCatalog.length - 1];
+  const name = babyDisplayName();
+  const ageText = `${age} ${age === 1 ? "mês" : "meses"}`;
+
+  els.activityAgeLabel.textContent = `${name}: ${ageText}. Atividades curtas, com supervisão, para encaixar entre mamadas, brincadeiras e janelas de sono.`;
+  els.activityList.innerHTML = group.items.map((activity) => `
+    <article class="activity-card">
+      <div>
+        <span>${activity.area}</span>
+        <strong>${activity.title}</strong>
+      </div>
+      <small>${activity.time}</small>
+      <p>${activity.description}</p>
+    </article>
+  `).join("");
 }
 
 function renderReport() {
@@ -3302,7 +3374,7 @@ function isAppleMobile() {
 
 async function ensureServiceWorkerReady() {
   if (!("serviceWorker" in navigator)) return null;
-  const registration = await navigator.serviceWorker.register("sw.js");
+  const registration = await registerServiceWorker();
   return navigator.serviceWorker.ready.then(() => registration);
 }
 
@@ -3867,8 +3939,21 @@ function canNotify() {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js").catch(() => {
+  if (!window.__sonecaControllerChangeBound) {
+    window.__sonecaControllerChangeBound = true;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (sessionStorage.getItem("soneca-sw-reloaded") === "1") return;
+      sessionStorage.setItem("soneca-sw-reloaded", "1");
+      window.location.reload();
+    });
+  }
+
+  return navigator.serviceWorker.register("sw.js").then((registration) => {
+    registration.update?.();
+    return registration;
+  }).catch(() => {
     updateNotificationHelp("Não consegui registrar o Service Worker. Avisos e modo offline podem falhar.");
+    return null;
   });
 }
 
@@ -3967,6 +4052,7 @@ function closeAllSheets(exceptSheet = null) {
     els.profileSheet,
     els.historySheet,
     els.diarySheet,
+    els.activitiesSheet,
     els.reportSheet,
     els.moodSheet,
     els.startSheet,
@@ -3994,6 +4080,7 @@ function updateSheetOpenState() {
     els.profileSheet,
     els.historySheet,
     els.diarySheet,
+    els.activitiesSheet,
     els.reportSheet,
     els.moodSheet,
     els.startSheet,
@@ -4020,6 +4107,11 @@ function toggleHistorySheet(open) {
 function toggleDiarySheet(open) {
   setSheetOpen(els.diarySheet, open);
   if (open) renderSleepDiary();
+}
+
+function toggleActivitiesSheet(open) {
+  setSheetOpen(els.activitiesSheet, open);
+  if (open) renderActivities();
 }
 
 function toggleReportSheet(open) {
@@ -4097,10 +4189,27 @@ function toggleFeedingSheet(open) {
 function renderFeedingTypeOptions() {
   const current = els.feedingType.value;
   const options = availableFeedingTypes();
-  els.feedingType.innerHTML = options
-    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+  els.feedingTypeGroup.innerHTML = options
+    .map((option) => `
+      <button class="side-option feed-type-option" type="button" data-feed-type="${option.value}">
+        ${option.label}
+      </button>
+    `)
     .join("");
-  els.feedingType.value = options.some((option) => option.value === current) ? current : options[0].value;
+  selectFeedingType(options.some((option) => option.value === current) ? current : options[0].value);
+}
+
+function handleFeedingTypeClick(event) {
+  const button = event.target.closest("[data-feed-type]");
+  if (!button) return;
+  selectFeedingType(button.dataset.feedType);
+}
+
+function selectFeedingType(type) {
+  els.feedingType.value = type || "breast";
+  document.querySelectorAll("[data-feed-type]").forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.feedType === els.feedingType.value);
+  });
   updateFeedingSideVisibility();
 }
 

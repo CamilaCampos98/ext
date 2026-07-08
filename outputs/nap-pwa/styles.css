@@ -840,14 +840,14 @@ h2 {
   bottom: max(10px, env(safe-area-inset-bottom));
   z-index: 9999;
   display: grid !important;
-  grid-template-columns: 1fr 1fr 1fr auto 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr auto 1fr 1fr 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: auto;
   max-width: 640px;
   min-height: 78px;
   margin: 6px auto 0;
-  padding: 10px 16px;
+  padding: 10px 14px;
   border: 1px solid rgba(203, 183, 247, 0.38);
   border-radius: 999px;
   background: rgba(22, 24, 66, 0.76);
@@ -873,7 +873,7 @@ h2 {
 }
 
 .bottom-nav-button {
-  width: 46px;
+  width: 42px;
   height: 50px;
   place-self: center;
   background: transparent;
@@ -1291,7 +1291,8 @@ select {
 
 .report-sheet-card,
 .history-sheet-card,
-.diary-sheet-card {
+.diary-sheet-card,
+.activities-sheet-card {
   width: min(760px, 100%);
 }
 
@@ -1619,6 +1620,57 @@ select {
 
 .diary-tips p + p {
   margin-top: 8px;
+}
+
+.activity-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.activity-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(168, 216, 240, 0.14);
+  border-radius: 8px;
+  background: rgba(12, 18, 44, 0.58);
+}
+
+.activity-card div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.activity-card span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(168, 216, 240, 0.12);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.activity-card strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.activity-card small {
+  color: var(--lavender);
+  font-weight: 900;
+}
+
+.activity-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.42;
 }
 
 .report-chart-wrap {
@@ -2070,6 +2122,23 @@ select {
   margin: 12px 0;
 }
 
+.feeding-type-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.feeding-type-field > span {
+  display: block;
+}
+
+.feeding-type-options {
+  margin: 0;
+}
+
 .side-option {
   min-height: 44px;
   border: 1px solid var(--line);
@@ -2177,22 +2246,22 @@ select {
     max-width: none;
     min-height: 68px;
     margin: 4px auto 0;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 4px;
+    padding: 8px 10px;
     transform: none;
   }
 
   .bottom-nav-button {
-    width: 42px;
+    width: 38px;
     height: 42px;
-    font-size: 1.12rem;
+    font-size: 1.04rem;
   }
 
   .bottom-nav-start {
-    width: 64px;
-    height: 64px;
+    width: 58px;
+    height: 58px;
     margin-block: -16px;
-    font-size: 1.3rem;
+    font-size: 1.22rem;
   }
 
   .topbar {
