@@ -1181,7 +1181,6 @@ function renderDayPlanner(prediction) {
   const today = napsToday();
   const ringNaps = [...today].sort((a, b) => new Date(a.start) - new Date(b.start));
   const feedings = feedingsToday();
-  const diapers = diapersToday();
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
   currentRingEndMinutes = night.start;
   const plannedNaps = plannedNapMarkers(prediction, today, night);
@@ -1201,11 +1200,6 @@ function renderDayPlanner(prediction) {
       type: "feed",
       at: ringMarkerMinute(new Date(feeding.at)),
       id: feedingIdentity(feeding)
-    })),
-    ...diapers.map((diaper) => ({
-      type: "diaper",
-      at: ringMarkerMinute(new Date(diaper.at)),
-      id: diaperIdentity(diaper)
     })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
     { type: "day-end", at: night.start, label: minutesToTime(night.start) }
@@ -1243,7 +1237,6 @@ function renderNightPlanner() {
   const nowMinute = dateToDayMinutes(now);
   const awakenings = activeNightAwakeningsUntil(now);
   const feedings = feedingsInActiveNight();
-  const diapers = diapersInActiveNight();
 
   els.daySegments.innerHTML = [
     arcPath(nightStart, nowMinute, "night"),
@@ -1256,11 +1249,6 @@ function renderNightPlanner() {
       type: "feed",
       at: dateToDayMinutes(new Date(feeding.at)),
       id: feedingIdentity(feeding)
-    })),
-    ...diapers.map((diaper) => ({
-      type: "diaper",
-      at: dateToDayMinutes(new Date(diaper.at)),
-      id: diaperIdentity(diaper)
     })),
     ...awakenings.map((item) => ({
       type: "awake",
@@ -1328,15 +1316,6 @@ function handleDayMarkerClick(event) {
     }
   }
 
-  const diaperMarker = event.target.closest(".day-marker-group.diaper[data-diaper-id]");
-  if (diaperMarker) {
-    const diaper = [...diapersToday(), ...diapersInActiveNight()].find((item) => diaperIdentity(item) === diaperMarker.dataset.diaperId);
-    if (diaper) {
-      showDiaperDetailCard(diaper);
-      return;
-    }
-  }
-
   if (!marker) {
     hideNapDetailCard();
     return;
@@ -1396,18 +1375,6 @@ function showFeedingDetailCard(feeding) {
     <span>Mamada</span>
     <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
     <small>Lado: ${side || "não informado"}</small>
-  `;
-  els.napDetailCard.hidden = false;
-}
-
-function showDiaperDetailCard(diaper) {
-  if (!els.napDetailCard) return;
-  const changedAt = new Date(diaper.at);
-  els.napDetailCard.innerHTML = `
-    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
-    <span>Troca de fralda</span>
-    <strong>${timeLabel(changedAt)} · ${diaperTypeLabel(diaper.type)}</strong>
-    <small>${diaperHasPoop(diaper) ? "Teve cocô" : "Só xixi"}</small>
   `;
   els.napDetailCard.hidden = false;
 }
@@ -4281,20 +4248,9 @@ function arcPath(startMinutes, endMinutes, type) {
 }
 
 function markerSvg(marker) {
-  const point = pointOnCircle(marker.at, marker.type === "diaper" ? 104 : 92);
+  const point = pointOnCircle(marker.at, 92);
   const icon = markerIconFa(marker.type);
-  const markerRadius = marker.type === "diaper" ? 7.6 : 8.4;
-
-  if (marker.type === "diaper") {
-    return `
-      <g class="day-marker-group diaper" ${markerAttributes(marker)} transform="translate(${point.x} ${point.y})">
-        <circle class="marker-orb" cx="0" cy="0" r="${markerRadius}"></circle>
-        <path class="marker-diaper-icon" d="M -4 -2.2 C -2.4 -0.6 2.4 -0.6 4 -2.2 L 3.2 4 C 1.3 5.4 -1.3 5.4 -3.2 4 Z"></path>
-        <circle class="marker-diaper-dot" cx="-2.5" cy="-0.6" r="0.55"></circle>
-        <circle class="marker-diaper-dot" cx="2.5" cy="-0.6" r="0.55"></circle>
-      </g>
-    `;
-  }
+  const markerRadius = 8.4;
 
   if (marker.type === "next") {
     return `
@@ -4331,9 +4287,6 @@ function markerAttributes(marker) {
   if (marker.type === "awake") return "";
   if (marker.type === "feed") {
     return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
-  }
-  if (marker.type === "diaper") {
-    return `data-diaper-id="${marker.id}" role="button" tabindex="0"`;
   }
   return `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"`;
 }

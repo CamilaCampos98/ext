@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-v148";
+const CACHE_NAME = "soneca-pwa-v149";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,8 +11,8 @@ const ASSETS = [
   "./vendor/fontawesome/webfonts/fa-brands-400.ttf",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
-  "./styles.css?v=94",
-  "./app.js?v=124",
+  "./styles.css?v=95",
+  "./app.js?v=125",
   "./manifest.webmanifest",
   "./icon.svg"
 ];

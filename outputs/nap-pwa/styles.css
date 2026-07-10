@@ -316,12 +316,6 @@ h2 {
   stroke-width: 1.15;
 }
 
-.day-marker-group.diaper .marker-orb {
-  fill: rgba(168, 216, 240, 0.22);
-  stroke: var(--baby-blue);
-  stroke-width: 1.25;
-}
-
 .day-marker-group.next .marker-orb {
   fill: var(--marker-shell-fill);
   stroke: var(--next-nap-color);
@@ -373,23 +367,6 @@ h2 {
 
 .day-marker-group.feed .marker-icon {
   fill: #F8FBFD;
-}
-
-.day-marker-group.diaper .marker-icon {
-  fill: var(--baby-blue);
-}
-
-.marker-diaper-icon {
-  fill: rgba(248, 251, 253, 0.94);
-  stroke: var(--baby-blue);
-  stroke-width: 0.9;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-
-.marker-diaper-dot {
-  fill: #2C305D;
-  pointer-events: none;
 }
 
 .day-marker-group.day-start .marker-icon {
