@@ -97,6 +97,7 @@ const defaultState = {
   bedtime: "19:30",
   plannedNapCount: 5,
   activeNapStart: null,
+  activeNapResumeId: null,
   activeNightStart: null,
   activeNightAwakeStart: null,
   activeNightAwakenings: [],
@@ -226,6 +227,9 @@ const els = {
   avgNapGoal: document.querySelector("#avgNapGoal"),
   avgDiaperCount: document.querySelector("#avgDiaperCount"),
   avgPoopCount: document.querySelector("#avgPoopCount"),
+  avgPeeOnlyCount: document.querySelector("#avgPeeOnlyCount"),
+  avgPoopOnlyCount: document.querySelector("#avgPoopOnlyCount"),
+  avgBothDiaperCount: document.querySelector("#avgBothDiaperCount"),
   reportCharts: document.querySelector("#reportCharts"),
   sleepReportChart: document.querySelector("#sleepReportChart"),
   reportSummary: document.querySelector("#reportSummary"),
@@ -551,6 +555,7 @@ function startNap() {
     ? informedStart
     : now;
   state.activeNapStart = startedAt.toISOString();
+  state.activeNapResumeId = null;
   clearNotificationTimers();
   saveState();
   scheduleActiveNapNotifications();
@@ -687,9 +692,10 @@ function completeNap(mood) {
   if (!state.activeNapStart) return;
   const startedAt = new Date(state.activeNapStart);
   const endedAt = new Date();
-  const nap = createNapRecord(startedAt, endedAt, mood);
+  const nap = createNapRecord(startedAt, endedAt, mood, { id: state.activeNapResumeId });
   addNapRecord(nap);
   state.activeNapStart = null;
+  state.activeNapResumeId = null;
   clearNotificationTimers();
   toggleMoodSheet(false);
   scheduleUpcomingNotifications();
@@ -740,12 +746,12 @@ function saveManualNap() {
   render();
 }
 
-function createNapRecord(startedAt, endedAt, mood) {
+function createNapRecord(startedAt, endedAt, mood, options = {}) {
   const napIndex = napIndexForStart(startedAt);
   const goalDuration = napGoalMinutesForIndex(napIndex);
   const duration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
-    id: `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: options.id || `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     type: "nap",
     babyName: state.babyName || "",
     babyAge: currentBabyAgeMonths(),
@@ -1333,6 +1339,12 @@ function handleDayMarkerClick(event) {
 function handleNapDetailCardClick(event) {
   if (event.target.closest("[data-close-nap-detail]")) {
     hideNapDetailCard();
+    return;
+  }
+
+  const continueButton = event.target.closest("[data-continue-nap]");
+  if (continueButton) {
+    continueNapFromRecord(continueButton.dataset.continueNap);
   }
 }
 
@@ -1349,8 +1361,40 @@ function showNapDetailCard(nap, index) {
     <strong>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
     <small>Meta: ${formatDuration(goal)} · ${goalPercent}% atingido</small>
     <small>Duração: ${formatDuration(safeDuration(nap))}</small>
+    <button class="nap-detail-action" type="button" data-continue-nap="${napIdentity(nap)}">
+      <i class="fa-solid fa-play"></i>
+      Continuar timer
+    </button>
   `;
   els.napDetailCard.hidden = false;
+}
+
+function continueNapFromRecord(napKey) {
+  if (state.activeNapStart || state.activeNightStart) {
+    setHint("Ja existe um sono em andamento.");
+    return;
+  }
+
+  const nap = state.naps.find((item) => napIdentity(item) === napKey);
+  if (!nap) {
+    hideNapDetailCard();
+    return;
+  }
+
+  const startedAt = new Date(nap.start);
+  if (Number.isNaN(startedAt.getTime())) return;
+
+  const resumedId = nap.id || stableNapId(nap);
+  state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
+  state.activeNapStart = startedAt.toISOString();
+  state.activeNapResumeId = resumedId;
+  if (nap.id) deleteNapFromSheet(nap.id, { silent: true });
+  clearNotificationTimers();
+  hideNapDetailCard();
+  saveState();
+  scheduleActiveNapNotifications();
+  setHint("Timer retomado na mesma soneca. Ao encerrar, a duracao sera atualizada.");
+  render();
 }
 
 function showNightDetailCard() {
@@ -2071,6 +2115,9 @@ function renderReport() {
   const avgFeedingCount = activeDays.reduce((sum, day) => sum + day.feedingCount, 0) / divisor;
   const avgDiaperCount = activeDays.reduce((sum, day) => sum + day.diaperCount, 0) / divisor;
   const avgPoopCount = activeDays.reduce((sum, day) => sum + day.poopCount, 0) / divisor;
+  const avgPeeOnlyCount = activeDays.reduce((sum, day) => sum + day.peeOnlyCount, 0) / divisor;
+  const avgPoopOnlyCount = activeDays.reduce((sum, day) => sum + day.poopOnlyCount, 0) / divisor;
+  const avgBothDiaperCount = activeDays.reduce((sum, day) => sum + day.bothDiaperCount, 0) / divisor;
   const avgNightAwake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0) / divisor;
   const goalDays = activeDays.filter((day) => day.napGoalPercent);
   const avgNapGoal = goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / (goalDays.length || 1);
@@ -2085,6 +2132,9 @@ function renderReport() {
   if (els.avgFeedingCount) els.avgFeedingCount.textContent = activeDays.length ? avgFeedingCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgDiaperCount) els.avgDiaperCount.textContent = activeDays.length ? avgDiaperCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgPoopCount) els.avgPoopCount.textContent = activeDays.length ? avgPoopCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgPeeOnlyCount) els.avgPeeOnlyCount.textContent = activeDays.length ? avgPeeOnlyCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgPoopOnlyCount) els.avgPoopOnlyCount.textContent = activeDays.length ? avgPoopOnlyCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgBothDiaperCount) els.avgBothDiaperCount.textContent = activeDays.length ? avgBothDiaperCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNightAwake) els.avgNightAwake.textContent = formatDuration(Math.round(avgNightAwake));
   if (els.avgNapGoal) els.avgNapGoal.textContent = goalDays.length ? `${Math.round(avgNapGoal)}%` : "0%";
   els.reportSummary.textContent = activeDays.length
@@ -2104,6 +2154,9 @@ function reportWeekDays(startDate) {
     const nights = reportNightsForDay(key);
     const feedings = state.feedings.filter((feeding) => recordDateInputValue({ start: feeding.at }) === key);
     const diapers = state.diapers.filter((diaper) => recordDateInputValue({ start: diaper.at }) === key);
+    const peeOnlyCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "pee").length;
+    const poopOnlyCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "poop").length;
+    const bothDiaperCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "both").length;
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + nightDuration(night), 0);
     const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
@@ -2145,7 +2198,10 @@ function reportWeekDays(startDate) {
       napCount: naps.length,
       feedingCount: feedings.length,
       diaperCount: diapers.length,
-      poopCount: diapers.filter(diaperHasPoop).length,
+      peeOnlyCount,
+      poopOnlyCount,
+      bothDiaperCount,
+      poopCount: poopOnlyCount + bothDiaperCount,
       feedingInterval: averageFeedingInterval(feedings),
       napGoalPercent: averageNapGoalPercent,
       napDurations,
@@ -2426,11 +2482,11 @@ function reportDiaperChart(days) {
   const width = 640;
   const height = 230;
   const padding = { top: 48, right: 18, bottom: 34, left: 38 };
-  const maxValue = Math.max(1, ...days.flatMap((day) => [day.diaperCount, day.poopCount]));
+  const maxValue = Math.max(1, ...days.flatMap((day) => [day.peeOnlyCount, day.poopOnlyCount, day.bothDiaperCount]));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const groupWidth = plotWidth / days.length;
-  const barWidth = Math.min(14, groupWidth / 4);
+  const barWidth = Math.min(12, groupWidth / 5);
   const baseY = padding.top + plotHeight;
   const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
 
@@ -2438,17 +2494,20 @@ function reportDiaperChart(days) {
     <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Trocas de fralda na semana">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
       <text class="chart-title" x="18" y="24">Trocas de fralda</text>
-      <text class="chart-subtitle" x="18" y="40">Total de trocas e quantas tiveram cocô.</text>
-      <circle class="legend-dot-svg diaper" cx="392" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="404" y="28">Trocas</text>
-      <circle class="legend-dot-svg poop" cx="478" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="490" y="28">Com cocô</text>
+      <text class="chart-subtitle" x="18" y="40">Quantidade por tipo de troca: xixi, cocô e xixi+cocô.</text>
+      <circle class="legend-dot-svg pee" cx="330" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="342" y="28">Xixi</text>
+      <circle class="legend-dot-svg poop" cx="394" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="406" y="28">Cocô</text>
+      <circle class="legend-dot-svg both-diaper" cx="462" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="474" y="28">Xixi+cocô</text>
       ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
       ${days.map((day, index) => {
         const center = padding.left + groupWidth * index + groupWidth / 2;
         const bars = [
-          { value: day.diaperCount, className: "diaper-count", offset: -barWidth / 2 - 2 },
-          { value: day.poopCount, className: "poop-count", offset: barWidth / 2 + 2 }
+          { value: day.peeOnlyCount, className: "pee-count", offset: -barWidth - 3 },
+          { value: day.poopOnlyCount, className: "poop-count", offset: 0 },
+          { value: day.bothDiaperCount, className: "both-diaper-count", offset: barWidth + 3 }
         ];
         return `
           ${bars.map((bar) => {
@@ -3492,7 +3551,7 @@ function helpTypesLabel(value) {
   return normalizeHelpTypes(value).map((item) => labels[item]).filter(Boolean).join(", ");
 }
 
-async function deleteNapFromSheet(id) {
+async function deleteNapFromSheet(id, options = {}) {
   if (!SHEETS_WEB_APP_URL || !id) return;
 
   try {
@@ -3507,9 +3566,9 @@ async function deleteNapFromSheet(id) {
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Falha ao remover.");
-    setHint("Soneca removida do aparelho e do Google Sheets.");
+    if (!options.silent) setHint("Soneca removida do aparelho e do Google Sheets.");
   } catch (error) {
-    setHint(`Soneca removida do aparelho, mas não foi removida do Google Sheets: ${error.message}`);
+    if (!options.silent) setHint(`Soneca removida do aparelho, mas não foi removida do Google Sheets: ${error.message}`);
   }
 }
 
@@ -4438,6 +4497,7 @@ function loadState() {
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
+    loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
     loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);

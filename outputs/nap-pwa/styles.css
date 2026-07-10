@@ -457,6 +457,27 @@ h2 {
   font-size: 0.78rem;
 }
 
+.nap-detail-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border: 1px solid rgba(168, 216, 240, 0.36);
+  border-radius: 999px;
+  background: rgba(168, 216, 240, 0.14);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.nap-detail-action i {
+  color: var(--baby-blue);
+  font-size: 0.78rem;
+}
+
 .day-ring-center {
   position: absolute;
   inset: 0;
@@ -1797,6 +1818,8 @@ select {
   fill: var(--feed);
 }
 
+.chart-bar.pee-count,
+.legend-dot-svg.pee,
 .chart-bar.diaper-count,
 .legend-dot-svg.diaper {
   fill: var(--baby-blue);
@@ -1805,6 +1828,11 @@ select {
 .chart-bar.poop-count,
 .legend-dot-svg.poop {
   fill: #CBB7F7;
+}
+
+.chart-bar.both-diaper-count,
+.legend-dot-svg.both-diaper {
+  fill: #8A3FFC;
 }
 
 .chart-bar.nap-duration,
