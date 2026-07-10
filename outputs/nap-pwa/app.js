@@ -1141,11 +1141,11 @@ function renderPrediction(prediction) {
     return;
   }
 
-  if (!hasPlannedNapSlot()) {
+  if (!shouldSuggestNapBeforeNight(prediction)) {
     const night = calculateNightSuggestion(prediction);
     const delay = minutesUntilReminder(night.start, nowMinutes());
     if (els.nextWindow) els.nextWindow.textContent = `Sono noturno em ${formatDuration(delay)}`;
-    if (els.nextHint) els.nextHint.textContent = `Sonecas previstas conclu\u00eddas. Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`;
+    if (els.nextHint) els.nextHint.textContent = `Próxima janela não cabe bem antes da noite. Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`;
     return;
   }
 
@@ -1431,7 +1431,7 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
-  if (!hasPlannedNapSlot(today)) {
+  if (!shouldSuggestNapBeforeNight(prediction, today)) {
     const night = calculateNightSuggestion(prediction);
     els.dayCenterLabel.textContent = "sono noturno em";
     els.dayCenterTime.textContent = formatDuration(minutesUntilReminder(night.start, now));
@@ -1499,8 +1499,8 @@ function renderRingDayLabels(night) {
 }
 
 function plannedNapMarkers(prediction, today, night) {
-  const total = plannedNapCount();
   const done = today.length + (state.activeNapStart ? 1 : 0);
+  const total = Math.max(plannedNapCount(), done + (shouldSuggestNapBeforeNight(prediction, today) ? 1 : 0));
   const remaining = Math.max(0, total - done);
   if (!remaining || state.activeNightStart) return [];
   if (shouldSkipNextNapForNight(prediction, night)) return [];
@@ -1558,10 +1558,21 @@ function calculateNightSuggestion(prediction) {
 
 function shouldSkipNextNapForNight(prediction, night) {
   if (!prediction || !night) return false;
-  if (!hasPlannedNapSlot()) return true;
   const napWouldEndTooClose = prediction.end >= night.start - 45;
   const napWouldStartTooClose = prediction.start >= night.start - 90;
   return napWouldEndTooClose || napWouldStartTooClose;
+}
+
+function shouldSuggestNapBeforeNight(prediction, today = napsToday()) {
+  if (!prediction || state.activeNightStart) return false;
+  if (hasPlannedNapSlot(today)) return true;
+  const night = calculateNightSuggestion(prediction);
+  if (shouldSkipNextNapForNight(prediction, night)) return false;
+  const now = nowMinutes();
+  const windowStillUseful = prediction.end >= now - 10;
+  const enoughGapAfterNap = minutesBetweenClock(prediction.end, night.start) >= 45;
+  const notTooLate = minutesBetweenClock(now, night.start) >= 80;
+  return windowStillUseful && enoughGapAfterNap && notTooLate;
 }
 
 function effectiveLastWakeMinutes(today = napsToday()) {
@@ -3551,7 +3562,7 @@ function scheduleUpcomingNotifications() {
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
-  const hasNapSlot = hasPlannedNapSlot() && !shouldSkipNextNapForNight(prediction, night);
+  const hasNapSlot = shouldSuggestNapBeforeNight(prediction) && !shouldSkipNextNapForNight(prediction, night);
   const reminders = [
     {
       at: prediction.start - 15,
@@ -4059,6 +4070,9 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
 
   if (napCount >= planned) {
     const night = calculateNightSuggestion(prediction);
+    if (shouldSuggestNapBeforeNight(prediction, today)) {
+      return `${napCount} soneca${napCount === 1 ? "" : "s"} registrada${napCount === 1 ? "" : "s"} de ${planned} prevista${planned === 1 ? "" : "s"}, mas ainda cabe uma soneca extra antes da noite. Próxima janela provável entre ${minutesToTime(prediction.start)} e ${minutesToTime(prediction.end)}.`;
+    }
     return `${napCount} soneca${napCount === 1 ? "" : "s"} registrada${napCount === 1 ? "" : "s"} de ${planned} prevista${planned === 1 ? "" : "s"}. Agora acompanhe sinais para o sono noturno por volta de ${minutesToTime(night.start)}.`;
   }
 
