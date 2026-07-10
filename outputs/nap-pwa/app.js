@@ -151,6 +151,12 @@ const els = {
   closeNapStartSheet: document.querySelector("#closeNapStartSheet"),
   napStartTime: document.querySelector("#napStartTime"),
   confirmStartNap: document.querySelector("#confirmStartNap"),
+  nightTimeSheet: document.querySelector("#nightTimeSheet"),
+  closeNightTimeSheet: document.querySelector("#closeNightTimeSheet"),
+  nightTimeTitle: document.querySelector("#nightTimeTitle"),
+  nightEventTime: document.querySelector("#nightEventTime"),
+  confirmNightTime: document.querySelector("#confirmNightTime"),
+  nightTimeError: document.querySelector("#nightTimeError"),
   startNap: document.querySelector("#startNap"),
   endNap: document.querySelector("#endNap"),
   startNight: document.querySelector("#startNight"),
@@ -254,6 +260,7 @@ const els = {
 
 let manualMood = "";
 let manualRecordType = "nap";
+let nightEventMode = "";
 let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
@@ -280,7 +287,7 @@ function hydrateForm() {
   els.dayStart.value = state.dayStart || DEFAULT_DAY_START;
   els.lastWake.value = state.lastWake || minutesToTime(nowMinutes());
   els.bedtime.value = state.bedtime;
-  els.plannedNapCount.value = String(plannedNapCount());
+  els.plannedNapCount.value = String(state.plannedNapCount || defaultState.plannedNapCount);
   hydrateFeedingOptions();
   if (!els.historyDate.value) {
     els.historyDate.value = dateInputValue(new Date());
@@ -333,25 +340,27 @@ function bindEvents() {
   els.startNap.addEventListener("click", () => toggleNapStartSheet(true));
   els.closeNapStartSheet.addEventListener("click", () => toggleNapStartSheet(false));
   els.confirmStartNap.addEventListener("click", startNap);
+  els.closeNightTimeSheet.addEventListener("click", () => toggleNightTimeSheet(false));
+  els.confirmNightTime.addEventListener("click", confirmNightTime);
   els.endNap.addEventListener("click", () => {
     toggleStartSheet(false);
     toggleMoodSheet(true);
   });
   els.startNight.addEventListener("click", () => {
     toggleStartSheet(false);
-    startNightSleep();
+    openNightTimeSheet("startNight");
   });
   els.endNight.addEventListener("click", () => {
     toggleStartSheet(false);
-    completeNightSleep();
+    openNightTimeSheet("endNight");
   });
   els.startNightAwake.addEventListener("click", () => {
     toggleStartSheet(false);
-    startNightAwake();
+    openNightTimeSheet("startAwake");
   });
   els.endNightAwake.addEventListener("click", () => {
     toggleStartSheet(false);
-    endNightAwake();
+    openNightTimeSheet("endAwake");
   });
   els.openManualNap.addEventListener("click", () => {
     toggleStartSheet(false);
@@ -436,6 +445,9 @@ function bindEvents() {
   els.napStartSheet.addEventListener("click", (event) => {
     if (event.target === els.napStartSheet) toggleNapStartSheet(false);
   });
+  els.nightTimeSheet.addEventListener("click", (event) => {
+    if (event.target === els.nightTimeSheet) toggleNightTimeSheet(false);
+  });
   els.manualNapSheet.addEventListener("click", (event) => {
     if (event.target === els.manualNapSheet) toggleManualNapSheet(false);
   });
@@ -508,9 +520,9 @@ function startNap() {
   render();
 }
 
-function startNightSleep() {
+function startNightSleep(startedAt = new Date()) {
   if (state.activeNapStart || state.activeNightStart) return;
-  state.activeNightStart = new Date().toISOString();
+  state.activeNightStart = startedAt.toISOString();
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
   clearNotificationTimers();
@@ -522,17 +534,82 @@ function startNightSleep() {
   render();
 }
 
-function startNightAwake() {
+function openNightTimeSheet(mode) {
+  nightEventMode = mode;
+  const titles = {
+    startNight: "Hora de dormir",
+    endNight: "Acordou",
+    startAwake: "Acordou na madrugada",
+    endAwake: "Voltou a dormir"
+  };
+  els.nightTimeTitle.textContent = titles[mode] || "Registrar horário";
+  els.nightEventTime.value = "";
+  els.nightTimeError.textContent = "";
+  toggleNightTimeSheet(true);
+}
+
+function confirmNightTime() {
+  const eventAt = nightEventTimeValue();
+  if (!eventAt) return;
+
+  if (nightEventMode === "startNight") {
+    startNightSleep(eventAt);
+  } else if (nightEventMode === "endNight") {
+    completeNightSleep(eventAt);
+  } else if (nightEventMode === "startAwake") {
+    startNightAwake(eventAt);
+  } else if (nightEventMode === "endAwake") {
+    endNightAwake(eventAt);
+  }
+
+  toggleNightTimeSheet(false);
+}
+
+function nightEventTimeValue() {
+  const value = els.nightEventTime.value;
+  const eventAt = value ? new Date(value) : new Date();
+  if (Number.isNaN(eventAt.getTime())) {
+    els.nightTimeError.textContent = "Horário inválido.";
+    return null;
+  }
+  if (eventAt > new Date()) {
+    els.nightTimeError.textContent = "O horário não pode ser no futuro.";
+    return null;
+  }
+  if ((nightEventMode === "endNight" || nightEventMode === "startAwake" || nightEventMode === "endAwake") && state.activeNightStart) {
+    const nightStart = new Date(state.activeNightStart);
+    if (!Number.isNaN(nightStart.getTime()) && eventAt < nightStart) {
+      els.nightTimeError.textContent = "O horário precisa ser depois do início do sono noturno.";
+      return null;
+    }
+  }
+  if (nightEventMode === "endAwake" && state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    if (!Number.isNaN(awakeStart.getTime()) && eventAt <= awakeStart) {
+      els.nightTimeError.textContent = "O horário precisa ser depois que ela acordou.";
+      return null;
+    }
+  }
+  if (nightEventMode === "endNight" && state.activeNightAwakeStart) {
+    const awakeStart = new Date(state.activeNightAwakeStart);
+    if (!Number.isNaN(awakeStart.getTime()) && eventAt <= awakeStart) {
+      els.nightTimeError.textContent = "O horário precisa ser depois que ela acordou na madrugada.";
+      return null;
+    }
+  }
+  return eventAt;
+}
+
+function startNightAwake(startedAt = new Date()) {
   if (!state.activeNightStart || state.activeNightAwakeStart) return;
-  state.activeNightAwakeStart = new Date().toISOString();
+  state.activeNightAwakeStart = startedAt.toISOString();
   saveState();
   render();
 }
 
-function endNightAwake() {
+function endNightAwake(endedAt = new Date()) {
   if (!state.activeNightStart || !state.activeNightAwakeStart) return;
   const startedAt = new Date(state.activeNightAwakeStart);
-  const endedAt = new Date();
   if (!Number.isNaN(startedAt.getTime()) && endedAt > startedAt) {
     state.activeNightAwakenings = [
       ...(state.activeNightAwakenings || []),
@@ -544,10 +621,9 @@ function endNightAwake() {
   render();
 }
 
-function completeNightSleep() {
+function completeNightSleep(endedAt = new Date()) {
   if (!state.activeNightStart) return;
   const startedAt = new Date(state.activeNightStart);
-  const endedAt = new Date();
 
   if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
     state.activeNightStart = null;
@@ -1000,6 +1076,14 @@ function renderPrediction(prediction) {
     return;
   }
 
+  const night = calculateNightSuggestion(prediction);
+  if (shouldSkipNextNapForNight(prediction, night)) {
+    const delay = minutesUntilReminder(night.start, nowMinutes());
+    if (els.nextWindow) els.nextWindow.textContent = `Sono noturno em ${formatDuration(delay)}`;
+    if (els.nextHint) els.nextHint.textContent = `A próxima soneca ficaria muito perto do sono noturno. Melhor preparar a noite por volta de ${minutesToTime(night.start)}.`;
+    return;
+  }
+
   if (nowMinutes() > prediction.end) {
     const name = state.babyName || "bebê";
     if (els.nextWindow) els.nextWindow.textContent = "Janela aberta";
@@ -1282,6 +1366,14 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
+  const night = calculateNightSuggestion(prediction);
+  if (shouldSkipNextNapForNight(prediction, night)) {
+    els.dayCenterLabel.textContent = "sono noturno em";
+    els.dayCenterTime.textContent = formatDuration(minutesUntilReminder(night.start, now));
+    els.dayCenterHint.textContent = `próximo evento previsto ${minutesToTime(night.start)}`;
+    return;
+  }
+
   if (now < prediction.start) {
     els.dayCenterLabel.textContent = `${nextNapName} em`;
     els.dayCenterTime.textContent = formatDuration(prediction.start - now);
@@ -1338,6 +1430,7 @@ function plannedNapMarkers(prediction, today, night) {
   const done = today.length + (state.activeNapStart ? 1 : 0);
   const remaining = Math.max(0, total - done);
   if (!remaining || state.activeNightStart) return [];
+  if (shouldSkipNextNapForNight(prediction, night)) return [];
 
   const markers = [];
   const now = nowMinutes();
@@ -1388,6 +1481,14 @@ function calculateNightSuggestion(prediction) {
     : `Baseado no início do dia (${state.dayStart || state.lastWake}) e no sono noturno cadastrado para ${state.bedtime}.`;
 
   return { start: suggested, reason };
+}
+
+function shouldSkipNextNapForNight(prediction, night) {
+  if (!prediction || !night) return false;
+  if (!hasPlannedNapSlot()) return true;
+  const napWouldEndTooClose = prediction.end >= night.start - 45;
+  const napWouldStartTooClose = prediction.start >= night.start - 90;
+  return napWouldEndTooClose || napWouldStartTooClose;
 }
 
 function effectiveLastWakeMinutes(today = napsToday()) {
@@ -3112,7 +3213,7 @@ function scheduleUpcomingNotifications() {
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
-  const hasNapSlot = hasPlannedNapSlot();
+  const hasNapSlot = hasPlannedNapSlot() && !shouldSkipNextNapForNight(prediction, night);
   const reminders = [
     {
       at: prediction.start - 15,
@@ -4057,6 +4158,7 @@ function closeAllSheets(exceptSheet = null) {
     els.moodSheet,
     els.startSheet,
     els.napStartSheet,
+    els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet
   ].forEach((sheet) => {
@@ -4085,6 +4187,7 @@ function updateSheetOpenState() {
     els.moodSheet,
     els.startSheet,
     els.napStartSheet,
+    els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet
   ].some((sheet) => sheet && sheet.getAttribute("aria-hidden") === "false");
@@ -4128,12 +4231,17 @@ function toggleMoodSheet(open) {
 
 function toggleStartSheet(open) {
   if (open) toggleNapStartSheet(false);
+  if (open) toggleNightTimeSheet(false);
   setSheetOpen(els.startSheet, open);
 }
 
 function toggleNapStartSheet(open) {
   if (open && els.napStartTime) els.napStartTime.value = "";
   setSheetOpen(els.napStartSheet, open);
+}
+
+function toggleNightTimeSheet(open) {
+  setSheetOpen(els.nightTimeSheet, open);
 }
 
 function openManualRecordSheet(type = "nap") {

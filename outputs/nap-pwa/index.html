@@ -375,22 +375,22 @@
           <button class="manual-card-button night" id="startNight" type="button">
             <i class="fa-solid fa-cloud-moon" aria-hidden="true"></i>
             <strong>Hora de dormir</strong>
-            <span>Inicia o sono noturno com o horário atual</span>
+            <span>Inicia o sono noturno com o horário informado</span>
           </button>
           <button class="manual-card-button night" id="endNight" type="button">
             <i class="fa-solid fa-cloud-sun" aria-hidden="true"></i>
             <strong>Acordou</strong>
-            <span>Encerra o sono noturno e inicia o novo dia</span>
+            <span>Encerra com o horário informado</span>
           </button>
           <button class="manual-card-button night" id="startNightAwake" type="button">
             <i class="fa-solid fa-mug-saucer" aria-hidden="true"></i>
             <strong>Acordou na madrugada</strong>
-            <span>Marca uma pausa acordada sem encerrar a noite</span>
+            <span>Marca uma pausa com horário informado</span>
           </button>
           <button class="manual-card-button night" id="endNightAwake" type="button">
             <i class="fa-solid fa-bed" aria-hidden="true"></i>
             <strong>Voltou a dormir</strong>
-            <span>Continua o sono noturno depois da pausa</span>
+            <span>Registra volta a dormir com horário informado</span>
           </button>
           <button class="manual-card-button" id="openManualNap" type="button">
             <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
@@ -417,6 +417,21 @@
           <small>Opcional. Se ficar vazio, usa o horário atual.</small>
         </label>
         <button class="primary full-width" id="confirmStartNap" type="button">Iniciar</button>
+      </div>
+    </div>
+
+    <div class="sheet" id="nightTimeSheet" aria-hidden="true">
+      <div class="sheet-card nap-start-card">
+        <button class="icon-button close" id="closeNightTimeSheet" aria-label="Fechar">x</button>
+        <p class="label">Sono noturno</p>
+        <h2 id="nightTimeTitle">Registrar horário</h2>
+        <label class="start-time-panel" for="nightEventTime">
+          Horário
+          <input id="nightEventTime" type="datetime-local">
+          <small>Opcional. Se ficar vazio, usa o horário atual.</small>
+        </label>
+        <button class="primary full-width" id="confirmNightTime" type="button">Confirmar</button>
+        <p class="fineprint" id="nightTimeError"></p>
       </div>
     </div>
 
@@ -485,6 +500,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=117" defer></script>
+    <script src="app.js?v=118" defer></script>
   </body>
 </html>
