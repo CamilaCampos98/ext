@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=89">
+    <link rel="stylesheet" href="styles.css?v=91">
   </head>
   <body>
     <div class="app-shell">
@@ -313,6 +313,14 @@
             <span>Meta das sonecas</span>
             <strong id="avgNapGoal">0%</strong>
           </div>
+          <div>
+            <span>Trocas/dia</span>
+            <strong id="avgDiaperCount">0</strong>
+          </div>
+          <div>
+            <span>Com cocô/dia</span>
+            <strong id="avgPoopCount">0</strong>
+          </div>
         </div>
         <div class="report-chart-wrap report-chart-grid" id="reportCharts">
           <svg id="sleepReportChart" class="report-chart" viewBox="0 0 640 260" role="img" aria-label="Progressão do sono na semana"></svg>
@@ -360,49 +368,55 @@
           <button class="manual-card-button" id="startNap" type="button">
             <i class="fa-solid fa-alarm-clock" aria-hidden="true"></i>
             <strong>Soneca</strong>
-            <span>Inicia o cronômetro com o horário informado</span>
+            <span class="action-info" title="Inicia o cronômetro da soneca com horário atual ou informado."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button" id="endNap" type="button">
             <i class="fa-solid fa-stop" aria-hidden="true"></i>
             <strong>Encerrar soneca</strong>
-            <span>Finaliza a soneca em andamento</span>
+            <span class="action-info" title="Finaliza a soneca em andamento e salva a duração."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button feeding" id="openFeeding" type="button">
-            <i class="fa-solid fa-bottle-baby" aria-hidden="true"></i>
+            <i class="fa-solid fa-person-breastfeeding" aria-hidden="true"></i>
             <strong>Mamada</strong>
-            <span>Registra com o horário informado</span>
+            <span class="action-info" title="Registra a mamada com horário atual ou informado."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
+          </button>
+          <button class="manual-card-button diaper" id="openDiaper" type="button">
+            <i class="fa-solid fa-baby" aria-hidden="true"></i>
+            <strong>Troca de fraldas</strong>
+            <span class="action-info" title="Registra xixi, cocô ou xixi e cocô."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button night" id="startNight" type="button">
             <i class="fa-solid fa-cloud-moon" aria-hidden="true"></i>
             <strong>Hora de dormir</strong>
-            <span>Inicia o sono noturno com o horário informado</span>
+            <span class="action-info" title="Inicia o sono noturno com horário atual ou informado."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button night" id="endNight" type="button">
             <i class="fa-solid fa-cloud-sun" aria-hidden="true"></i>
             <strong>Acordou</strong>
-            <span>Encerra com o horário informado</span>
+            <span class="action-info" title="Encerra o sono noturno e inicia o novo ciclo do dia."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button night" id="startNightAwake" type="button">
             <i class="fa-solid fa-mug-saucer" aria-hidden="true"></i>
             <strong>Acordou na madrugada</strong>
-            <span>Marca uma pausa com horário informado</span>
+            <span class="action-info" title="Marca uma pausa acordada durante o sono noturno."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button night" id="endNightAwake" type="button">
             <i class="fa-solid fa-bed" aria-hidden="true"></i>
             <strong>Voltou a dormir</strong>
-            <span>Registra volta a dormir com horário informado</span>
+            <span class="action-info" title="Fecha a pausa acordada e continua o sono noturno."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button" id="openManualNap" type="button">
             <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
             <strong>Soneca anterior</strong>
-            <span>Corrigir ou preencher uma soneca esquecida</span>
+            <span class="action-info" title="Corrige ou preenche uma soneca esquecida."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button night" id="openManualNight" type="button">
             <i class="fa-solid fa-moon" aria-hidden="true"></i>
             <strong>Sono noturno anterior</strong>
-            <span>Registrar a noite passada sem cronômetro</span>
+            <span class="action-info" title="Registra uma noite anterior sem cronômetro."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
         </div>
+        <p class="start-info-text" id="startInfoText" hidden></p>
       </div>
     </div>
 
@@ -500,6 +514,26 @@
       </div>
     </div>
 
-    <script src="app.js?v=118" defer></script>
+    <div class="sheet" id="diaperSheet" aria-hidden="true">
+      <div class="sheet-card nap-start-card">
+        <button class="icon-button close" id="closeDiaper" aria-label="Fechar">x</button>
+        <p class="label">Fralda</p>
+        <h2>Registrar troca</h2>
+        <label class="start-time-panel" for="diaperTime">
+          Horário
+          <input id="diaperTime" type="datetime-local">
+          <small>Opcional. Se ficar vazio, usa o horário atual.</small>
+        </label>
+        <div class="side-options diaper-options" id="diaperTypeGroup" role="group" aria-label="Tipo de fralda">
+          <button class="side-option" type="button" data-diaper-type="pee">Xixi</button>
+          <button class="side-option" type="button" data-diaper-type="poop">Cocô</button>
+          <button class="side-option" type="button" data-diaper-type="both">Xixi e cocô</button>
+        </div>
+        <button class="primary full-width" id="saveDiaper" type="button">Salvar troca</button>
+        <p class="fineprint" id="diaperError"></p>
+      </div>
+    </div>
+
+    <script src="app.js?v=121" defer></script>
   </body>
 </html>

@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzXTI_bHTfWa4-UQvJ2mbIuz4opEUdJ9-BYd90zWhm-ueqBqAqYw75D9-IF9R7ZZmmNzQ/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx0fqjl5m2QO46jpYruI4rzTaeLxiw6MuYXX_GE2tJnjRLteiZazTUtJARjYTppKWRU1Q/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -104,6 +104,7 @@ const defaultState = {
   naps: [],
   nights: [],
   feedings: [],
+  diapers: [],
   sleepDiary: {},
   feedingOptions: {
     breast: true,
@@ -146,6 +147,7 @@ const els = {
   currentMood: document.querySelector("#currentMood"),
   openStartSheet: document.querySelector("#openStartSheet"),
   startSheet: document.querySelector("#startSheet"),
+  startInfoText: document.querySelector("#startInfoText"),
   closeStartSheet: document.querySelector("#closeStartSheet"),
   napStartSheet: document.querySelector("#napStartSheet"),
   closeNapStartSheet: document.querySelector("#closeNapStartSheet"),
@@ -166,6 +168,7 @@ const els = {
   openManualNap: document.querySelector("#openManualNap"),
   openManualNight: document.querySelector("#openManualNight"),
   openFeeding: document.querySelector("#openFeeding"),
+  openDiaper: document.querySelector("#openDiaper"),
   openManualFeeding: document.querySelector("#openManualFeeding"),
   activeNapHint: document.querySelector("#activeNapHint"),
   babyName: document.querySelector("#babyName"),
@@ -221,6 +224,8 @@ const els = {
   avgFeedingCount: document.querySelector("#avgFeedingCount"),
   avgNightAwake: document.querySelector("#avgNightAwake"),
   avgNapGoal: document.querySelector("#avgNapGoal"),
+  avgDiaperCount: document.querySelector("#avgDiaperCount"),
+  avgPoopCount: document.querySelector("#avgPoopCount"),
   reportCharts: document.querySelector("#reportCharts"),
   sleepReportChart: document.querySelector("#sleepReportChart"),
   reportSummary: document.querySelector("#reportSummary"),
@@ -255,7 +260,13 @@ const els = {
   feedingSideGroup: document.querySelector("#feedingSideGroup"),
   feedingNote: document.querySelector("#feedingNote"),
   saveFeeding: document.querySelector("#saveFeeding"),
-  feedingError: document.querySelector("#feedingError")
+  feedingError: document.querySelector("#feedingError"),
+  diaperSheet: document.querySelector("#diaperSheet"),
+  closeDiaper: document.querySelector("#closeDiaper"),
+  diaperTime: document.querySelector("#diaperTime"),
+  diaperTypeGroup: document.querySelector("#diaperTypeGroup"),
+  saveDiaper: document.querySelector("#saveDiaper"),
+  diaperError: document.querySelector("#diaperError")
 };
 
 let manualMood = "";
@@ -264,7 +275,9 @@ let nightEventMode = "";
 let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
+let diaperSheetSupport = null;
 let sleepDiarySheetSupport = null;
+let selectedDiaperType = "pee";
 
 init();
 
@@ -332,6 +345,7 @@ function bindEvents() {
 
   els.openStartSheet.addEventListener("click", () => toggleStartSheet(true));
   els.closeStartSheet.addEventListener("click", () => toggleStartSheet(false));
+  els.startSheet.addEventListener("click", handleStartActionInfoClick, true);
   if (els.napStartTime) {
     ["click", "pointerdown", "touchstart"].forEach((eventName) => {
       els.napStartTime.addEventListener(eventName, (event) => event.stopPropagation());
@@ -374,6 +388,10 @@ function bindEvents() {
     toggleStartSheet(false);
     openFeedingSheet(false);
   });
+  els.openDiaper.addEventListener("click", () => {
+    toggleStartSheet(false);
+    openDiaperSheet();
+  });
   if (els.openManualFeeding) {
     els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
   }
@@ -412,6 +430,9 @@ function bindEvents() {
   els.saveManualNap.addEventListener("click", saveManualNap);
   els.closeFeeding.addEventListener("click", () => toggleFeedingSheet(false));
   els.saveFeeding.addEventListener("click", saveFeeding);
+  els.closeDiaper.addEventListener("click", () => toggleDiaperSheet(false));
+  els.saveDiaper.addEventListener("click", saveDiaper);
+  els.diaperTypeGroup.addEventListener("click", handleDiaperTypeClick);
   els.sleepDiaryList.addEventListener("click", handleSleepDiaryOptionClick);
   els.sleepDiaryList.addEventListener("change", handleSleepDiaryChange);
   document.querySelectorAll("[data-feed-side]").forEach((button) => {
@@ -454,12 +475,28 @@ function bindEvents() {
   els.feedingSheet.addEventListener("click", (event) => {
     if (event.target === els.feedingSheet) toggleFeedingSheet(false);
   });
+  els.diaperSheet.addEventListener("click", (event) => {
+    if (event.target === els.diaperSheet) toggleDiaperSheet(false);
+  });
   els.history.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-nap]");
     if (button) removeNapRecord(button.dataset.deleteNap);
     const feedingButton = event.target.closest("[data-delete-feeding]");
     if (feedingButton) removeFeedingRecord(feedingButton.dataset.deleteFeeding);
+    const diaperButton = event.target.closest("[data-delete-diaper]");
+    if (diaperButton) removeDiaperRecord(diaperButton.dataset.deleteDiaper);
   });
+}
+
+function handleStartActionInfoClick(event) {
+  const info = event.target.closest(".action-info");
+  if (!info || !els.startSheet.contains(info)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const text = info.getAttribute("title") || "";
+  if (!text || !els.startInfoText) return;
+  els.startInfoText.textContent = text;
+  els.startInfoText.hidden = false;
 }
 
 function mountProfilePanel() {
@@ -760,6 +797,18 @@ function createFeedingRecord(fedAt, type, side, note) {
   };
 }
 
+function createDiaperRecord(changedAt, type) {
+  return {
+    id: `diaper-${changedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    babyName: state.babyName || "",
+    babyAge: currentBabyAgeMonths(),
+    at: changedAt.toISOString(),
+    type,
+    dayStart: state.dayStart,
+    synced: false
+  };
+}
+
 function activeNightAwakeningsUntil(endedAt = new Date()) {
   const awakenings = normalizeAwakenings(state.activeNightAwakenings || []);
   const awakeStart = new Date(state.activeNightAwakeStart || "");
@@ -839,6 +888,21 @@ function addFeedingRecord(feeding) {
   syncFeedingToSheet(feeding);
 }
 
+function addDiaperRecord(diaper) {
+  const duplicate = state.diapers.find((item) => diaperSignature(item) === diaperSignature(diaper));
+  if (duplicate) {
+    setHint("Troca duplicada ignorada: já existe um registro igual neste horário.");
+    return;
+  }
+
+  state.diapers.unshift(diaper);
+  state.diapers = dedupeDiapers(state.diapers)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+  saveState();
+  syncDiaperToSheet(diaper);
+}
+
 function applyNightAsCycleStartIfLatest(night) {
   const endedAt = new Date(night.end);
   if (Number.isNaN(endedAt.getTime())) return;
@@ -896,10 +960,19 @@ function removeFeedingRecord(feedingKey) {
   render();
 }
 
+function removeDiaperRecord(diaperKey) {
+  const diaper = state.diapers.find((item) => diaperIdentity(item) === diaperKey);
+  state.diapers = state.diapers.filter((item) => diaperIdentity(item) !== diaperKey);
+  saveState();
+  if (diaper && diaper.id) deleteDiaperFromSheet(diaper.id);
+  render();
+}
+
 function clearHistory() {
   state.naps = [];
   state.nights = [];
   state.feedings = [];
+  state.diapers = [];
   state.cycleStartAt = null;
   saveState();
   render();
@@ -1572,7 +1645,8 @@ function renderHistory() {
   const records = [
     ...state.naps.map((record) => ({ ...record, type: "nap" })),
     ...state.nights.map((record) => ({ ...record, type: "night" })),
-    ...dedupeFeedings(state.feedings).map((record) => ({ ...record, type: "feeding", start: record.at, end: record.at }))
+    ...dedupeFeedings(state.feedings).map((record) => ({ ...record, type: "feeding", start: record.at, end: record.at })),
+    ...dedupeDiapers(state.diapers).map((record) => ({ ...record, type: "diaper", diaperType: record.type, start: record.at, end: record.at }))
   ]
     .filter((record) => recordDateInputValue(record) === els.historyDate.value)
     .sort((a, b) => new Date(b.end) - new Date(a.end));
@@ -1586,6 +1660,9 @@ function renderHistory() {
     const end = new Date(record.end);
     if (record.type === "feeding") {
       return `<li><div><span>Mamada · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${feedingLabel(record)}</b></div></div><div class="history-actions"><div class="history-mood">${feedingSideLabel(record.side)}</div><button class="delete-nap" data-delete-feeding="${feedingIdentity(record)}" aria-label="Excluir mamada" title="Excluir mamada">×</button></div></li>`;
+    }
+    if (record.type === "diaper") {
+      return `<li><div><span>Troca de fralda · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${diaperTypeLabel(record.diaperType || record.kind || record.typeValue || record.type)}</b></div></div><div class="history-actions"><div class="history-mood">${diaperHasPoop(record) ? "Com cocô" : "Sem cocô"}</div><button class="delete-nap" data-delete-diaper="${diaperIdentity(record)}" aria-label="Excluir troca" title="Excluir troca">×</button></div></li>`;
     }
     const label = record.type === "night" ? "Sono noturno" : moodLabel(record.mood);
     const typeLabel = record.type === "night" ? "Noite" : "Soneca";
@@ -1911,7 +1988,7 @@ function renderActivities() {
   const name = babyDisplayName();
   const ageText = `${age} ${age === 1 ? "mês" : "meses"}`;
 
-  els.activityAgeLabel.textContent = `${name}: ${ageText}. Atividades curtas, com supervisão, para encaixar entre mamadas, brincadeiras e janelas de sono.`;
+  els.activityAgeLabel.textContent = `${name}: ${ageText}. ${safeTummyTimeSuggestionText()}`;
   els.activityList.innerHTML = group.items.map((activity) => `
     <article class="activity-card">
       <div>
@@ -1924,15 +2001,65 @@ function renderActivities() {
   `).join("");
 }
 
+function safeTummyTimeSuggestionText() {
+  try {
+    return tummyTimeSuggestionText();
+  } catch {
+    return "Tummy time: tente blocos curtos quando ela estiver acordada, calma e sem sinais de sono.";
+  }
+}
+
+function tummyTimeSuggestionText() {
+  const suggestions = tummyTimeSuggestions();
+  if (!suggestions.length) {
+    return "Tummy time: tente blocos curtos quando ela estiver acordada, calma e sem sinais de sono.";
+  }
+  return `Tummy time sugerido hoje: ${suggestions.join(", ")}. Evite fazer logo depois da mamada ou perto da janela de sono.`;
+}
+
+function tummyTimeSuggestions() {
+  const candidates = [];
+  const addCandidate = (minutes) => {
+    const normalized = normalizeDayMinutes(minutes);
+    if (!candidates.some((item) => Math.abs(item - normalized) < 25)) candidates.push(normalized);
+  };
+
+  const dayStart = safeTimeToMinutes(state.dayStart || state.lastWake, timeToMinutes(DEFAULT_DAY_START));
+  addCandidate(dayStart + 35);
+  feedingsToday()
+    .slice()
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 2)
+    .forEach((feeding) => addCandidate(dateToDayMinutes(new Date(feeding.at)) + 25));
+  napsToday()
+    .slice()
+    .sort((a, b) => new Date(b.end) - new Date(a.end))
+    .slice(0, 2)
+    .forEach((nap) => addCandidate(dateToDayMinutes(new Date(nap.end)) + 20));
+
+  const prediction = calculatePrediction();
+  const bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
+  const now = nowMinutes();
+  return candidates
+    .filter((minutes) => minutes >= now - 30)
+    .filter((minutes) => Math.abs(minutes - prediction.start) > 35 && Math.abs(minutes - prediction.target) > 35)
+    .filter((minutes) => minutes < bedtime - 45)
+    .sort((a, b) => a - b)
+    .slice(0, 3)
+    .map(minutesToTime);
+}
+
 function renderReport() {
   const days = reportWeekDays(reportWeekStart);
-  const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.nightAwake);
+  const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.diaperCount || day.nightAwake);
   const divisor = activeDays.length || 1;
   const avgNapCount = activeDays.reduce((sum, day) => sum + day.napCount, 0) / divisor;
   const avgDaySleep = activeDays.reduce((sum, day) => sum + day.daySleep, 0) / divisor;
   const avgNightSleep = activeDays.reduce((sum, day) => sum + day.nightSleep, 0) / divisor;
   const avgTotalSleep = activeDays.reduce((sum, day) => sum + day.totalSleep, 0) / divisor;
   const avgFeedingCount = activeDays.reduce((sum, day) => sum + day.feedingCount, 0) / divisor;
+  const avgDiaperCount = activeDays.reduce((sum, day) => sum + day.diaperCount, 0) / divisor;
+  const avgPoopCount = activeDays.reduce((sum, day) => sum + day.poopCount, 0) / divisor;
   const avgNightAwake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0) / divisor;
   const goalDays = activeDays.filter((day) => day.napGoalPercent);
   const avgNapGoal = goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / (goalDays.length || 1);
@@ -1945,6 +2072,8 @@ function renderReport() {
   els.avgNightSleep.textContent = formatDuration(Math.round(avgNightSleep));
   els.avgTotalSleep.textContent = formatDuration(Math.round(avgTotalSleep));
   if (els.avgFeedingCount) els.avgFeedingCount.textContent = activeDays.length ? avgFeedingCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgDiaperCount) els.avgDiaperCount.textContent = activeDays.length ? avgDiaperCount.toFixed(1).replace(".", ",") : "0";
+  if (els.avgPoopCount) els.avgPoopCount.textContent = activeDays.length ? avgPoopCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNightAwake) els.avgNightAwake.textContent = formatDuration(Math.round(avgNightAwake));
   if (els.avgNapGoal) els.avgNapGoal.textContent = goalDays.length ? `${Math.round(avgNapGoal)}%` : "0%";
   els.reportSummary.textContent = activeDays.length
@@ -1963,6 +2092,7 @@ function reportWeekDays(startDate) {
     const naps = state.naps.filter((nap) => recordDateInputValue(nap) === key);
     const nights = reportNightsForDay(key);
     const feedings = state.feedings.filter((feeding) => recordDateInputValue({ start: feeding.at }) === key);
+    const diapers = state.diapers.filter((diaper) => recordDateInputValue({ start: diaper.at }) === key);
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + nightDuration(night), 0);
     const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
@@ -2003,6 +2133,8 @@ function reportWeekDays(startDate) {
       label: shortWeekdayLabel(date),
       napCount: naps.length,
       feedingCount: feedings.length,
+      diaperCount: diapers.length,
+      poopCount: diapers.filter(diaperHasPoop).length,
       feedingInterval: averageFeedingInterval(feedings),
       napGoalPercent: averageNapGoalPercent,
       napDurations,
@@ -2158,7 +2290,8 @@ function latestReportWeekWithData() {
   const dates = [
     ...state.naps.map((nap) => new Date(nap.start)),
     ...state.nights.map((night) => new Date(night.end || night.start)),
-    ...state.feedings.map((feeding) => new Date(feeding.at))
+    ...state.feedings.map((feeding) => new Date(feeding.at)),
+    ...state.diapers.map((diaper) => new Date(diaper.at))
   ]
     .filter((date) => !Number.isNaN(date.getTime()))
     .sort((a, b) => b - a);
@@ -2167,7 +2300,7 @@ function latestReportWeekWithData() {
 
 function weekHasReportData(weekStart) {
   return reportWeekDays(weekStart).some((day) => (
-    day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.nightAwake
+    day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.diaperCount || day.nightAwake
   ));
 }
 
@@ -2176,6 +2309,7 @@ function renderSleepReportChart(days) {
   els.reportCharts.innerHTML = `
     ${reportTotalSleepChart(days)}
     ${reportNapDurationChart(days)}
+    ${reportDiaperChart(days)}
     ${reportSleepDiaryChart(days)}
     ${reportWakeChart(days)}
   `;
@@ -2274,6 +2408,45 @@ function reportNapDurationChart(days) {
         return `<rect class="chart-bar nap-duration" x="${roundSvg(x)}" y="${roundSvg(y)}" width="${barWidth}" height="${roundSvg(padding.top + plotHeight - y)}" rx="3"></rect>`;
       }).join("")).join("")}
       ${days.map((day, index) => `<text class="chart-label x" x="${roundSvg(scaleX(index))}" y="${height - 10}">${day.label}</text>`).join("")}
+    </svg>`;
+}
+
+function reportDiaperChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 48, right: 18, bottom: 34, left: 38 };
+  const maxValue = Math.max(1, ...days.flatMap((day) => [day.diaperCount, day.poopCount]));
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const groupWidth = plotWidth / days.length;
+  const barWidth = Math.min(14, groupWidth / 4);
+  const baseY = padding.top + plotHeight;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Trocas de fralda na semana">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Trocas de fralda</text>
+      <text class="chart-subtitle" x="18" y="40">Total de trocas e quantas tiveram cocô.</text>
+      <circle class="legend-dot-svg diaper" cx="392" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="404" y="28">Trocas</text>
+      <circle class="legend-dot-svg poop" cx="478" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="490" y="28">Com cocô</text>
+      ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const center = padding.left + groupWidth * index + groupWidth / 2;
+        const bars = [
+          { value: day.diaperCount, className: "diaper-count", offset: -barWidth / 2 - 2 },
+          { value: day.poopCount, className: "poop-count", offset: barWidth / 2 + 2 }
+        ];
+        return `
+          ${bars.map((bar) => {
+            const y = scaleY(bar.value);
+            return `<rect class="chart-bar ${bar.className}" x="${roundSvg(center + bar.offset - barWidth / 2)}" y="${roundSvg(y)}" width="${roundSvg(barWidth)}" height="${roundSvg(baseY - y)}" rx="3"></rect>`;
+          }).join("")}
+          <text class="chart-label x" x="${roundSvg(center)}" y="${height - 10}">${day.label}</text>
+        `;
+      }).join("")}
     </svg>`;
 }
 
@@ -2512,21 +2685,23 @@ async function syncPendingNapsToSheet() {
 }
 
 async function syncFromSheetThenPending() {
-  const [sleepLoad, feedingLoad, diaryLoad] = await Promise.allSettled([
+  const [sleepLoad, feedingLoad, diaryLoad, diaperLoad] = await Promise.allSettled([
     loadNapsFromSheet({ deferRender: true }),
     loadFeedingsFromSheet({ deferRender: true }),
-    loadSleepDiaryFromSheet({ deferRender: true })
+    loadSleepDiaryFromSheet({ deferRender: true }),
+    loadDiapersFromSheet({ deferRender: true })
   ]);
 
   const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
   const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
   const loadedDiary = diaryLoad.status === "fulfilled" ? diaryLoad.value : null;
-  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0);
-  const errors = [loadedSleep, loadedFeedings, loadedDiary]
+  const loadedDiapers = diaperLoad.status === "fulfilled" ? diaperLoad.value : null;
+  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0) + (loadedDiapers?.count || 0);
+  const errors = [loadedSleep, loadedFeedings, loadedDiary, loadedDiapers]
     .filter((result) => result && result.error)
     .map((result) => result.error);
 
-  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed) {
+  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed || loadedDiapers?.changed) {
     saveState();
     render();
   }
@@ -2540,7 +2715,8 @@ async function syncFromSheetThenPending() {
   await Promise.allSettled([
     syncPendingNapsToSheet(),
     syncPendingFeedingsToSheet(),
-    syncPendingSleepDiaryToSheet()
+    syncPendingSleepDiaryToSheet(),
+    syncPendingDiapersToSheet()
   ]);
 }
 
@@ -2676,6 +2852,55 @@ function sheetRecordToFeeding(record) {
     type: record.type || "breast",
     side: record.side || "",
     note: record.note || "",
+    dayStart: normalizeTimeField(record.dayStart),
+    synced: true
+  };
+}
+
+async function loadDiapersFromSheet(options = {}) {
+  const { deferRender = false } = options;
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
+
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listDiapers&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao carregar fraldas.");
+    if (!Array.isArray(result.records)) {
+      diaperSheetSupport = false;
+      return { count: 0, changed: false };
+    }
+    diaperSheetSupport = true;
+
+    const remoteDiapers = (result.records || [])
+      .map(sheetRecordToDiaper)
+      .filter(Boolean);
+
+    const hadLocalSynced = state.diapers.some((diaper) => diaper.synced);
+    mergeDiapers(remoteDiapers);
+    if (!deferRender) {
+      saveState();
+      render();
+      setHint(`Google Sheets carregado: ${remoteDiapers.length} troca(s) encontrada(s).`);
+    }
+    return { count: remoteDiapers.length, changed: hadLocalSynced || Boolean(remoteDiapers.length) };
+  } catch (error) {
+    const message = `Nao consegui carregar as fraldas do Google Sheets: ${error.message}`;
+    if (!deferRender) setHint(message);
+    return { count: 0, changed: false, error: message };
+  }
+}
+
+function sheetRecordToDiaper(record) {
+  if (!record.id || !record.at) return null;
+  const changedAt = new Date(record.at);
+  if (Number.isNaN(changedAt.getTime())) return null;
+  return {
+    id: String(record.id),
+    babyName: record.babyName || "",
+    babyAge: Number(record.babyAge || 0),
+    at: changedAt.toISOString(),
+    type: diaperTypeKey(record.type),
     dayStart: normalizeTimeField(record.dayStart),
     synced: true
   };
@@ -2826,6 +3051,17 @@ function mergeFeedings(remoteFeedings) {
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, 160);
   hydrateFeedingOptions();
+}
+
+function mergeDiapers(remoteDiapers) {
+  const byId = new Map();
+  state.diapers
+    .filter((diaper) => !diaper.synced)
+    .forEach((diaper) => byId.set(String(diaper.id || diaperIdentity(diaper)), diaper));
+  remoteDiapers.forEach((diaper) => byId.set(String(diaper.id), diaper));
+  state.diapers = dedupeDiapers(Array.from(byId.values()))
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
 }
 
 function mergeSleepDiary(remoteEntries) {
@@ -3020,6 +3256,87 @@ function sheetPayloadForFeeding(feeding) {
   };
 }
 
+async function syncDiaperToSheet(diaper) {
+  if (!SHEETS_WEB_APP_URL || !diaper) return;
+  return syncDiapersToSheet([diaper], "Troca salva no aparelho. Enviando para o Google Sheets...");
+}
+
+async function syncPendingDiapersToSheet() {
+  state.diapers = dedupeDiapers(state.diapers)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+  saveState();
+  const pending = state.diapers.filter((record) => !record.synced);
+  if (!pending.length) return;
+  await syncDiapersToSheet(pending, "Sincronizando fraldas pendentes com o Google Sheets...");
+}
+
+async function syncDiapersToSheet(diapers, statusMessage) {
+  if (!SHEETS_WEB_APP_URL || !diapers.length) return;
+  const supported = await ensureDiaperSheetSupport(true);
+  if (!supported) {
+    setHint("Troca salva no aparelho. Reimplante o Apps Script novo para criar/sincronizar a aba Fraldas.");
+    return;
+  }
+
+  const records = diapers.map((diaper) => sheetPayloadForDiaper(diaper));
+  const payload = {
+    token: SHEETS_SHARED_TOKEN,
+    action: records.length > 1 ? "bulkAppendDiapers" : "appendDiaper",
+    records,
+    ...records[0]
+  };
+
+  try {
+    setHint(statusMessage);
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar fralda.");
+
+    const syncedIds = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.diapers = state.diapers.map((diaper) => (
+      syncedIds.has(String(diaper.id || diaperIdentity(diaper))) ? { ...diaper, synced: true } : diaper
+    ));
+    saveState();
+    setHint("Troca salva no aparelho e sincronizada com o Google Sheets.");
+  } catch (error) {
+    setHint(`Troca salva no aparelho, mas nao foi enviada ao Google Sheets: ${error.message}`);
+  }
+}
+
+async function ensureDiaperSheetSupport(forceRetry = false) {
+  if (diaperSheetSupport === true && !forceRetry) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listDiapers&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    diaperSheetSupport = Boolean(result.ok && Array.isArray(result.records));
+  } catch {
+    if (!forceRetry) diaperSheetSupport = false;
+    return false;
+  }
+  return diaperSheetSupport;
+}
+
+function sheetPayloadForDiaper(diaper) {
+  const changedAt = new Date(diaper.at);
+  const type = diaperTypeKey(diaper.type);
+  return {
+    id: diaper.id || diaperIdentity(diaper),
+    babyName: diaper.babyName || state.babyName || "Bebê",
+    babyAge: Number(diaper.babyAge || currentBabyAgeMonths() || 0),
+    at: toLocalDateTimeValue(changedAt),
+    type,
+    typeLabel: diaperTypeLabel(type),
+    hasPoop: diaperHasPoop({ type }) ? "Sim" : "Não",
+    dayStart: normalizeTimeField(diaper.dayStart || state.dayStart)
+  };
+}
+
 async function syncSleepDiaryEntryToSheet(napId) {
   if (!SHEETS_WEB_APP_URL || !napId) return;
   return syncSleepDiaryToSheet([napId], "Diário salvo no aparelho. Enviando para o Google Sheets...");
@@ -3203,6 +3520,27 @@ async function deleteFeedingFromSheet(id) {
     setHint("Mamada removida do aparelho e do Google Sheets.");
   } catch (error) {
     setHint(`Mamada removida do aparelho, mas nao foi removida do Google Sheets: ${error.message}`);
+  }
+}
+
+async function deleteDiaperFromSheet(id) {
+  if (!SHEETS_WEB_APP_URL || !id) return;
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "deleteDiaper",
+        id
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao remover fralda.");
+    setHint("Troca removida do aparelho e do Google Sheets.");
+  } catch (error) {
+    setHint(`Troca removida do aparelho, mas nao foi removida do Google Sheets: ${error.message}`);
   }
 }
 
@@ -4116,6 +4454,16 @@ function loadState() {
       synced: Boolean(feeding.synced)
     })).filter((feeding) => !Number.isNaN(new Date(feeding.at).getTime())))
       .sort((a, b) => new Date(b.at) - new Date(a.at));
+    loaded.diapers = dedupeDiapers((loaded.diapers || []).map((diaper) => ({
+      ...diaper,
+      id: diaper.id || `diaper-legacy-${Math.abs(hashString(diaperIdentity(diaper)))}`,
+      at: diaper.at,
+      type: diaperTypeKey(diaper.type),
+      babyAge: Number.isFinite(Number(diaper.babyAge)) ? Number(diaper.babyAge) : loaded.babyAge,
+      dayStart: normalizeTimeField(diaper.dayStart) || loaded.dayStart,
+      synced: Boolean(diaper.synced)
+    })).filter((diaper) => !Number.isNaN(new Date(diaper.at).getTime())))
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
   if (loaded.nights[0]) {
       const latestNightStart = new Date(loaded.nights[0].start);
       const latestNightEnd = new Date(loaded.nights[0].end);
@@ -4160,7 +4508,8 @@ function closeAllSheets(exceptSheet = null) {
     els.napStartSheet,
     els.nightTimeSheet,
     els.manualNapSheet,
-    els.feedingSheet
+    els.feedingSheet,
+    els.diaperSheet
   ].forEach((sheet) => {
     if (sheet && sheet !== exceptSheet) {
       sheet.setAttribute("aria-hidden", "true");
@@ -4189,7 +4538,8 @@ function updateSheetOpenState() {
     els.napStartSheet,
     els.nightTimeSheet,
     els.manualNapSheet,
-    els.feedingSheet
+    els.feedingSheet,
+    els.diaperSheet
   ].some((sheet) => sheet && sheet.getAttribute("aria-hidden") === "false");
   document.body.classList.toggle("sheet-open", hasOpenSheet);
 }
@@ -4232,6 +4582,10 @@ function toggleMoodSheet(open) {
 function toggleStartSheet(open) {
   if (open) toggleNapStartSheet(false);
   if (open) toggleNightTimeSheet(false);
+  if (open && els.startInfoText) {
+    els.startInfoText.textContent = "";
+    els.startInfoText.hidden = true;
+  }
   setSheetOpen(els.startSheet, open);
 }
 
@@ -4292,6 +4646,30 @@ function openFeedingSheet(manual = false) {
 
 function toggleFeedingSheet(open) {
   setSheetOpen(els.feedingSheet, open);
+}
+
+function openDiaperSheet() {
+  els.diaperTime.value = "";
+  showDiaperError("");
+  selectDiaperType(selectedDiaperType || "pee");
+  toggleDiaperSheet(true);
+}
+
+function toggleDiaperSheet(open) {
+  setSheetOpen(els.diaperSheet, open);
+}
+
+function handleDiaperTypeClick(event) {
+  const button = event.target.closest("[data-diaper-type]");
+  if (!button) return;
+  selectDiaperType(button.dataset.diaperType);
+}
+
+function selectDiaperType(type) {
+  selectedDiaperType = diaperTypeKey(type) || "pee";
+  document.querySelectorAll("[data-diaper-type]").forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.diaperType === selectedDiaperType);
+  });
 }
 
 function renderFeedingTypeOptions() {
@@ -4358,6 +4736,32 @@ function saveFeeding() {
 
 function showFeedingError(message) {
   els.feedingError.textContent = message;
+}
+
+function saveDiaper() {
+  if (els.saveDiaper.disabled) return;
+  els.saveDiaper.disabled = true;
+  const changedAt = els.diaperTime.value ? new Date(els.diaperTime.value) : new Date();
+  if (Number.isNaN(changedAt.getTime())) {
+    showDiaperError("Horário da troca inválido.");
+    els.saveDiaper.disabled = false;
+    return;
+  }
+
+  if (changedAt > new Date()) {
+    showDiaperError("O horário da troca não pode ser no futuro.");
+    els.saveDiaper.disabled = false;
+    return;
+  }
+
+  addDiaperRecord(createDiaperRecord(changedAt, selectedDiaperType));
+  toggleDiaperSheet(false);
+  els.saveDiaper.disabled = false;
+  render();
+}
+
+function showDiaperError(message) {
+  els.diaperError.textContent = message;
 }
 
 function selectManualMood(mood) {
@@ -4513,6 +4917,57 @@ function dedupeFeedings(feedings) {
     }
   });
 
+  return Array.from(bySignature.values());
+}
+
+function diaperTypeKey(value) {
+  const text = String(value || "").toLowerCase();
+  const hasPee = text.includes("pee") || text.includes("xixi");
+  const hasPoop = text.includes("poop") || text.includes("cocô") || text.includes("coco");
+  if (text.includes("both") || (hasPee && hasPoop)) return "both";
+  if (hasPoop) return "poop";
+  return "pee";
+}
+
+function diaperTypeLabel(value) {
+  const type = diaperTypeKey(value);
+  if (type === "both") return "Xixi e cocô";
+  if (type === "poop") return "Cocô";
+  return "Xixi";
+}
+
+function diaperHasPoop(diaper) {
+  return ["poop", "both"].includes(diaperTypeKey(diaper?.diaperType || diaper?.type || diaper));
+}
+
+function diaperIdentity(diaper) {
+  return diaper.id || `${diaper.at}|${diaper.type || ""}`;
+}
+
+function diaperSignature(diaper) {
+  const date = new Date(diaper.at);
+  const minuteKey = Number.isNaN(date.getTime())
+    ? String(diaper.at || "")
+    : `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
+  return [minuteKey, diaperTypeKey(diaper.type)].join("|");
+}
+
+function dedupeDiapers(diapers = []) {
+  const bySignature = new Map();
+  diapers.forEach((diaper) => {
+    if (!diaper || Number.isNaN(new Date(diaper.at).getTime())) return;
+    const normalized = {
+      ...diaper,
+      type: diaperTypeKey(diaper.type),
+      id: diaper.id || `diaper-legacy-${Math.abs(hashString(diaperIdentity(diaper)))}`,
+      synced: Boolean(diaper.synced)
+    };
+    const signature = diaperSignature(normalized);
+    const current = bySignature.get(signature);
+    if (!current || (!current.synced && normalized.synced)) {
+      bySignature.set(signature, normalized);
+    }
+  });
   return Array.from(bySignature.values());
 }
 

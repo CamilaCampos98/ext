@@ -1,5 +1,6 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
+const DIAPERS_SHEET_NAME = 'Fraldas';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const SHARED_TOKEN = 'sonecas';
 
@@ -33,6 +34,17 @@ const FEEDING_HEADERS = [
   'Tipo',
   'Peito',
   'Observação',
+  'Inicio do dia'
+];
+
+const DIAPER_HEADERS = [
+  'Recebido em',
+  'ID',
+  'Bebê',
+  'Idade (meses)',
+  'Horário',
+  'Tipo',
+  'Teve cocô',
   'Inicio do dia'
 ];
 
@@ -71,6 +83,10 @@ function doGet(e) {
     return jsonResponse(listFeedingRows(getFeedingSheet()));
   }
 
+  if (e && e.parameter && e.parameter.action === 'listDiapers') {
+    return jsonResponse(listDiaperRows(getDiaperSheet()));
+  }
+
   if (e && e.parameter && e.parameter.action === 'listSleepDiary') {
     return jsonResponse(listSleepDiaryRows(getSleepDiarySheet()));
   }
@@ -99,12 +115,24 @@ function doPost(e) {
       return jsonResponse(deleteRowById(getFeedingSheet(), payload.id));
     }
 
+    if (payload.action === 'deleteDiaper') {
+      return jsonResponse(deleteRowById(getDiaperSheet(), payload.id));
+    }
+
     if (payload.action === 'appendFeeding') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), [payload]));
     }
 
     if (payload.action === 'bulkAppendFeedings') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendDiaper') {
+      return jsonResponse(appendMissingDiaperRows(getDiaperSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendDiapers') {
+      return jsonResponse(appendMissingDiaperRows(getDiaperSheet(), payload.records || []));
     }
 
     if (payload.action === 'upsertSleepDiary') {
@@ -166,6 +194,24 @@ function getFeedingSheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, FEEDING_HEADERS);
+  }
+
+  return sheet;
+}
+
+function getDiaperSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(DIAPERS_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(DIAPERS_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(DIAPER_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, DIAPER_HEADERS);
   }
 
   return sheet;
@@ -287,6 +333,35 @@ function appendMissingFeedingRows(sheet, records) {
   };
 }
 
+function appendMissingDiaperRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+
+  records.forEach((record) => {
+    const id = String(record.id || '');
+    if (!id || existingIds.has(id)) {
+      skipped.push(id);
+      return;
+    }
+
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push(toDiaperSheetRow(record));
+  });
+
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DIAPER_HEADERS.length).setValues(rows);
+  }
+
+  return {
+    ok: true,
+    inserted: inserted,
+    skipped: skipped
+  };
+}
+
 function upsertSleepDiaryRows(sheet, records) {
   const existingRows = getExistingIdRows(sheet);
   const inserted = [];
@@ -378,6 +453,19 @@ function toFeedingSheetRow(payload) {
   ];
 }
 
+function toDiaperSheetRow(payload) {
+  return [
+    new Date(),
+    payload.id || '',
+    payload.babyName || '',
+    payload.babyAge || '',
+    toDateTimeString(payload.at),
+    payload.typeLabel || diaperTypeLabel(payload.type),
+    payload.hasPoop || (diaperHasPoop(payload.type) ? 'Sim' : 'Não'),
+    toTimeString(payload.dayStart)
+  ];
+}
+
 function toSleepDiarySheetRow(payload) {
   return [
     new Date(),
@@ -452,6 +540,29 @@ function listFeedingRows(sheet) {
       side: feedingSideKey(row[6]),
       note: row[7] || '',
       dayStart: toTimeString(row[8])
+    }));
+
+  return { ok: true, records: records };
+}
+
+function listDiaperRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { ok: true, records: [] };
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, DIAPER_HEADERS.length).getValues();
+  const records = values
+    .filter((row) => row[1])
+    .map((row) => ({
+      receivedAt: toIsoString(row[0]),
+      id: String(row[1]),
+      babyName: row[2] || '',
+      babyAge: row[3] || '',
+      at: toDateTimeString(row[4]),
+      type: diaperTypeKey(row[5]),
+      hasPoop: row[6] || '',
+      dayStart: toTimeString(row[7])
     }));
 
   return { ok: true, records: records };
@@ -568,6 +679,27 @@ function feedingSideKey(value) {
   if (text.indexOf('ambos') >= 0) return 'both';
   if (text.indexOf('esquerdo') >= 0) return 'left';
   return '';
+}
+
+function diaperTypeKey(value) {
+  const text = String(value || '').toLowerCase();
+  const hasPee = text.indexOf('xixi') >= 0 || text.indexOf('pee') >= 0;
+  const hasPoop = text.indexOf('cocô') >= 0 || text.indexOf('coco') >= 0 || text.indexOf('poop') >= 0;
+  if (text.indexOf('both') >= 0 || (hasPee && hasPoop)) return 'both';
+  if (hasPoop) return 'poop';
+  return 'pee';
+}
+
+function diaperTypeLabel(value) {
+  const type = diaperTypeKey(value);
+  if (type === 'both') return 'Xixi e cocô';
+  if (type === 'poop') return 'Cocô';
+  return 'Xixi';
+}
+
+function diaperHasPoop(value) {
+  const type = diaperTypeKey(value);
+  return type === 'poop' || type === 'both';
 }
 
 function toIsoString(value) {

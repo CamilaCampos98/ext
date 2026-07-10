@@ -1797,6 +1797,16 @@ select {
   fill: var(--feed);
 }
 
+.chart-bar.diaper-count,
+.legend-dot-svg.diaper {
+  fill: var(--baby-blue);
+}
+
+.chart-bar.poop-count,
+.legend-dot-svg.poop {
+  fill: #CBB7F7;
+}
+
 .chart-bar.nap-duration,
 .chart-bar.day-stack {
   fill: var(--nap-color);
@@ -1955,16 +1965,16 @@ select {
 
 .manual-card-button {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto;
   justify-items: center;
   align-content: start;
-  gap: 7px;
-  min-height: 128px;
+  gap: 6px;
+  min-height: 92px;
   border: 1px solid rgba(168, 216, 240, 0.24);
   border-radius: 8px;
   background: rgba(168, 216, 240, 0.1);
   color: var(--ink);
-  padding: 14px 10px;
+  padding: 10px 8px;
   text-align: center;
   cursor: pointer;
 }
@@ -1980,6 +1990,25 @@ select {
   font-size: 1rem;
 }
 
+.manual-card-button .action-info {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(248, 251, 253, 0.12);
+  color: var(--muted);
+  pointer-events: auto;
+}
+
+.manual-card-button .action-info i {
+  width: auto;
+  height: auto;
+  background: transparent;
+  color: inherit;
+  font-size: 0.56rem;
+}
+
 .manual-card-button.night {
   border-color: rgba(203, 183, 247, 0.26);
   background: rgba(203, 183, 247, 0.12);
@@ -1988,6 +2017,16 @@ select {
 .manual-card-button.feeding {
   border-color: rgba(138, 63, 252, 0.28);
   background: rgba(138, 63, 252, 0.13);
+}
+
+.manual-card-button.diaper {
+  border-color: rgba(168, 216, 240, 0.32);
+  background: rgba(168, 216, 240, 0.12);
+}
+
+.manual-card-button.diaper i {
+  background: rgba(168, 216, 240, 0.18);
+  color: var(--baby-blue);
 }
 
 .manual-card-button.feeding i {
@@ -2047,12 +2086,12 @@ select {
 .start-options {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   margin-top: 16px;
 }
 
 .manual-card-button strong {
-  font-size: 0.88rem;
+  font-size: 0.76rem;
   line-height: 1.12;
 }
 
@@ -2060,6 +2099,26 @@ select {
   color: var(--muted);
   font-size: 0.68rem;
   line-height: 1.22;
+}
+
+.manual-card-button > span:not(.action-info) {
+  display: none;
+}
+
+.start-info-text {
+  margin: 10px 0 0;
+  border: 1px solid rgba(168, 216, 240, 0.2);
+  border-radius: 8px;
+  background: rgba(8, 14, 34, 0.52);
+  color: var(--ice);
+  padding: 9px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.start-info-text[hidden] {
+  display: none;
 }
 
 .manual-card-button:disabled {
@@ -2415,11 +2474,22 @@ select {
   }
 
   .start-options {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .manual-card-button {
-    min-height: 122px;
+    min-height: 82px;
+    padding: 8px 4px;
+  }
+
+  .manual-card-button i {
+    width: 30px;
+    height: 30px;
+  }
+
+  .manual-card-button strong {
+    font-size: 0.66rem;
   }
 
   .checkbox-grid,
