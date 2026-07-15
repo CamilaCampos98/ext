@@ -2,6 +2,7 @@ const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
 const DIAPERS_SHEET_NAME = 'Fraldas';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
+const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
 
 const HEADERS = [
@@ -68,6 +69,18 @@ const SLEEP_DIARY_HEADERS = [
   'Janela de sono usada'
 ];
 
+const ACTIVE_SESSION_HEADERS = [
+  'Chave',
+  'ID',
+  'Tipo',
+  'Bebê',
+  'Idade (meses)',
+  'Início',
+  'Acordou em',
+  'Despertares',
+  'Atualizado em'
+];
+
 function doGet(e) {
   const token = e && e.parameter ? e.parameter.token : '';
 
@@ -89,6 +102,10 @@ function doGet(e) {
 
   if (e && e.parameter && e.parameter.action === 'listSleepDiary') {
     return jsonResponse(listSleepDiaryRows(getSleepDiarySheet()));
+  }
+
+  if (e && e.parameter && e.parameter.action === 'getActiveSession') {
+    return jsonResponse(getActiveSession(getActiveSessionSheet()));
   }
 
   return jsonResponse({
@@ -141,6 +158,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkUpsertSleepDiary') {
       return jsonResponse(upsertSleepDiaryRows(getSleepDiarySheet(), payload.records || []));
+    }
+
+    if (payload.action === 'setActiveSession') {
+      return jsonResponse(setActiveSession(getActiveSessionSheet(), payload));
+    }
+
+    if (payload.action === 'clearActiveSession') {
+      return jsonResponse(clearActiveSession(getActiveSessionSheet(), payload.id));
     }
 
     if (payload.action === 'bulkAppend') {
@@ -230,6 +255,24 @@ function getSleepDiarySheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, SLEEP_DIARY_HEADERS);
+  }
+
+  return sheet;
+}
+
+function getActiveSessionSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(ACTIVE_SESSION_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(ACTIVE_SESSION_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(ACTIVE_SESSION_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, ACTIVE_SESSION_HEADERS);
   }
 
   return sheet;
@@ -393,6 +436,82 @@ function upsertSleepDiaryRows(sheet, records) {
     updated: updated,
     skipped: skipped
   };
+}
+
+function setActiveSession(sheet, payload) {
+  if (!payload.id || !payload.type || !payload.start) {
+    return { ok: false, activeSessionSupported: true, error: 'Sessão ativa incompleta.' };
+  }
+
+  const row = [
+    'active',
+    String(payload.id),
+    payload.type === 'night' ? 'night' : 'nap',
+    payload.babyName || '',
+    payload.babyAge || '',
+    toDateTimeString(payload.start),
+    toDateTimeString(payload.nightAwakeStart),
+    JSON.stringify(payload.awakenings || []),
+    new Date()
+  ];
+
+  if (sheet.getLastRow() < 2) {
+    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).setValues([row]);
+  } else {
+    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).setValues([row]);
+  }
+
+  return { ok: true, activeSessionSupported: true, session: activeSessionRowToObject(row) };
+}
+
+function getActiveSession(sheet) {
+  if (sheet.getLastRow() < 2) {
+    return { ok: true, activeSessionSupported: true, session: null };
+  }
+
+  const row = sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).getValues()[0];
+  if (String(row[0] || '') !== 'active' || !row[1] || !row[5]) {
+    return { ok: true, activeSessionSupported: true, session: null };
+  }
+
+  return { ok: true, activeSessionSupported: true, session: activeSessionRowToObject(row) };
+}
+
+function clearActiveSession(sheet, id) {
+  if (sheet.getLastRow() < 2) {
+    return { ok: true, activeSessionSupported: true, cleared: false };
+  }
+
+  const currentId = String(sheet.getRange(2, 2).getValue() || '');
+  if (id && currentId && String(id) !== currentId) {
+    return { ok: true, activeSessionSupported: true, cleared: false, currentId: currentId };
+  }
+
+  sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+  return { ok: true, activeSessionSupported: true, cleared: true };
+}
+
+function activeSessionRowToObject(row) {
+  return {
+    id: String(row[1] || ''),
+    type: row[2] === 'night' ? 'night' : 'nap',
+    babyName: row[3] || '',
+    babyAge: row[4] || '',
+    start: toDateTimeString(row[5]),
+    nightAwakeStart: toDateTimeString(row[6]),
+    awakenings: parseAwakenings(row[7]),
+    updatedAt: toIsoString(row[8])
+  };
+}
+
+function parseAwakenings(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 function getExistingIds(sheet) {

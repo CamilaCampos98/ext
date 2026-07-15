@@ -4,10 +4,11 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx0fqjl5m2QO46jpYruI4rzTaeLxiw6MuYXX_GE2tJnjRLteiZazTUtJARjYTppKWRU1Q/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzUd8hovNRsKgnz7_H0As8kU4SjJuACY5WDu7flhEgArcr02f33vBkH70eSyp_eB1TffQ/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
+const ACTIVE_SESSION_POLL_MS = 15000;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -99,6 +100,7 @@ const defaultState = {
   activeNapStart: null,
   activeNapResumeId: null,
   activeNightStart: null,
+  activeNightId: null,
   activeNightAwakeStart: null,
   activeNightAwakenings: [],
   cycleStartAt: null,
@@ -282,6 +284,9 @@ let feedingSheetSupport = null;
 let diaperSheetSupport = null;
 let sleepDiarySheetSupport = null;
 let selectedDiaperType = "pee";
+let activeSessionSheetSupport = null;
+let activeSessionPollInFlight = false;
+let lastActiveSessionWriteAt = 0;
 
 init();
 
@@ -293,7 +298,13 @@ function init() {
   updateNotificationState();
   render();
   syncFromSheetThenPending();
+  if (state.activeNapStart || state.activeNightStart) syncActiveSessionToSheet();
   setInterval(render, 1000);
+  loadActiveSessionFromSheet();
+  setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadActiveSessionFromSheet();
+  });
 }
 
 function hydrateForm() {
@@ -554,10 +565,12 @@ function startNap() {
   const startedAt = informedStart && !Number.isNaN(informedStart.getTime()) && informedStart <= now
     ? informedStart
     : now;
+  const sessionId = newNapId(startedAt);
   state.activeNapStart = startedAt.toISOString();
-  state.activeNapResumeId = null;
+  state.activeNapResumeId = sessionId;
   clearNotificationTimers();
   saveState();
+  syncActiveSessionToSheet();
   scheduleActiveNapNotifications();
   render();
 }
@@ -565,11 +578,13 @@ function startNap() {
 function startNightSleep(startedAt = new Date()) {
   if (state.activeNapStart || state.activeNightStart) return;
   state.activeNightStart = startedAt.toISOString();
+  state.activeNightId = newNightId(startedAt);
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
   clearNotificationTimers();
   syncRemoteNotificationScheduleAbsolute([]);
   saveState();
+  syncActiveSessionToSheet();
   if (canNotify()) {
     notify("Sono noturno iniciado \ud83c\udf19", `${babyDisplayName()} dormiu! Hora de descansar \ud83d\udc9e`, "soneca-noite-iniciada");
   }
@@ -646,6 +661,7 @@ function startNightAwake(startedAt = new Date()) {
   if (!state.activeNightStart || state.activeNightAwakeStart) return;
   state.activeNightAwakeStart = startedAt.toISOString();
   saveState();
+  syncActiveSessionToSheet();
   render();
 }
 
@@ -660,6 +676,7 @@ function endNightAwake(endedAt = new Date()) {
   }
   state.activeNightAwakeStart = null;
   saveState();
+  syncActiveSessionToSheet();
   render();
 }
 
@@ -669,20 +686,25 @@ function completeNightSleep(endedAt = new Date()) {
 
   if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
     state.activeNightStart = null;
+    state.activeNightId = null;
     state.activeNightAwakeStart = null;
     state.activeNightAwakenings = [];
+    clearActiveSessionFromSheet();
     saveState();
     render();
     return;
   }
 
-  const night = createNightRecord(startedAt, endedAt, activeNightAwakeningsUntil(endedAt));
+  const activeNightId = state.activeNightId;
+  const night = createNightRecord(startedAt, endedAt, activeNightAwakeningsUntil(endedAt), { id: activeNightId });
   addNightRecord(night);
   state.activeNightStart = null;
+  state.activeNightId = null;
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
   applyNightAsCycleStartIfLatest(night);
   saveState();
+  clearActiveSessionFromSheet(activeNightId);
   syncNightToSheet(night);
   scheduleUpcomingNotifications();
   render();
@@ -693,11 +715,13 @@ function completeNap(mood) {
   const startedAt = new Date(state.activeNapStart);
   const endedAt = new Date();
   const nap = createNapRecord(startedAt, endedAt, mood, { id: state.activeNapResumeId });
+  const activeNapId = state.activeNapResumeId;
   addNapRecord(nap);
   state.activeNapStart = null;
   state.activeNapResumeId = null;
   clearNotificationTimers();
   toggleMoodSheet(false);
+  clearActiveSessionFromSheet(activeNapId);
   scheduleUpcomingNotifications();
   render();
 }
@@ -751,7 +775,7 @@ function createNapRecord(startedAt, endedAt, mood, options = {}) {
   const goalDuration = napGoalMinutesForIndex(napIndex);
   const duration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
-    id: options.id || `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: options.id || newNapId(startedAt),
     type: "nap",
     babyName: state.babyName || "",
     babyAge: currentBabyAgeMonths(),
@@ -768,11 +792,11 @@ function createNapRecord(startedAt, endedAt, mood, options = {}) {
   };
 }
 
-function createNightRecord(startedAt, endedAt, awakenings = []) {
+function createNightRecord(startedAt, endedAt, awakenings = [], options = {}) {
   const awakeMinutes = totalAwakeMinutes(awakenings);
   const grossDuration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
-    id: `night-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: options.id || newNightId(startedAt),
     type: "night",
     babyName: state.babyName || "",
     babyAge: currentBabyAgeMonths(),
@@ -1245,8 +1269,7 @@ function renderNightPlanner() {
   const feedings = feedingsInActiveNight();
 
   els.daySegments.innerHTML = [
-    arcPath(nightStart, nowMinute, "night"),
-    ...awakenings.map((item) => arcPath(dateToDayMinutes(new Date(item.start)), dateToDayMinutes(new Date(item.end)), "awake"))
+    arcPath(nightStart, nowMinute, "night")
   ].join("");
 
   els.dayMarkers.innerHTML = [
@@ -1255,11 +1278,6 @@ function renderNightPlanner() {
       type: "feed",
       at: dateToDayMinutes(new Date(feeding.at)),
       id: feedingIdentity(feeding)
-    })),
-    ...awakenings.map((item) => ({
-      type: "awake",
-      at: dateToDayMinutes(new Date(item.start)),
-      label: timeLabel(new Date(item.start))
     }))
   ]
     .filter((marker) => Number.isFinite(marker.at))
@@ -1344,6 +1362,8 @@ function handleNapDetailCardClick(event) {
 
   const continueButton = event.target.closest("[data-continue-nap]");
   if (continueButton) {
+    event.preventDefault();
+    event.stopPropagation();
     continueNapFromRecord(continueButton.dataset.continueNap);
   }
 }
@@ -1392,6 +1412,7 @@ function continueNapFromRecord(napKey) {
   clearNotificationTimers();
   hideNapDetailCard();
   saveState();
+  syncActiveSessionToSheet();
   scheduleActiveNapNotifications();
   setHint("Timer retomado na mesma soneca. Ao encerrar, a duracao sera atualizada.");
   render();
@@ -2729,6 +2750,16 @@ function stableNapId(nap) {
   return `legacy-${Math.abs(hashString(napIdentity(nap)))}`;
 }
 
+function newNapId(startedAt = new Date()) {
+  const time = Number.isNaN(new Date(startedAt).getTime()) ? Date.now() : new Date(startedAt).getTime();
+  return `${time}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function newNightId(startedAt = new Date()) {
+  const time = Number.isNaN(new Date(startedAt).getTime()) ? Date.now() : new Date(startedAt).getTime();
+  return `night-${time}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function hashString(value) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -2752,6 +2783,154 @@ async function syncPendingNapsToSheet() {
   const pending = [...state.naps, ...state.nights].filter((record) => !record.synced);
   if (!pending.length) return;
   await syncNapsToSheet(pending, "Sincronizando registros pendentes com o Google Sheets...");
+}
+
+function activeSessionPayload() {
+  if (state.activeNapStart) {
+    if (!state.activeNapResumeId) state.activeNapResumeId = newNapId(new Date(state.activeNapStart));
+    return {
+      id: state.activeNapResumeId,
+      type: "nap",
+      start: state.activeNapStart,
+      babyName: state.babyName || "",
+      babyAge: currentBabyAgeMonths()
+    };
+  }
+
+  if (state.activeNightStart) {
+    if (!state.activeNightId) state.activeNightId = newNightId(new Date(state.activeNightStart));
+    return {
+      id: state.activeNightId,
+      type: "night",
+      start: state.activeNightStart,
+      babyName: state.babyName || "",
+      babyAge: currentBabyAgeMonths(),
+      nightAwakeStart: state.activeNightAwakeStart || "",
+      awakenings: normalizeAwakenings(state.activeNightAwakenings || [])
+    };
+  }
+
+  return null;
+}
+
+async function syncActiveSessionToSheet() {
+  if (!SHEETS_WEB_APP_URL) return;
+  const session = activeSessionPayload();
+  if (!session) return;
+  lastActiveSessionWriteAt = Date.now();
+  saveState();
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "setActiveSession",
+        ...session
+      })
+    });
+    const result = await response.json();
+    activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+  } catch {
+    activeSessionSheetSupport = false;
+  }
+}
+
+async function clearActiveSessionFromSheet(id = "") {
+  if (!SHEETS_WEB_APP_URL) return;
+  lastActiveSessionWriteAt = Date.now();
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "clearActiveSession",
+        id
+      })
+    });
+    const result = await response.json();
+    activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+  } catch {
+    activeSessionSheetSupport = false;
+  }
+}
+
+async function loadActiveSessionFromSheet() {
+  if (!SHEETS_WEB_APP_URL || activeSessionPollInFlight) return;
+  activeSessionPollInFlight = true;
+
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=getActiveSession&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao carregar timer ativo.");
+    if (!result.activeSessionSupported) return;
+    activeSessionSheetSupport = true;
+
+    if (result.session) {
+      applyRemoteActiveSession(result.session);
+      return;
+    }
+
+    if ((state.activeNapStart || state.activeNightStart) && Date.now() - lastActiveSessionWriteAt > 5000) {
+      state.activeNapStart = null;
+      state.activeNapResumeId = null;
+      state.activeNightStart = null;
+      state.activeNightId = null;
+      state.activeNightAwakeStart = null;
+      state.activeNightAwakenings = [];
+      clearNotificationTimers();
+      saveState();
+      scheduleUpcomingNotifications();
+      setHint("Timer encerrado em outro aparelho.");
+      render();
+    }
+  } catch {
+    if (activeSessionSheetSupport === null) activeSessionSheetSupport = false;
+  } finally {
+    activeSessionPollInFlight = false;
+  }
+}
+
+function applyRemoteActiveSession(session) {
+  const startedAt = new Date(session.start);
+  if (!session.id || Number.isNaN(startedAt.getTime())) return;
+
+  const type = session.type === "night" ? "night" : "nap";
+  const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
+  const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
+  if (sameNap) return;
+
+  if (type === "nap") {
+    state.activeNapStart = startedAt.toISOString();
+    state.activeNapResumeId = String(session.id);
+    state.activeNightStart = null;
+    state.activeNightId = null;
+    state.activeNightAwakeStart = null;
+    state.activeNightAwakenings = [];
+    clearNotificationTimers();
+    scheduleActiveNapNotifications();
+  } else {
+    const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
+    state.activeNightStart = startedAt.toISOString();
+    state.activeNightId = String(session.id);
+    state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
+    state.activeNightAwakenings = normalizeAwakenings(session.awakenings || []);
+    if (!sameNight) {
+      state.activeNapStart = null;
+      state.activeNapResumeId = null;
+      clearNotificationTimers();
+      syncRemoteNotificationScheduleAbsolute([]);
+    }
+  }
+
+  if (session.babyName && !state.babyName) state.babyName = session.babyName;
+  saveState();
+  hydrateForm();
+  render();
 }
 
 async function syncFromSheetThenPending() {
@@ -4498,6 +4677,7 @@ function loadState() {
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
     loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
+    loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
     loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);
