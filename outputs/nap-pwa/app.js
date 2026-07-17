@@ -9,6 +9,7 @@ const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
 const ACTIVE_SESSION_POLL_MS = 15000;
+const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -287,6 +288,7 @@ let selectedDiaperType = "pee";
 let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
+const recentlyClosedActiveSessions = new Map();
 
 init();
 
@@ -685,6 +687,7 @@ function completeNightSleep(endedAt = new Date()) {
   const startedAt = new Date(state.activeNightStart);
 
   if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
+    if (state.activeNightId) rememberClosedActiveSession(state.activeNightId);
     state.activeNightStart = null;
     state.activeNightId = null;
     state.activeNightAwakeStart = null;
@@ -695,8 +698,10 @@ function completeNightSleep(endedAt = new Date()) {
     return;
   }
 
-  const activeNightId = state.activeNightId;
+  const activeNightId = state.activeNightId || newNightId(startedAt);
+  state.activeNightId = activeNightId;
   const night = createNightRecord(startedAt, endedAt, activeNightAwakeningsUntil(endedAt), { id: activeNightId });
+  rememberClosedActiveSession(activeNightId);
   addNightRecord(night);
   state.activeNightStart = null;
   state.activeNightId = null;
@@ -714,8 +719,10 @@ function completeNap(mood) {
   if (!state.activeNapStart) return;
   const startedAt = new Date(state.activeNapStart);
   const endedAt = new Date();
-  const nap = createNapRecord(startedAt, endedAt, mood, { id: state.activeNapResumeId });
-  const activeNapId = state.activeNapResumeId;
+  const activeNapId = state.activeNapResumeId || newNapId(startedAt);
+  state.activeNapResumeId = activeNapId;
+  const nap = createNapRecord(startedAt, endedAt, mood, { id: activeNapId });
+  rememberClosedActiveSession(activeNapId);
   addNapRecord(nap);
   state.activeNapStart = null;
   state.activeNapResumeId = null;
@@ -2858,6 +2865,27 @@ async function clearActiveSessionFromSheet(id = "") {
   }
 }
 
+function rememberClosedActiveSession(id) {
+  if (!id) return;
+  recentlyClosedActiveSessions.set(String(id), Date.now());
+  pruneClosedActiveSessions();
+}
+
+function wasRecentlyClosedActiveSession(id) {
+  if (!id) return false;
+  pruneClosedActiveSessions();
+  return recentlyClosedActiveSessions.has(String(id));
+}
+
+function pruneClosedActiveSessions() {
+  const now = Date.now();
+  recentlyClosedActiveSessions.forEach((closedAt, id) => {
+    if (now - closedAt > ACTIVE_SESSION_CLEAR_GRACE_MS) {
+      recentlyClosedActiveSessions.delete(id);
+    }
+  });
+}
+
 async function loadActiveSessionFromSheet() {
   if (!SHEETS_WEB_APP_URL || activeSessionPollInFlight) return;
   activeSessionPollInFlight = true;
@@ -2871,6 +2899,10 @@ async function loadActiveSessionFromSheet() {
     activeSessionSheetSupport = true;
 
     if (result.session) {
+      if (wasRecentlyClosedActiveSession(result.session.id)) {
+        clearActiveSessionFromSheet(result.session.id);
+        return;
+      }
       applyRemoteActiveSession(result.session);
       return;
     }
@@ -2898,6 +2930,10 @@ async function loadActiveSessionFromSheet() {
 function applyRemoteActiveSession(session) {
   const startedAt = new Date(session.start);
   if (!session.id || Number.isNaN(startedAt.getTime())) return;
+  if (wasRecentlyClosedActiveSession(session.id)) {
+    clearActiveSessionFromSheet(session.id);
+    return;
+  }
 
   const type = session.type === "night" ? "night" : "nap";
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
