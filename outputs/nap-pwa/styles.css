@@ -457,6 +457,40 @@ h2 {
   font-size: 0.78rem;
 }
 
+.nap-detail-edit {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.nap-detail-edit label {
+  display: grid;
+  gap: 4px;
+}
+
+.nap-detail-edit span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.nap-detail-edit input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(168, 216, 240, 0.24);
+  border-radius: 8px;
+  background: rgba(7, 12, 31, 0.72);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.nap-detail-error {
+  min-height: 1em;
+  color: #ffb4a7 !important;
+}
+
 .nap-detail-action {
   display: inline-flex;
   align-items: center;
@@ -471,6 +505,11 @@ h2 {
   color: var(--ink);
   font-size: 0.78rem;
   font-weight: 900;
+}
+
+.nap-detail-action.secondary {
+  background: rgba(203, 183, 247, 0.14);
+  border-color: rgba(203, 183, 247, 0.34);
 }
 
 .nap-detail-action i {

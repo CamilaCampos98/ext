@@ -1372,6 +1372,14 @@ function handleNapDetailCardClick(event) {
     event.preventDefault();
     event.stopPropagation();
     continueNapFromRecord(continueButton.dataset.continueNap);
+    return;
+  }
+
+  const saveEditButton = event.target.closest("[data-save-nap-edit]");
+  if (saveEditButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    saveNapDetailEdits(saveEditButton.dataset.saveNapEdit);
   }
 }
 
@@ -1388,12 +1396,88 @@ function showNapDetailCard(nap, index) {
     <strong>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
     <small>Meta: ${formatDuration(goal)} · ${goalPercent}% atingido</small>
     <small>Duração: ${formatDuration(safeDuration(nap))}</small>
+    <div class="nap-detail-edit">
+      <label>
+        <span>Inicio</span>
+        <input type="datetime-local" data-nap-edit-start="${napIdentity(nap)}" value="${toLocalDateTimeValue(start)}">
+      </label>
+      <label>
+        <span>Fim</span>
+        <input type="datetime-local" data-nap-edit-end="${napIdentity(nap)}" value="${toLocalDateTimeValue(end)}">
+      </label>
+    </div>
+    <small class="nap-detail-error" data-nap-edit-error="${napIdentity(nap)}"></small>
+    <button class="nap-detail-action secondary" type="button" data-save-nap-edit="${napIdentity(nap)}">
+      <i class="fa-solid fa-check"></i>
+      Salvar horarios
+    </button>
     <button class="nap-detail-action" type="button" data-continue-nap="${napIdentity(nap)}">
       <i class="fa-solid fa-play"></i>
       Continuar timer
     </button>
   `;
   els.napDetailCard.hidden = false;
+}
+
+async function saveNapDetailEdits(napKey) {
+  if (state.activeNapStart || state.activeNightStart) {
+    showNapEditError(napKey, "Encerre o timer ativo antes de editar.");
+    return;
+  }
+
+  const nap = state.naps.find((item) => napIdentity(item) === napKey);
+  if (!nap) {
+    hideNapDetailCard();
+    return;
+  }
+
+  const startInput = napDetailField("start", napKey);
+  const endInput = napDetailField("end", napKey);
+  const startedAt = new Date(startInput?.value || "");
+  const endedAt = new Date(endInput?.value || "");
+
+  if (!startInput?.value || !endInput?.value || Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) {
+    showNapEditError(napKey, "Informe inicio e fim validos.");
+    return;
+  }
+
+  if (endedAt <= startedAt) {
+    showNapEditError(napKey, "O fim precisa ser depois do inicio.");
+    return;
+  }
+
+  if ((endedAt - startedAt) / 60000 > 240) {
+    showNapEditError(napKey, "Confira os horarios: a soneca ficou maior que 4 horas.");
+    return;
+  }
+
+  const updatedNap = createNapRecord(startedAt, endedAt, nap.mood, { id: nap.id || stableNapId(nap) });
+  updatedNap.babyName = nap.babyName || state.babyName || "";
+  updatedNap.babyAge = Number.isFinite(Number(nap.babyAge)) ? Number(nap.babyAge) : currentBabyAgeMonths();
+  updatedNap.dayStart = nap.dayStart || state.dayStart;
+  updatedNap.bedtime = nap.bedtime || state.bedtime;
+  updatedNap.synced = false;
+  state.naps = state.naps.map((item) => napIdentity(item) === napKey ? updatedNap : item)
+    .sort((a, b) => new Date(b.end) - new Date(a.end));
+  applyLastWakeFromLatestNap();
+  saveState();
+  render();
+  setHint("Soneca corrigida. Atualizando Google Sheets...");
+
+  if (nap.id) await deleteNapFromSheet(nap.id, { silent: true });
+  syncNapToSheet(updatedNap);
+}
+
+function showNapEditError(napKey, message) {
+  const error = napDetailField("error", napKey);
+  if (error) error.textContent = message;
+}
+
+function napDetailField(kind, napKey) {
+  const attribute = kind === "start" ? "napEditStart" : kind === "end" ? "napEditEnd" : "napEditError";
+  const selector = kind === "start" ? "[data-nap-edit-start]" : kind === "end" ? "[data-nap-edit-end]" : "[data-nap-edit-error]";
+  return [...(els.napDetailCard?.querySelectorAll(selector) || [])]
+    .find((item) => item.dataset[attribute] === napKey) || null;
 }
 
 function continueNapFromRecord(napKey) {
