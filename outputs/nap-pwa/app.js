@@ -778,15 +778,15 @@ function completeNap(mood) {
     };
   }
   rememberClosedActiveSession(activeNapId);
-  addNapRecord(nap);
-  if (sleepLatency > 0) syncSleepDiaryToSheet([activeNapId], "Sincronizando tempo para adormecer com o Google Sheets...");
   state.activeNapStart = null;
   state.activeNapAttemptStart = null;
   state.activeNapResumeId = null;
   clearNotificationTimers();
   saveState();
-  toggleMoodSheet(false);
+  addNapRecord(nap);
   clearActiveSessionFromSheet(activeNapId);
+  if (sleepLatency > 0) syncSleepDiaryToSheet([activeNapId], "Sincronizando tempo para adormecer com o Google Sheets...");
+  toggleMoodSheet(false);
   scheduleUpcomingNotifications();
   render();
 }
@@ -2144,9 +2144,18 @@ function profileAssistantObservation(naps) {
     return `Resistiu a ${ordinalFeminine(resisted.index + 1)} soneca, mas compensou com ${formatDuration(longNap.duration)} depois.`;
   }
 
-  const shortNap = ordered.find((nap) => safeDuration(nap) < 35);
-  if (shortNap) {
-    return `A ultima soneca foi curta (${safeDuration(shortNap)}min), entao antecipei a proxima janela em cerca de 20min.`;
+  const napDurations = ordered.map((nap, index) => ({ nap, index, duration: safeDuration(nap) }));
+  const shortThenLong = napDurations.find((item, index) => {
+    return item.duration < 35 && napDurations.slice(index + 1).some((later) => later.duration >= 80);
+  });
+  if (shortThenLong) {
+    const laterLong = napDurations.slice(shortThenLong.index + 1).find((item) => item.duration >= 80);
+    return `A ${ordinalFeminine(shortThenLong.index + 1)} soneca foi curta (${shortThenLong.duration}min), mas ela compensou depois com ${formatDuration(laterLong.duration)}.`;
+  }
+
+  const lastNap = napDurations[napDurations.length - 1];
+  if (lastNap && lastNap.duration < 35) {
+    return `A ultima soneca foi curta (${lastNap.duration}min), entao antecipei a proxima janela em cerca de 20min.`;
   }
 
   const wakeWindowsUsed = ordered.map(wakeWindowUsedForNap).filter((value) => value > 0);
@@ -3277,6 +3286,11 @@ async function loadActiveSessionFromSheet() {
     activeSessionSheetSupport = true;
 
     if (result.session) {
+      if (completedSessionExists(result.session.id)) {
+        rememberClosedActiveSession(result.session.id);
+        clearActiveSessionFromSheet(result.session.id);
+        return;
+      }
       if (isStaleActiveSession(result.session)) {
         clearActiveSessionFromSheet(result.session.id);
         if (state.activeNapResumeId === result.session.id || state.activeNightId === result.session.id) {
@@ -3305,6 +3319,11 @@ async function loadActiveSessionFromSheet() {
 function applyRemoteActiveSession(session) {
   const startedAt = new Date(session.start);
   if (!session.id || Number.isNaN(startedAt.getTime())) return;
+  if (completedSessionExists(session.id)) {
+    rememberClosedActiveSession(session.id);
+    clearActiveSessionFromSheet(session.id);
+    return;
+  }
   if (isStaleActiveSession(session)) {
     clearActiveSessionFromSheet(session.id);
     return;
@@ -3355,6 +3374,13 @@ function isStaleActiveSession(session) {
   const age = Date.now() - startedAt.getTime();
   if (session.type === "night") return age > ACTIVE_NIGHT_MAX_AGE_MS;
   return age > ACTIVE_NAP_MAX_AGE_MS;
+}
+
+function completedSessionExists(id) {
+  if (!id) return false;
+  const key = String(id);
+  return state.naps.some((nap) => String(nap.id || napIdentity(nap)) === key)
+    || state.nights.some((night) => String(night.id || napIdentity(night)) === key);
 }
 
 function clearLocalActiveSession(message = "") {

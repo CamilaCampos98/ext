@@ -478,6 +478,11 @@ function getActiveSession(sheet) {
   }
 
   const session = activeSessionRowToObject(row);
+  if (completedRecordExists(session.id)) {
+    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+    return { ok: true, activeSessionSupported: true, session: null, clearedCompleted: true };
+  }
+
   if (isStaleActiveSession(session)) {
     sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
     return { ok: true, activeSessionSupported: true, session: null, clearedStale: true };
@@ -528,6 +533,18 @@ function isStaleActiveSession(session) {
   if (Number.isNaN(startedAt.getTime())) return true;
   const age = Date.now() - startedAt.getTime();
   return session.type === 'night' ? age > ACTIVE_NIGHT_MAX_AGE_MS : age > ACTIVE_NAP_MAX_AGE_MS;
+}
+
+function completedRecordExists(id) {
+  if (!id) return false;
+  const sheet = getSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+
+  const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  return values.some(function(row) {
+    return String(row[0] || '') === String(id);
+  });
 }
 
 function getExistingIds(sheet) {
