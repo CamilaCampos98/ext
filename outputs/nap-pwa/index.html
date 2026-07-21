@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=103">
+    <link rel="stylesheet" href="styles.css?v=104">
   </head>
   <body>
     <div class="app-shell">
@@ -476,13 +476,20 @@
       <div class="sheet-card nap-start-card">
         <button class="icon-button close" id="closeNapStartSheet" aria-label="Fechar">x</button>
         <p class="label">Soneca</p>
-        <h2>Iniciar soneca</h2>
+        <h2>Preparar soneca</h2>
         <label class="start-time-panel" for="napStartTime">
           Início da soneca
           <input id="napStartTime" type="datetime-local">
           <small>Opcional. Se ficar vazio, usa o horário atual.</small>
         </label>
-        <button class="primary full-width" id="confirmStartNap" type="button">Iniciar</button>
+        <div class="nap-attempt-status" id="napAttemptStatus" hidden>
+          <span>Tempo para adormecer</span>
+          <strong id="napAttemptTimer">00min</strong>
+          <small>Quando ela dormir, toque em Dormiu para iniciar a soneca real.</small>
+        </div>
+        <button class="primary full-width" id="confirmStartNap" type="button">Comecar timer</button>
+        <button class="secondary full-width" id="confirmNapAsleep" type="button" hidden>Dormiu</button>
+        <button class="text-button" id="cancelNapAttempt" type="button" hidden>Cancelar tentativa</button>
       </div>
     </div>
 
@@ -586,6 +593,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=135" defer></script>
+    <script src="app.js?v=137" defer></script>
   </body>
 </html>

@@ -2192,6 +2192,40 @@ select {
   font-size: 0.68rem;
 }
 
+.nap-attempt-status {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(168, 216, 240, 0.28);
+  border-radius: 8px;
+  background: rgba(44, 48, 93, 0.72);
+  text-align: center;
+}
+
+.nap-attempt-status[hidden] {
+  display: none;
+}
+
+.nap-attempt-status span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.nap-attempt-status strong {
+  color: var(--ink);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.nap-attempt-status small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .start-options {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
