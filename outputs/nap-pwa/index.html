@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=101">
+    <link rel="stylesheet" href="styles.css?v=103">
   </head>
   <body>
     <div class="app-shell">
@@ -158,6 +158,22 @@
               <span>Última noite</span>
               <strong id="nightSleep">0h</strong>
             </div>
+            <div>
+              <span>Tempo acordada</span>
+              <strong id="profileAwakeTime">0h</strong>
+            </div>
+            <div>
+              <span>Humor geral</span>
+              <strong id="profileGeneralMood">-</strong>
+            </div>
+            <div>
+              <span>Janela media</span>
+              <strong id="profileAverageWindow">-</strong>
+            </div>
+          </div>
+          <div class="profile-observation-card">
+            <span>Observacao</span>
+            <strong id="profileAssistantObservation">Sem padrao claro ainda.</strong>
           </div>
           <div class="goals-card">
             <div class="goal-row">
@@ -308,6 +324,30 @@
           <div>
             <span>Acordada à noite</span>
             <strong id="avgNightAwake">0min</strong>
+          </div>
+          <div>
+            <span>Acordada no dia</span>
+            <strong id="avgDayAwake">0h</strong>
+          </div>
+          <div>
+            <span>Janela real</span>
+            <strong id="avgWakeWindowReal">0min</strong>
+          </div>
+          <div>
+            <span>Tempo p/ adormecer</span>
+            <strong id="avgSleepLatencyReport">-</strong>
+          </div>
+          <div>
+            <span>Humor ao acordar</span>
+            <strong id="wakeMoodReport">-</strong>
+          </div>
+          <div>
+            <span>Ultima janela noite</span>
+            <strong id="avgLastWindowBeforeNight">-</strong>
+          </div>
+          <div>
+            <span>Despertares/noite</span>
+            <strong id="avgNightWakeCount">0</strong>
           </div>
           <div>
             <span>Meta das sonecas</span>
@@ -546,6 +586,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=132" defer></script>
+    <script src="app.js?v=135" defer></script>
   </body>
 </html>

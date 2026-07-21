@@ -684,6 +684,33 @@ h2 {
   font-weight: 800;
 }
 
+.profile-observation-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(168, 216, 240, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 13, 34, 0.42);
+}
+
+.profile-observation-card span,
+.profile-observation-card strong {
+  display: block;
+}
+
+.profile-observation-card span {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.profile-observation-card strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
 .hero h2 {
   margin: 10px 0 10px;
   font-size: clamp(1.85rem, 8vw, 3rem);
@@ -1816,6 +1843,12 @@ select {
   stroke-dasharray: 2 7;
 }
 
+.chart-line.window,
+.chart-point.window {
+  stroke: #A8D8F0;
+  fill: #A8D8F0;
+}
+
 .chart-bar {
   opacity: 0.42;
 }
@@ -1831,6 +1864,14 @@ select {
 
 .chart-bar.total-day {
   fill: var(--nap-color);
+}
+
+.legend-dot-svg.nap {
+  fill: var(--nap-color);
+}
+
+.legend-dot-svg.window {
+  fill: #A8D8F0;
 }
 
 .chart-empty-day {

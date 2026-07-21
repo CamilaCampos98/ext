@@ -4,12 +4,14 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzUd8hovNRsKgnz7_H0As8kU4SjJuACY5WDu7flhEgArcr02f33vBkH70eSyp_eB1TffQ/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx6QiuAFGgaDy_L0m1usgj0PTJg4hpRyqUN-gjhru2CQMdnbzc0LLTvPIEr-mjaofNKIw/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
 const ACTIVE_SESSION_POLL_MS = 15000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
+const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -189,6 +191,10 @@ const els = {
   profileCardName: document.querySelector("#profileCardName"),
   profileCardMeta: document.querySelector("#profileCardMeta"),
   wakeWindowUsed: document.querySelector("#wakeWindowUsed"),
+  profileAwakeTime: document.querySelector("#profileAwakeTime"),
+  profileGeneralMood: document.querySelector("#profileGeneralMood"),
+  profileAverageWindow: document.querySelector("#profileAverageWindow"),
+  profileAssistantObservation: document.querySelector("#profileAssistantObservation"),
   sleep24h: document.querySelector("#sleep24h"),
   napCount: document.querySelector("#napCount"),
   nightSleep: document.querySelector("#nightSleep"),
@@ -227,6 +233,12 @@ const els = {
   avgTotalSleep: document.querySelector("#avgTotalSleep"),
   avgFeedingCount: document.querySelector("#avgFeedingCount"),
   avgNightAwake: document.querySelector("#avgNightAwake"),
+  avgDayAwake: document.querySelector("#avgDayAwake"),
+  avgWakeWindowReal: document.querySelector("#avgWakeWindowReal"),
+  avgSleepLatencyReport: document.querySelector("#avgSleepLatencyReport"),
+  wakeMoodReport: document.querySelector("#wakeMoodReport"),
+  avgLastWindowBeforeNight: document.querySelector("#avgLastWindowBeforeNight"),
+  avgNightWakeCount: document.querySelector("#avgNightWakeCount"),
   avgNapGoal: document.querySelector("#avgNapGoal"),
   avgDiaperCount: document.querySelector("#avgDiaperCount"),
   avgPoopCount: document.querySelector("#avgPoopCount"),
@@ -1071,6 +1083,7 @@ async function requestNotificationPermission() {
 function render() {
   const prediction = calculatePrediction();
   renderProfile();
+  updateProfileRoutineStats();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
   renderTimer();
@@ -1091,6 +1104,18 @@ function renderProfile() {
   if (els.profileMeta) els.profileMeta.textContent = ageLabel;
   els.profileCardName.textContent = name;
   els.profileCardMeta.textContent = `${ageLabel} · dia iniciado às ${dayStart}`;
+}
+
+function updateProfileRoutineStats() {
+  const today = napsToday();
+  const wakeWindowsUsed = today.map(wakeWindowUsedForNap).filter((value) => value > 0);
+  const averageWindow = wakeWindowsUsed.length
+    ? Math.round(wakeWindowsUsed.reduce((sum, value) => sum + value, 0) / wakeWindowsUsed.length)
+    : 0;
+  if (els.profileAwakeTime) els.profileAwakeTime.textContent = formatDuration(currentCycleAwakeMinutes());
+  if (els.profileGeneralMood) els.profileGeneralMood.textContent = profileGeneralMoodLabel(today);
+  if (els.profileAverageWindow) els.profileAverageWindow.textContent = averageWindow ? formatDuration(averageWindow) : "-";
+  if (els.profileAssistantObservation) els.profileAssistantObservation.textContent = profileAssistantObservation(today);
 }
 
 function calculatePrediction() {
@@ -1980,6 +2005,63 @@ function wakeWindowUsedForNap(nap) {
   return Math.max(0, Math.round((start - previousWake) / 60000));
 }
 
+function currentCycleAwakeMinutes() {
+  const cycleStart = currentCycleStartDate();
+  const cycleEnd = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+  if (!(cycleStart instanceof Date) || Number.isNaN(cycleStart.getTime()) || Number.isNaN(cycleEnd.getTime()) || cycleEnd <= cycleStart) {
+    return 0;
+  }
+  const elapsed = Math.round((cycleEnd - cycleStart) / 60000);
+  const finishedNapSleep = napsToday().reduce((sum, nap) => sum + safeDuration(nap), 0);
+  const activeNapSleep = state.activeNapStart ? minutesSinceDate(state.activeNapStart) : 0;
+  return Math.max(0, elapsed - finishedNapSleep - activeNapSleep);
+}
+
+function profileGeneralMoodLabel(naps) {
+  const counts = { good: 0, neutral: 0, bad: 0 };
+  naps.forEach((nap) => {
+    const diaryMood = sleepDiaryEntry(napIdentity(nap)).wakeMood;
+    const mood = String(diaryMood || nap.mood || "").toLowerCase();
+    if (["happy", "calm", "good", "bem humorado"].includes(mood)) counts.good += 1;
+    else if (["upset", "crying", "bad", "mau humorado"].includes(mood)) counts.bad += 1;
+    else if (["neutral", "neutro"].includes(mood)) counts.neutral += 1;
+  });
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!ranked[0][1]) return "-";
+  if (ranked[0][0] === "good") return "Bom";
+  if (ranked[0][0] === "bad") return "Ruim";
+  return "Neutro";
+}
+
+function profileAssistantObservation(naps) {
+  const ordered = naps.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+  if (!ordered.length) return "Sem sonecas finalizadas neste ciclo ainda.";
+
+  const resisted = ordered
+    .map((nap, index) => ({ nap, index, latency: Number(sleepDiaryEntry(napIdentity(nap)).sleepLatency) || 0 }))
+    .find((item) => item.latency >= 20);
+  const longNap = ordered
+    .map((nap, index) => ({ nap, index, duration: safeDuration(nap) }))
+    .filter((item) => item.duration >= 90)
+    .sort((a, b) => b.duration - a.duration)[0];
+  if (resisted && longNap && longNap.index > resisted.index) {
+    return `Resistiu a ${ordinalFeminine(resisted.index + 1)} soneca, mas compensou com ${formatDuration(longNap.duration)} depois.`;
+  }
+
+  const shortNap = ordered.find((nap) => safeDuration(nap) < 35);
+  if (shortNap) {
+    return `Teve soneca curta de ${safeDuration(shortNap)}min; observe se a proxima janela precisa ser menor.`;
+  }
+
+  const wakeWindowsUsed = ordered.map(wakeWindowUsedForNap).filter((value) => value > 0);
+  if (wakeWindowsUsed.length >= 2) {
+    const averageWindow = Math.round(wakeWindowsUsed.reduce((sum, value) => sum + value, 0) / wakeWindowsUsed.length);
+    return `Hoje a janela real media esta em ${formatDuration(averageWindow)} antes das sonecas.`;
+  }
+
+  return "Registre tempo para adormecer e humor para o assistente comparar melhor.";
+}
+
 function dateAtTime(dateValue, timeValue) {
   const [year, month, day] = String(dateValue || "").split("-").map(Number);
   const [hour, minute] = String(timeValue || "").split(":").map(Number);
@@ -2231,6 +2313,14 @@ function renderReport() {
   const avgPoopOnlyCount = activeDays.reduce((sum, day) => sum + day.poopOnlyCount, 0) / divisor;
   const avgBothDiaperCount = activeDays.reduce((sum, day) => sum + day.bothDiaperCount, 0) / divisor;
   const avgNightAwake = activeDays.reduce((sum, day) => sum + day.nightAwake, 0) / divisor;
+  const avgDayAwake = activeDays.reduce((sum, day) => sum + day.dayAwake, 0) / divisor;
+  const wakeWindowDays = activeDays.filter((day) => day.avgWakeWindowUsed);
+  const avgWakeWindowReal = wakeWindowDays.reduce((sum, day) => sum + day.avgWakeWindowUsed, 0) / (wakeWindowDays.length || 1);
+  const latencyDays = activeDays.filter((day) => day.avgSleepLatency);
+  const avgSleepLatencyReport = latencyDays.reduce((sum, day) => sum + day.avgSleepLatency, 0) / (latencyDays.length || 1);
+  const lastWindowDays = activeDays.filter((day) => day.lastWindowBeforeNight);
+  const avgLastWindowBeforeNight = lastWindowDays.reduce((sum, day) => sum + day.lastWindowBeforeNight, 0) / (lastWindowDays.length || 1);
+  const avgNightWakeCount = activeDays.reduce((sum, day) => sum + day.nightWakeCount, 0) / divisor;
   const goalDays = activeDays.filter((day) => day.napGoalPercent);
   const avgNapGoal = goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / (goalDays.length || 1);
   const weekEnd = addDays(reportWeekStart, 6);
@@ -2248,6 +2338,12 @@ function renderReport() {
   if (els.avgPoopOnlyCount) els.avgPoopOnlyCount.textContent = activeDays.length ? avgPoopOnlyCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgBothDiaperCount) els.avgBothDiaperCount.textContent = activeDays.length ? avgBothDiaperCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNightAwake) els.avgNightAwake.textContent = formatDuration(Math.round(avgNightAwake));
+  if (els.avgDayAwake) els.avgDayAwake.textContent = activeDays.length ? formatDuration(Math.round(avgDayAwake)) : "0h";
+  if (els.avgWakeWindowReal) els.avgWakeWindowReal.textContent = wakeWindowDays.length ? formatDuration(Math.round(avgWakeWindowReal)) : "-";
+  if (els.avgSleepLatencyReport) els.avgSleepLatencyReport.textContent = latencyDays.length ? `${Math.round(avgSleepLatencyReport)}min` : "-";
+  if (els.wakeMoodReport) els.wakeMoodReport.textContent = dominantWakeMoodLabel(activeDays) || "-";
+  if (els.avgLastWindowBeforeNight) els.avgLastWindowBeforeNight.textContent = lastWindowDays.length ? formatDuration(Math.round(avgLastWindowBeforeNight)) : "-";
+  if (els.avgNightWakeCount) els.avgNightWakeCount.textContent = activeDays.length ? avgNightWakeCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNapGoal) els.avgNapGoal.textContent = goalDays.length ? `${Math.round(avgNapGoal)}%` : "0%";
   els.reportSummary.textContent = activeDays.length
     ? reportSummaryText(activeDays)
@@ -2303,6 +2399,9 @@ function reportWeekDays(startDate) {
     const avgSleepLatency = sleepLatencies.length
       ? Math.round(sleepLatencies.reduce((sum, value) => sum + value, 0) / sleepLatencies.length)
       : 0;
+    const lastWindowBeforeNight = lastWakeWindowBeforeNightForDay(key, naps, nights);
+    const dayAwake = dayAwakeMinutesForReportDay(key, naps, nights, daySleep);
+    const wakeMoodCounts = countWakeMoods(diaryEntries, naps);
 
     days.push({
       key,
@@ -2326,6 +2425,9 @@ function reportWeekDays(startDate) {
       pacifierNoWake,
       avgWakeWindowUsed,
       avgSleepLatency,
+      lastWindowBeforeNight,
+      dayAwake,
+      wakeMoodCounts,
       dayWakeCount,
       nightWakeCount,
       daySleep,
@@ -2374,6 +2476,66 @@ function reportNightsForDay(dayKey) {
   });
 
   return merged;
+}
+
+function lastWakeWindowBeforeNightForDay(dayKey, naps, nights) {
+  const orderedNaps = naps
+    .slice()
+    .sort((a, b) => new Date(a.end) - new Date(b.end));
+  const night = nightStartingOnDay(dayKey, nights);
+  if (!orderedNaps.length || !night) return 0;
+
+  const lastNapEnd = new Date(orderedNaps[orderedNaps.length - 1].end);
+  const nightStart = new Date(night.start);
+  if (Number.isNaN(lastNapEnd.getTime()) || Number.isNaN(nightStart.getTime()) || nightStart <= lastNapEnd) return 0;
+  return Math.round((nightStart - lastNapEnd) / 60000);
+}
+
+function nightStartingOnDay(dayKey, fallbackNights = []) {
+  const nights = [
+    ...fallbackNights,
+    ...state.nights.filter((night) => dateInputValue(new Date(night.start)) === dayKey)
+  ]
+    .filter((night) => !Number.isNaN(new Date(night.start).getTime()))
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  return nights[0] || null;
+}
+
+function dayAwakeMinutesForReportDay(dayKey, naps, nights, daySleep) {
+  const dayStart = dateAtTime(dayKey, state.dayStart || state.lastWake || DEFAULT_DAY_START);
+  if (!dayStart) return 0;
+
+  const night = nightStartingOnDay(dayKey, nights);
+  const latestNapEnd = naps
+    .map((nap) => new Date(nap.end))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b - a)[0];
+  const todayKey = dateInputValue(new Date());
+  const fallbackEnd = dayKey === todayKey ? new Date() : latestNapEnd;
+  const dayEnd = night ? new Date(night.start) : fallbackEnd;
+  if (!dayEnd || Number.isNaN(dayEnd.getTime()) || dayEnd <= dayStart) return 0;
+  return Math.max(0, Math.round((dayEnd - dayStart) / 60000) - Math.round(daySleep || 0));
+}
+
+function countWakeMoods(entries, naps = []) {
+  const counts = {};
+  entries.forEach((entry, index) => {
+    const mood = entry.wakeMood || naps[index]?.mood || "";
+    if (!mood) return;
+    counts[mood] = (counts[mood] || 0) + 1;
+  });
+  return counts;
+}
+
+function dominantWakeMoodLabel(days) {
+  const totals = {};
+  days.forEach((day) => {
+    Object.entries(day.wakeMoodCounts || {}).forEach(([mood, count]) => {
+      totals[mood] = (totals[mood] || 0) + count;
+    });
+  });
+  const winner = Object.entries(totals).sort((a, b) => b[1] - a[1])[0];
+  return winner ? wakeMoodLabel(winner[0]) || moodLabel(winner[0]) : "";
 }
 
 function nightDuration(night) {
@@ -2425,7 +2587,28 @@ function reportSummaryText(activeDays) {
     ? Math.round(goalDays.reduce((sum, day) => sum + day.napGoalPercent, 0) / goalDays.length)
     : 0;
   const goalText = goalDays.length ? ` Meta das sonecas atingida em m\u00e9dia: ${goalAverage}%.` : "";
-  return `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.${pattern}${awakeText}${goalText}`;
+  const wakeWindowDays = activeDays.filter((day) => day.avgWakeWindowUsed);
+  const realWindow = wakeWindowDays.length
+    ? Math.round(wakeWindowDays.reduce((sum, day) => sum + day.avgWakeWindowUsed, 0) / wakeWindowDays.length)
+    : 0;
+  const realWindowText = realWindow ? ` Janela real media antes das sonecas: ${formatDuration(realWindow)}.` : "";
+  const latencyDays = activeDays.filter((day) => day.avgSleepLatency);
+  const latency = latencyDays.length
+    ? Math.round(latencyDays.reduce((sum, day) => sum + day.avgSleepLatency, 0) / latencyDays.length)
+    : 0;
+  const latencyText = latency ? ` Tempo medio para adormecer: ${latency}min.` : "";
+  const mood = dominantWakeMoodLabel(activeDays);
+  const moodText = mood ? ` Humor mais comum ao acordar: ${mood}.` : "";
+  const dayAwake = activeDays.reduce((sum, day) => sum + day.dayAwake, 0);
+  const dayAwakeText = dayAwake ? ` Tempo acordada no dia: ${formatDuration(dayAwake)} no periodo.` : "";
+  const lastWindowDays = activeDays.filter((day) => day.lastWindowBeforeNight);
+  const lastWindow = lastWindowDays.length
+    ? Math.round(lastWindowDays.reduce((sum, day) => sum + day.lastWindowBeforeNight, 0) / lastWindowDays.length)
+    : 0;
+  const lastWindowText = lastWindow ? ` Ultima janela antes da noite: ${formatDuration(lastWindow)} em media.` : "";
+  const nightWakeCount = activeDays.reduce((sum, day) => sum + day.nightWakeCount, 0);
+  const nightWakeText = nightWakeCount ? ` Despertares noturnos registrados: ${nightWakeCount}.` : "";
+  return `${activeDays.length} dia${activeDays.length === 1 ? "" : "s"} com registro nesta semana.${pattern}${realWindowText}${latencyText}${moodText}${dayAwakeText}${lastWindowText}${nightWakeText}${awakeText}${goalText}`;
 }
 
 function handleReportFilterClick(event) {
@@ -2498,45 +2681,60 @@ function renderSleepReportChart(days) {
 function reportTotalSleepChart(days) {
   const width = 640;
   const height = 260;
-  const padding = { top: 58, right: 20, bottom: 44, left: 46 };
-  const maxValue = Math.max(12 * 60, ...days.map((day) => day.totalSleep));
+  const padding = { top: 62, right: 20, bottom: 44, left: 46 };
+  const maxValue = Math.max(12 * 60, ...days.flatMap((day) => [day.nightSleep, day.avgWakeWindowUsed]));
   const roundedMax = Math.ceil(maxValue / 120) * 120;
+  const maxCount = Math.max(5, ...days.map((day) => day.napCount));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const groupWidth = plotWidth / days.length;
-  const barWidth = Math.min(44, groupWidth * 0.58);
+  const nightBarWidth = Math.min(42, groupWidth * 0.44);
+  const napBarWidth = Math.min(18, groupWidth * 0.2);
   const baseY = padding.top + plotHeight;
   const scaleHeight = (value) => (value / roundedMax) * plotHeight;
+  const scaleCountHeight = (value) => (value / maxCount) * Math.min(80, plotHeight * 0.45);
+  const scaleX = (index) => padding.left + groupWidth * index + groupWidth / 2;
+  const scaleY = (value) => baseY - scaleHeight(value);
+  const windowPath = days.map((day, index) => {
+    const value = day.avgWakeWindowUsed || 0;
+    return `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(value))}`;
+  }).join(" ");
   const ticks = [0, Math.round(roundedMax / 2), roundedMax];
 
   return `
-    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sono total por dia">
+    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sonecas, sono noturno e janelas">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
-      <text class="chart-title" x="18" y="24">Sono total por dia</text>
-      <text class="chart-subtitle" x="18" y="40">Cada barra soma sono noturno + sonecas do dia.</text>
-      <circle class="legend-dot-svg night" cx="412" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="424" y="28">Noite</text>
-      <circle class="legend-dot-svg day" cx="482" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="494" y="28">Sonecas</text>
+      <text class="chart-title" x="18" y="24">Sonecas, noite e janelas</text>
+      <text class="chart-subtitle" x="18" y="40">Barras: sono noturno e quantidade de sonecas. Linha: janela real media.</text>
+      <circle class="legend-dot-svg night" cx="350" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="362" y="28">Sono noturno</text>
+      <circle class="legend-dot-svg nap" cx="468" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="480" y="28">Sonecas</text>
+      <circle class="legend-dot-svg window" cx="548" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="560" y="28">Janela</text>
       ${ticks.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(baseY - scaleHeight(value))}" x2="${width - padding.right}" y2="${roundSvg(baseY - scaleHeight(value))}"></line><text class="chart-label" x="8" y="${roundSvg(baseY - scaleHeight(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
       ${days.map((day, index) => {
-        const x = padding.left + groupWidth * index + (groupWidth - barWidth) / 2;
+        const center = scaleX(index);
+        const nightX = center - nightBarWidth - 2;
+        const napX = center + 4;
         const nightHeight = scaleHeight(day.nightSleep);
-        const dayHeight = scaleHeight(day.daySleep);
-        const totalHeight = nightHeight + dayHeight;
-        const hasSleep = day.totalSleep > 0;
-        const labelY = Math.max(padding.top + 12, baseY - totalHeight - 8);
+        const napHeight = scaleCountHeight(day.napCount);
         return `
-          ${hasSleep ? `
-            <rect class="chart-bar total-night" x="${roundSvg(x)}" y="${roundSvg(baseY - nightHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(nightHeight)}" rx="5"></rect>
-            <rect class="chart-bar total-day" x="${roundSvg(x)}" y="${roundSvg(baseY - totalHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(dayHeight)}" rx="5"></rect>
-            <text class="chart-total-value" x="${roundSvg(x + barWidth / 2)}" y="${roundSvg(labelY)}">${formatDuration(day.totalSleep)}</text>
+          ${day.nightSleep ? `
+            <rect class="chart-bar total-night" x="${roundSvg(nightX)}" y="${roundSvg(baseY - nightHeight)}" width="${roundSvg(nightBarWidth)}" height="${roundSvg(nightHeight)}" rx="5"></rect>
+            <text class="chart-total-value" x="${roundSvg(nightX + nightBarWidth / 2)}" y="${roundSvg(Math.max(padding.top + 12, baseY - nightHeight - 8))}">${formatDuration(day.nightSleep)}</text>
           ` : `
-            <rect class="chart-empty-day" x="${roundSvg(x)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(barWidth)}" height="4" rx="2"></rect>
+            <rect class="chart-empty-day" x="${roundSvg(nightX)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(nightBarWidth)}" height="4" rx="2"></rect>
           `}
-          <text class="chart-label x" x="${roundSvg(x + barWidth / 2)}" y="${height - 14}">${day.label}</text>
+          ${day.napCount ? `
+            <rect class="chart-bar nap-count" x="${roundSvg(napX)}" y="${roundSvg(baseY - napHeight)}" width="${roundSvg(napBarWidth)}" height="${roundSvg(napHeight)}" rx="3"></rect>
+            <text class="chart-total-value" x="${roundSvg(napX + napBarWidth / 2)}" y="${roundSvg(baseY - napHeight - 6)}">${day.napCount}</text>
+          ` : ""}
+          <text class="chart-label x" x="${roundSvg(center)}" y="${height - 14}">${day.label}</text>
         `;
       }).join("")}
+      <path class="chart-line window" d="${windowPath}"></path>
+      ${days.map((day, index) => day.avgWakeWindowUsed ? `<circle class="chart-point window" cx="${roundSvg(scaleX(index))}" cy="${roundSvg(scaleY(day.avgWakeWindowUsed))}" r="3"></circle>` : "").join("")}
     </svg>`;
 }
 
@@ -2983,6 +3181,13 @@ async function loadActiveSessionFromSheet() {
     activeSessionSheetSupport = true;
 
     if (result.session) {
+      if (isStaleActiveSession(result.session)) {
+        clearActiveSessionFromSheet(result.session.id);
+        if (state.activeNapResumeId === result.session.id || state.activeNightId === result.session.id) {
+          clearLocalActiveSession("Timer antigo removido da aba Ativo.");
+        }
+        return;
+      }
       if (wasRecentlyClosedActiveSession(result.session.id)) {
         clearActiveSessionFromSheet(result.session.id);
         return;
@@ -2992,17 +3197,7 @@ async function loadActiveSessionFromSheet() {
     }
 
     if ((state.activeNapStart || state.activeNightStart) && Date.now() - lastActiveSessionWriteAt > 5000) {
-      state.activeNapStart = null;
-      state.activeNapResumeId = null;
-      state.activeNightStart = null;
-      state.activeNightId = null;
-      state.activeNightAwakeStart = null;
-      state.activeNightAwakenings = [];
-      clearNotificationTimers();
-      saveState();
-      scheduleUpcomingNotifications();
-      setHint("Timer encerrado em outro aparelho.");
-      render();
+      clearLocalActiveSession("Timer encerrado em outro aparelho.");
     }
   } catch {
     if (activeSessionSheetSupport === null) activeSessionSheetSupport = false;
@@ -3014,6 +3209,10 @@ async function loadActiveSessionFromSheet() {
 function applyRemoteActiveSession(session) {
   const startedAt = new Date(session.start);
   if (!session.id || Number.isNaN(startedAt.getTime())) return;
+  if (isStaleActiveSession(session)) {
+    clearActiveSessionFromSheet(session.id);
+    return;
+  }
   if (wasRecentlyClosedActiveSession(session.id)) {
     clearActiveSessionFromSheet(session.id);
     return;
@@ -3050,6 +3249,28 @@ function applyRemoteActiveSession(session) {
   if (session.babyName && !state.babyName) state.babyName = session.babyName;
   saveState();
   hydrateForm();
+  render();
+}
+
+function isStaleActiveSession(session) {
+  const startedAt = new Date(session?.start);
+  if (Number.isNaN(startedAt.getTime())) return true;
+  const age = Date.now() - startedAt.getTime();
+  if (session.type === "night") return age > ACTIVE_NIGHT_MAX_AGE_MS;
+  return age > ACTIVE_NAP_MAX_AGE_MS;
+}
+
+function clearLocalActiveSession(message = "") {
+  state.activeNapStart = null;
+  state.activeNapResumeId = null;
+  state.activeNightStart = null;
+  state.activeNightId = null;
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = [];
+  clearNotificationTimers();
+  saveState();
+  scheduleUpcomingNotifications();
+  if (message) setHint(message);
   render();
 }
 
@@ -4426,6 +4647,9 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
       : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
   }
 
+  const patternInsight = assistantPatternInsight();
+  if (patternInsight) return patternInsight;
+
   if (napCount >= planned) {
     const night = calculateNightSuggestion(prediction);
     if (shouldSuggestNapBeforeNight(prediction, today)) {
@@ -4467,6 +4691,140 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   }
 
   return "Rotina dentro do esperado até agora. Mantenha a próxima janela conforme o alvo calculado.";
+}
+
+function assistantPatternInsight() {
+  const naps = state.naps
+    .filter((nap) => !Number.isNaN(new Date(nap.start).getTime()) && !Number.isNaN(new Date(nap.end).getTime()))
+    .slice()
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  const daysWithNaps = new Set(naps.map((nap) => recordDateInputValue(nap)).filter(Boolean));
+  if (daysWithNaps.size < 10) return "";
+
+  return bestNapTimeInsight(naps)
+    || lastWindowNightInsight()
+    || dayStartNapQualityInsight()
+    || "";
+}
+
+function bestNapTimeInsight(naps) {
+  const buckets = new Map();
+  naps.forEach((nap) => {
+    const start = new Date(nap.start);
+    const bucketStart = Math.floor(start.getHours() / 2) * 2;
+    const key = `${String(bucketStart).padStart(2, "0")}h-${String(bucketStart + 2).padStart(2, "0")}h`;
+    const entry = sleepDiaryEntry(napIdentity(nap));
+    const mood = nap.mood || entry.wakeMood || "";
+    const current = buckets.get(key) || { count: 0, total: 0, goodMood: 0 };
+    current.count += 1;
+    current.total += safeDuration(nap);
+    if (["happy", "calm", "good", "bem humorado"].includes(String(mood).toLowerCase())) current.goodMood += 1;
+    buckets.set(key, current);
+  });
+
+  const ranked = [...buckets.entries()]
+    .filter(([, value]) => value.count >= 3)
+    .map(([key, value]) => ({
+      key,
+      ...value,
+      average: Math.round(value.total / value.count)
+    }))
+    .sort((a, b) => (b.average + b.goodMood * 5) - (a.average + a.goodMood * 5));
+  const best = ranked[0];
+  if (!best || best.average < 35) return "";
+  return `${babyDisplayName()} costuma fazer as melhores sonecas entre ${best.key}: media de ${formatDuration(best.average)} em ${best.count} registros.`;
+}
+
+function lastWindowNightInsight() {
+  const samples = nightWindowSamples();
+  if (samples.length < 6) return "";
+
+  const long = samples.filter((sample) => sample.lastWindow > 120);
+  const regular = samples.filter((sample) => sample.lastWindow <= 120);
+  if (long.length < 3 || regular.length < 3) return "";
+
+  const avgLongWake = average(long.map((sample) => sample.nightWakeCount));
+  const avgRegularWake = average(regular.map((sample) => sample.nightWakeCount));
+  const avgLongSleep = average(long.map((sample) => sample.nightSleep));
+  const avgRegularSleep = average(regular.map((sample) => sample.nightSleep));
+
+  if (avgLongWake > avgRegularWake + 0.5) {
+    return `Quando a ultima janela antes da noite passa de 2h, os despertares aumentam (${avgLongWake.toFixed(1).replace(".", ",")} contra ${avgRegularWake.toFixed(1).replace(".", ",")}).`;
+  }
+  if (avgLongSleep + 45 < avgRegularSleep) {
+    return `Quando a ultima janela antes da noite passa de 2h, o sono noturno tende a encurtar cerca de ${formatDuration(avgRegularSleep - avgLongSleep)}.`;
+  }
+  return "";
+}
+
+function dayStartNapQualityInsight() {
+  const days = reportDaysFromHistory(21).filter((day) => day.napCount && day.daySleep);
+  if (days.length < 7) return "";
+
+  const buckets = new Map();
+  days.forEach((day) => {
+    const startMinutes = safeTimeToMinutes(day.dayStart || state.dayStart || DEFAULT_DAY_START, 7 * 60);
+    const hour = Math.floor(startMinutes / 60);
+    const current = buckets.get(hour) || { count: 0, totalSleep: 0 };
+    current.count += 1;
+    current.totalSleep += day.daySleep;
+    buckets.set(hour, current);
+  });
+
+  const ranked = [...buckets.entries()]
+    .filter(([, value]) => value.count >= 2)
+    .map(([hour, value]) => ({
+      hour,
+      count: value.count,
+      average: Math.round(value.totalSleep / value.count)
+    }))
+    .sort((a, b) => b.average - a.average);
+  const best = ranked[0];
+  if (!best) return "";
+  const other = ranked.slice(1);
+  const otherAverage = other.length ? average(other.map((item) => item.average)) : 0;
+  if (!otherAverage || best.average < otherAverage + 25) return "";
+  return `Quando ela acorda perto de ${String(best.hour).padStart(2, "0")}h, as sonecas rendem mais: media de ${formatDuration(best.average)} no dia.`;
+}
+
+function nightWindowSamples() {
+  return state.nights
+    .map((night) => {
+      const nightStart = new Date(night.start);
+      const dayKey = dateInputValue(nightStart);
+      const naps = state.naps.filter((nap) => recordDateInputValue(nap) === dayKey);
+      const lastWindow = lastWakeWindowBeforeNightForDay(dayKey, naps, [night]);
+      return {
+        lastWindow,
+        nightWakeCount: normalizeAwakenings(night.awakenings || []).length,
+        nightSleep: nightDuration(night)
+      };
+    })
+    .filter((sample) => sample.lastWindow > 0 && sample.nightSleep > 0);
+}
+
+function reportDaysFromHistory(daysBack = 21) {
+  const today = new Date();
+  const start = addDays(today, -daysBack + 1);
+  const days = [];
+  for (let index = 0; index < daysBack; index += 1) {
+    const date = addDays(start, index);
+    const key = dateInputValue(date);
+    const naps = state.naps.filter((nap) => recordDateInputValue(nap) === key);
+    const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
+    days.push({
+      key,
+      dayStart: naps[0]?.dayStart || state.dayStart,
+      napCount: naps.length,
+      daySleep
+    });
+  }
+  return days;
+}
+
+function average(values) {
+  const filtered = values.filter((value) => Number.isFinite(Number(value)));
+  return filtered.length ? filtered.reduce((sum, value) => sum + Number(value), 0) / filtered.length : 0;
 }
 
 function estimateNightSleepMinutes(bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30), morning = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60)) {

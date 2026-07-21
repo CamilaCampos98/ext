@@ -4,6 +4,8 @@ const DIAPERS_SHEET_NAME = 'Fraldas';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
+const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 
 const HEADERS = [
   'Recebido em',
@@ -66,6 +68,7 @@ const SLEEP_DIARY_HEADERS = [
   'Mamada antes da soneca',
   'Usou chupeta',
   'Acordou quando caiu',
+  'Tempo acordada antes da soneca',
   'Janela de sono usada'
 ];
 
@@ -474,7 +477,13 @@ function getActiveSession(sheet) {
     return { ok: true, activeSessionSupported: true, session: null };
   }
 
-  return { ok: true, activeSessionSupported: true, session: activeSessionRowToObject(row) };
+  const session = activeSessionRowToObject(row);
+  if (isStaleActiveSession(session)) {
+    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+    return { ok: true, activeSessionSupported: true, session: null, clearedStale: true };
+  }
+
+  return { ok: true, activeSessionSupported: true, session: session };
 }
 
 function clearActiveSession(sheet, id) {
@@ -512,6 +521,13 @@ function parseAwakenings(value) {
   } catch (error) {
     return [];
   }
+}
+
+function isStaleActiveSession(session) {
+  const startedAt = new Date(session && session.start);
+  if (Number.isNaN(startedAt.getTime())) return true;
+  const age = Date.now() - startedAt.getTime();
+  return session.type === 'night' ? age > ACTIVE_NIGHT_MAX_AGE_MS : age > ACTIVE_NAP_MAX_AGE_MS;
 }
 
 function getExistingIds(sheet) {
@@ -603,6 +619,7 @@ function toSleepDiarySheetRow(payload) {
     payload.feedingBeforeNap || '',
     payload.pacifierLabel || yesNoLabel(payload.pacifier),
     payload.pacifierWakeLabel || yesNoLabel(payload.pacifierWake),
+    payload.wakeWindowUsedLabel || payload.wakeWindowUsed || '',
     payload.wakeWindowUsedLabel || payload.wakeWindowUsed || ''
   ];
 }
@@ -713,7 +730,7 @@ function listSleepDiaryRows(sheet) {
       feedingBeforeNap: row[13] || '',
       pacifier: yesNoKey(row[14]) || yesNoKey(row[11]),
       pacifierWake: yesNoKey(row[15]) || yesNoKey(row[12]),
-      wakeWindowUsed: row[16] || row[13] || ''
+      wakeWindowUsed: row[16] || row[17] || row[13] || ''
     }));
 
   return { ok: true, records: records };
