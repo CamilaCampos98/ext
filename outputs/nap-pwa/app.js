@@ -100,7 +100,6 @@ const defaultState = {
   lastWake: "",
   bedtime: "19:30",
   plannedNapCount: 5,
-  activeNapAttemptStart: null,
   activeNapStart: null,
   activeNapResumeId: null,
   activeNightStart: null,
@@ -160,10 +159,6 @@ const els = {
   closeNapStartSheet: document.querySelector("#closeNapStartSheet"),
   napStartTime: document.querySelector("#napStartTime"),
   confirmStartNap: document.querySelector("#confirmStartNap"),
-  napAttemptStatus: document.querySelector("#napAttemptStatus"),
-  napAttemptTimer: document.querySelector("#napAttemptTimer"),
-  confirmNapAsleep: document.querySelector("#confirmNapAsleep"),
-  cancelNapAttempt: document.querySelector("#cancelNapAttempt"),
   nightTimeSheet: document.querySelector("#nightTimeSheet"),
   closeNightTimeSheet: document.querySelector("#closeNightTimeSheet"),
   nightTimeTitle: document.querySelector("#nightTimeTitle"),
@@ -387,9 +382,7 @@ function bindEvents() {
   }
   els.startNap.addEventListener("click", () => toggleNapStartSheet(true));
   els.closeNapStartSheet.addEventListener("click", () => toggleNapStartSheet(false));
-  els.confirmStartNap.addEventListener("click", startNapAttempt);
-  els.confirmNapAsleep.addEventListener("click", confirmNapAsleep);
-  els.cancelNapAttempt.addEventListener("click", cancelNapAttempt);
+  els.confirmStartNap.addEventListener("click", startNap);
   els.closeNightTimeSheet.addEventListener("click", () => toggleNightTimeSheet(false));
   els.confirmNightTime.addEventListener("click", confirmNightTime);
   els.endNap.addEventListener("click", () => {
@@ -578,32 +571,17 @@ function updateFeedingOptions() {
   renderFeedingTypeOptions();
 }
 
-function startNapAttempt() {
+function startNap() {
   if (state.activeNapStart || state.activeNightStart) return;
-  if (state.activeNapAttemptStart) return;
+  toggleNapStartSheet(false);
   const informedStart = els.napStartTime?.value ? new Date(els.napStartTime.value) : null;
   const now = new Date();
   const startedAt = informedStart && !Number.isNaN(informedStart.getTime()) && informedStart <= now
     ? informedStart
     : now;
   const sessionId = newNapId(startedAt);
-  state.activeNapAttemptStart = startedAt.toISOString();
-  state.activeNapResumeId = sessionId;
-  clearNotificationTimers();
-  saveState();
-  render();
-}
-
-function confirmNapAsleep() {
-  if (state.activeNapStart || state.activeNightStart || !state.activeNapAttemptStart) return;
-  const attemptStartedAt = new Date(state.activeNapAttemptStart || "");
-  const startedAt = new Date();
-  if (!state.activeNapResumeId) state.activeNapResumeId = newNapId(startedAt);
-  if (Number.isNaN(attemptStartedAt.getTime())) {
-    state.activeNapAttemptStart = startedAt.toISOString();
-  }
   state.activeNapStart = startedAt.toISOString();
-  toggleNapStartSheet(false);
+  state.activeNapResumeId = sessionId;
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -611,17 +589,8 @@ function confirmNapAsleep() {
   render();
 }
 
-function cancelNapAttempt() {
-  state.activeNapAttemptStart = null;
-  state.activeNapResumeId = null;
-  if (els.napStartTime) els.napStartTime.value = "";
-  saveState();
-  toggleNapStartSheet(false);
-  render();
-}
-
 function startNightSleep(startedAt = new Date()) {
-  if (state.activeNapAttemptStart || state.activeNapStart || state.activeNightStart) return;
+  if (state.activeNapStart || state.activeNightStart) return;
   state.activeNightStart = startedAt.toISOString();
   state.activeNightId = newNightId(startedAt);
   state.activeNightAwakeStart = null;
@@ -765,27 +734,13 @@ function completeNap(mood) {
   const activeNapId = state.activeNapResumeId || newNapId(startedAt);
   state.activeNapResumeId = activeNapId;
   const nap = createNapRecord(startedAt, endedAt, mood, { id: activeNapId });
-  const attemptStartedAt = new Date(state.activeNapAttemptStart || "");
-  const sleepLatency = !Number.isNaN(attemptStartedAt.getTime()) && startedAt > attemptStartedAt
-    ? Math.max(0, Math.round((startedAt - attemptStartedAt) / 60000))
-    : 0;
-  if (sleepLatency > 0) {
-    state.sleepDiary = state.sleepDiary || {};
-    state.sleepDiary[activeNapId] = {
-      ...sleepDiaryEntry(activeNapId),
-      sleepLatency: String(sleepLatency),
-      synced: false
-    };
-  }
   rememberClosedActiveSession(activeNapId);
   state.activeNapStart = null;
-  state.activeNapAttemptStart = null;
   state.activeNapResumeId = null;
   clearNotificationTimers();
   saveState();
   addNapRecord(nap);
   clearActiveSessionFromSheet(activeNapId);
-  if (sleepLatency > 0) syncSleepDiaryToSheet([activeNapId], "Sincronizando tempo para adormecer com o Google Sheets...");
   toggleMoodSheet(false);
   scheduleUpcomingNotifications();
   render();
@@ -1138,7 +1093,6 @@ function render() {
   renderSleepDiary();
   renderActivities();
   renderReport();
-  renderNapAttemptControls();
 }
 
 function renderProfile() {
@@ -1225,12 +1179,6 @@ function renderPrediction(prediction) {
   if (state.activeNapStart) {
     if (els.nextWindow) els.nextWindow.textContent = "Soneca em andamento";
     if (els.nextHint) els.nextHint.textContent = "O próximo cálculo será atualizado quando a soneca for encerrada.";
-    return;
-  }
-
-  if (state.activeNapAttemptStart) {
-    if (els.nextWindow) els.nextWindow.textContent = "Tentando dormir";
-    if (els.nextHint) els.nextHint.textContent = "O tempo para adormecer sera salvo no diario quando a soneca for encerrada.";
     return;
   }
 
@@ -1575,7 +1523,6 @@ function continueNapFromRecord(napKey) {
 
   const resumedId = nap.id || stableNapId(nap);
   state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
-  state.activeNapAttemptStart = null;
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = resumedId;
   if (nap.id) deleteNapFromSheet(nap.id, { silent: true });
@@ -1638,17 +1585,6 @@ function renderRingCenter(prediction, today) {
     els.dayCenterHint.textContent = remaining
       ? `meta ${formatDuration(goal)} · faltam ${formatDuration(remaining)}`
       : `meta ${formatDuration(goal)} atingida`;
-    return;
-  }
-
-  if (state.activeNapAttemptStart) {
-    const startedAt = new Date(state.activeNapAttemptStart);
-    const elapsed = Number.isNaN(startedAt.getTime())
-      ? 0
-      : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-    els.dayCenterLabel.textContent = "tentando dormir ha";
-    els.dayCenterTime.textContent = formatRingDuration(elapsed);
-    els.dayCenterHint.textContent = "toque em Dormiu quando a soneca comecar";
     return;
   }
 
@@ -1833,15 +1769,14 @@ function effectiveLastWakeMinutes(today = napsToday()) {
 
 function renderTimer() {
   const active = Boolean(state.activeNapStart);
-  const attemptingNap = Boolean(state.activeNapAttemptStart);
   const nightActive = Boolean(state.activeNightStart);
   const nightAwake = Boolean(state.activeNightAwakeStart);
-  els.timerPanel.classList.toggle("is-idle", !active && !attemptingNap && !nightActive);
-  els.timerPanel.classList.toggle("is-active", active || attemptingNap || nightActive);
+  els.timerPanel.classList.toggle("is-idle", !active && !nightActive);
+  els.timerPanel.classList.toggle("is-active", active || nightActive);
   els.openStartSheet.disabled = false;
   els.startNap.disabled = active || nightActive;
   els.endNap.disabled = !active;
-  els.startNight.disabled = active || attemptingNap || nightActive;
+  els.startNight.disabled = active || nightActive;
   els.endNight.disabled = !nightActive;
   els.startNightAwake.disabled = !nightActive || nightAwake;
   els.endNightAwake.disabled = !nightActive || !nightAwake;
@@ -1853,17 +1788,6 @@ function renderTimer() {
     els.currentStart.textContent = timeLabel(startedAt);
     els.currentEnd.textContent = nightAwake ? "voltou a dormir" : "ao acordar";
     els.currentMood.textContent = "Noite";
-    return;
-  }
-
-  if (attemptingNap) {
-    const startedAt = new Date(state.activeNapAttemptStart);
-    const minutes = Number.isNaN(startedAt.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-    els.timer.textContent = `${String(minutes).padStart(2, "0")}min`;
-    els.napStatus.textContent = `Tentando dormir ha ${formatDuration(minutes)}`;
-    els.currentStart.textContent = timeLabel(startedAt);
-    els.currentEnd.textContent = "toque em Dormiu";
-    els.currentMood.textContent = "Tempo para dormir";
     return;
   }
 
@@ -1886,25 +1810,6 @@ function renderTimer() {
   els.currentMood.textContent = "-";
   els.napStatus.textContent = `Dormindo há ${formatDuration(minutes)}`;
   els.napStatus.textContent = `Dormindo h\u00e1 ${formatDuration(minutes)} · ${napGoalPercent(minutes, goal)}% da meta`;
-}
-
-function renderNapAttemptControls() {
-  if (!els.confirmStartNap || !els.confirmNapAsleep || !els.cancelNapAttempt || !els.napAttemptStatus || !els.napAttemptTimer) return;
-  const attempting = Boolean(state.activeNapAttemptStart) && !state.activeNapStart;
-  els.confirmStartNap.hidden = attempting;
-  els.confirmNapAsleep.hidden = !attempting;
-  els.cancelNapAttempt.hidden = !attempting;
-  els.napAttemptStatus.hidden = !attempting;
-  if (els.napStartTime) els.napStartTime.disabled = attempting;
-
-  if (!attempting) {
-    els.napAttemptTimer.textContent = "00min";
-    return;
-  }
-
-  const startedAt = new Date(state.activeNapAttemptStart);
-  const minutes = Number.isNaN(startedAt.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-  els.napAttemptTimer.textContent = formatDuration(minutes);
 }
 
 function renderInsights(prediction) {
@@ -3339,7 +3244,6 @@ function applyRemoteActiveSession(session) {
   if (sameNap) return;
 
   if (type === "nap") {
-    state.activeNapAttemptStart = null;
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
     state.activeNightStart = null;
@@ -3384,7 +3288,6 @@ function completedSessionExists(id) {
 }
 
 function clearLocalActiveSession(message = "") {
-  state.activeNapAttemptStart = null;
   state.activeNapStart = null;
   state.activeNapResumeId = null;
   state.activeNightStart = null;
@@ -4260,7 +4163,7 @@ async function deleteDiaperFromSheet(id) {
 
 function scheduleUpcomingNotifications() {
   clearNotificationTimers();
-  if (!canNotify() || state.activeNapAttemptStart || state.activeNapStart || state.activeNightStart) return;
+  if (!canNotify() || state.activeNapStart || state.activeNightStart) return;
   const prediction = calculatePrediction();
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
@@ -4757,14 +4660,6 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   const planned = plannedNapCount();
   const lastFeeding = latestPastFeeding();
   const feedingAge = lastFeeding ? formatFeedingAge(lastFeeding) : "";
-
-  if (state.activeNapAttemptStart) {
-    const startedAt = new Date(state.activeNapAttemptStart);
-    const minutes = Number.isNaN(startedAt.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-    if (minutes >= 25) return `Ela ja esta tentando dormir ha ${formatDuration(minutes)}. Pode ser sinal de janela longa demais, desconforto ou que ainda precisa de ajuda para desacelerar.`;
-    if (minutes >= 15) return `Tempo para adormecer em ${formatDuration(minutes)}. Observe se ela esta relaxando; se passar muito disso, essa janela pode estar no limite.`;
-    return `Timer de adormecer ativo ha ${formatDuration(minutes)}. Quando ela dormir, toque em Dormiu para iniciar a soneca real.`;
-  }
 
   if (state.activeNightStart && state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
@@ -5286,11 +5181,6 @@ function loadState() {
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
-    loaded.activeNapAttemptStart = Number.isNaN(new Date(loaded.activeNapAttemptStart || "").getTime()) ? null : new Date(loaded.activeNapAttemptStart).toISOString();
-    if (loaded.activeNapAttemptStart && Date.now() - new Date(loaded.activeNapAttemptStart).getTime() > ACTIVE_NAP_MAX_AGE_MS) {
-      loaded.activeNapAttemptStart = null;
-      loaded.activeNapResumeId = null;
-    }
     loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
@@ -5480,14 +5370,8 @@ function toggleStartSheet(open) {
 }
 
 function toggleNapStartSheet(open) {
-  if (open && els.napStartTime) {
-    const attemptStartedAt = new Date(state.activeNapAttemptStart || "");
-    els.napStartTime.value = !Number.isNaN(attemptStartedAt.getTime())
-      ? toDateTimeLocalValue(attemptStartedAt).slice(0, 16)
-      : "";
-  }
+  if (open && els.napStartTime) els.napStartTime.value = "";
   setSheetOpen(els.napStartSheet, open);
-  renderNapAttemptControls();
 }
 
 function toggleNightTimeSheet(open) {
