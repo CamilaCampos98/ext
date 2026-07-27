@@ -4661,6 +4661,18 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   const lastFeeding = latestPastFeeding();
   const feedingAge = lastFeeding ? formatFeedingAge(lastFeeding) : "";
 
+  if (state.activeNapStart) {
+    const startedAt = new Date(state.activeNapStart);
+    const elapsed = Number.isNaN(startedAt.getTime())
+      ? 0
+      : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
+    const goal = activeNapGoalMinutes();
+    const remaining = Math.max(0, goal - elapsed);
+    return remaining
+      ? `Soneca em andamento: ${babyDisplayName()} esta dormindo ha ${formatRingDuration(elapsed)}. Meta atual ${formatDuration(goal)}, faltam ${formatDuration(remaining)}.`
+      : `Soneca em andamento: ${babyDisplayName()} esta dormindo ha ${formatRingDuration(elapsed)} e ja atingiu a meta de ${formatDuration(goal)}.`;
+  }
+
   if (state.activeNightStart && state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
     const awakeMinutes = Number.isNaN(awakeStart.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
