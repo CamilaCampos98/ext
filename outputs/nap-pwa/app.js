@@ -2681,7 +2681,7 @@ function renderSleepReportChart(days) {
   els.reportCharts.innerHTML = `
     ${reportTotalSleepChart(days)}
     ${reportNapDurationChart(days)}
-    ${reportDiaperChart(days)}
+    ${reportDiaperCountChart(days)}
     ${reportSleepDiaryChart(days)}
     ${reportWakeChart(days)}
   `;
@@ -2798,15 +2798,64 @@ function reportNapDurationChart(days) {
     </svg>`;
 }
 
+function reportDiaperCountChart(days) {
+  const width = 640;
+  const height = 230;
+  const padding = { top: 48, right: 18, bottom: 34, left: 38 };
+  const maxValue = Math.max(1, ...days.flatMap((day) => [
+    day.peeOnlyCount + day.bothDiaperCount,
+    day.poopOnlyCount + day.bothDiaperCount
+  ]));
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const groupWidth = plotWidth / days.length;
+  const barWidth = Math.min(18, groupWidth / 4);
+  const baseY = padding.top + plotHeight;
+  const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
+
+  return `
+    <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Xixi e coco por dia">
+      <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-title" x="18" y="24">Fraldas por dia</text>
+      <text class="chart-subtitle" x="18" y="40">Numeros por dia. Xixi+coco entra nas duas contagens.</text>
+      <circle class="legend-dot-svg pee" cx="430" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="442" y="28">Xixi</text>
+      <circle class="legend-dot-svg poop" cx="500" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="512" y="28">Coco</text>
+      ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
+      ${days.map((day, index) => {
+        const center = padding.left + groupWidth * index + groupWidth / 2;
+        const bars = [
+          { value: day.peeOnlyCount + day.bothDiaperCount, className: "pee-count", offset: -barWidth / 2 - 3 },
+          { value: day.poopOnlyCount + day.bothDiaperCount, className: "poop-count", offset: barWidth / 2 + 3 }
+        ];
+        return `
+          ${bars.map((bar) => {
+            const y = scaleY(bar.value);
+            const x = center + bar.offset - barWidth / 2;
+            return `
+              <rect class="chart-bar ${bar.className}" x="${roundSvg(x)}" y="${roundSvg(y)}" width="${roundSvg(barWidth)}" height="${roundSvg(baseY - y)}" rx="3"></rect>
+              ${bar.value ? `<text class="chart-bar-value" x="${roundSvg(x + barWidth / 2)}" y="${roundSvg(Math.max(padding.top + 10, y - 6))}">${bar.value}</text>` : ""}
+            `;
+          }).join("")}
+          <text class="chart-label x" x="${roundSvg(center)}" y="${height - 10}">${day.label}</text>
+        `;
+      }).join("")}
+    </svg>`;
+}
+
 function reportDiaperChart(days) {
   const width = 640;
   const height = 230;
   const padding = { top: 48, right: 18, bottom: 34, left: 38 };
-  const maxValue = Math.max(1, ...days.flatMap((day) => [day.peeOnlyCount, day.poopOnlyCount, day.bothDiaperCount]));
+  const maxValue = Math.max(1, ...days.flatMap((day) => [
+    day.peeOnlyCount + day.bothDiaperCount,
+    day.poopOnlyCount + day.bothDiaperCount
+  ]));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const groupWidth = plotWidth / days.length;
-  const barWidth = Math.min(12, groupWidth / 5);
+  const barWidth = Math.min(18, groupWidth / 4);
   const baseY = padding.top + plotHeight;
   const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
 

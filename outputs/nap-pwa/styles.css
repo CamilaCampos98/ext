@@ -1885,6 +1885,13 @@ select {
   text-anchor: middle;
 }
 
+.chart-bar-value {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  text-anchor: middle;
+}
+
 .chart-legend-label {
   fill: var(--muted);
   font-size: 11px;
