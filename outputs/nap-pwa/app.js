@@ -682,6 +682,10 @@ function startNightAwake(startedAt = new Date()) {
 function endNightAwake(endedAt = new Date()) {
   if (!state.activeNightStart || !state.activeNightAwakeStart) return;
   const startedAt = new Date(state.activeNightAwakeStart);
+  if (shouldTurnNightAwakeIntoDayStart(startedAt, endedAt)) {
+    convertNightAwakeToDayStartNap(startedAt, endedAt);
+    return;
+  }
   if (!Number.isNaN(startedAt.getTime()) && endedAt > startedAt) {
     state.activeNightAwakenings = [
       ...(state.activeNightAwakenings || []),
@@ -691,6 +695,46 @@ function endNightAwake(endedAt = new Date()) {
   state.activeNightAwakeStart = null;
   saveState();
   syncActiveSessionToSheet();
+  render();
+}
+
+function shouldTurnNightAwakeIntoDayStart(awakeStartedAt, sleepStartedAt) {
+  if (!(awakeStartedAt instanceof Date) || !(sleepStartedAt instanceof Date)) return false;
+  if (Number.isNaN(awakeStartedAt.getTime()) || Number.isNaN(sleepStartedAt.getTime()) || sleepStartedAt <= awakeStartedAt) return false;
+
+  const awakeStartMinutes = dateToDayMinutes(awakeStartedAt);
+  const awakeDuration = Math.round((sleepStartedAt - awakeStartedAt) / 60000);
+  const morningStart = 5 * 60;
+  const morningEnd = 10 * 60 + 30;
+  return awakeStartMinutes >= morningStart && awakeStartMinutes <= morningEnd && awakeDuration >= 35;
+}
+
+function convertNightAwakeToDayStartNap(dayStartedAt, napStartedAt) {
+  const nightStartedAt = new Date(state.activeNightStart);
+  const nightId = state.activeNightId || newNightId(nightStartedAt);
+  const awakeningsBeforeMorning = normalizeAwakenings(state.activeNightAwakenings || [])
+    .filter((item) => new Date(item.end) <= dayStartedAt);
+
+  if (!Number.isNaN(nightStartedAt.getTime()) && dayStartedAt > nightStartedAt) {
+    const night = createNightRecord(nightStartedAt, dayStartedAt, awakeningsBeforeMorning, { id: nightId });
+    rememberClosedActiveSession(nightId);
+    addNightRecord(night);
+    applyNightAsCycleStartIfLatest(night);
+    syncNightToSheet(night);
+    clearActiveSessionFromSheet(nightId);
+  }
+
+  state.activeNightStart = null;
+  state.activeNightId = null;
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = [];
+  state.activeNapStart = napStartedAt.toISOString();
+  state.activeNapResumeId = newNapId(napStartedAt);
+  clearNotificationTimers();
+  saveState();
+  syncActiveSessionToSheet();
+  scheduleActiveNapNotifications();
+  setHint("Despertar da manha virou inicio do dia; a volta ao sono iniciou uma soneca.");
   render();
 }
 
@@ -1206,16 +1250,16 @@ function renderPrediction(prediction) {
 
   if (!shouldSuggestNapBeforeNight(prediction)) {
     const night = calculateNightSuggestion(prediction);
-    const delay = minutesUntilReminder(night.start, nowMinutes());
-    if (els.nextWindow) els.nextWindow.textContent = `Sono noturno em ${formatDuration(delay)}`;
+    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Sono noturno em ${formatDuration(delay)}` : "Sono noturno agora";
     if (els.nextHint) els.nextHint.textContent = `Próxima janela não cabe bem antes da noite. Sono noturno sugerido por volta de ${minutesToTime(night.start)}.`;
     return;
   }
 
   const night = calculateNightSuggestion(prediction);
   if (shouldSkipNextNapForNight(prediction, night)) {
-    const delay = minutesUntilReminder(night.start, nowMinutes());
-    if (els.nextWindow) els.nextWindow.textContent = `Sono noturno em ${formatDuration(delay)}`;
+    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Sono noturno em ${formatDuration(delay)}` : "Sono noturno agora";
     if (els.nextHint) els.nextHint.textContent = `A próxima soneca ficaria muito perto do sono noturno. Melhor preparar a noite por volta de ${minutesToTime(night.start)}.`;
     return;
   }
@@ -1302,7 +1346,12 @@ function renderNightPlanner() {
   const feedings = feedingsInActiveNight();
 
   els.daySegments.innerHTML = [
-    arcPath(nightStart, nowMinute, "night")
+    arcPath(nightStart, nowMinute, "night"),
+    ...awakenings.map((item) => arcPath(
+      dateToDayMinutes(new Date(item.start)),
+      dateToDayMinutes(new Date(item.end)),
+      "awake"
+    ))
   ].join("");
 
   els.dayMarkers.innerHTML = [
@@ -1615,16 +1664,18 @@ function renderRingCenter(prediction, today) {
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
     const night = calculateNightSuggestion(prediction);
+    const delay = minutesUntilTodayOrNow(night.start, now);
     els.dayCenterLabel.textContent = "sono noturno em";
-    els.dayCenterTime.textContent = formatDuration(minutesUntilReminder(night.start, now));
+    els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
     els.dayCenterHint.textContent = `previsto ${minutesToTime(night.start)}`;
     return;
   }
 
   const night = calculateNightSuggestion(prediction);
   if (shouldSkipNextNapForNight(prediction, night)) {
+    const delay = minutesUntilTodayOrNow(night.start, now);
     els.dayCenterLabel.textContent = "sono noturno em";
-    els.dayCenterTime.textContent = formatDuration(minutesUntilReminder(night.start, now));
+    els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
     els.dayCenterHint.textContent = `próximo evento previsto ${minutesToTime(night.start)}`;
     return;
   }
@@ -4387,6 +4438,11 @@ function minutesUntilToday(targetMinutes, now = nowMinutes()) {
   if (!Number.isFinite(Number(targetMinutes))) return NaN;
   const diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
   return diff > 0 ? diff : NaN;
+}
+
+function minutesUntilTodayOrNow(targetMinutes, now = nowMinutes()) {
+  if (!Number.isFinite(Number(targetMinutes))) return NaN;
+  return Math.max(0, normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now));
 }
 
 function isClockMinuteBetween(value, start, end) {
