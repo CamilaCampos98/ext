@@ -12,6 +12,8 @@ const ACTIVE_SESSION_POLL_MS = 15000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
+const NIGHT_PRE_START_FEEDING_GRACE_MINUTES = 90;
+const EVENING_ROUTINE_MINUTES = 55;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -107,6 +109,7 @@ const defaultState = {
   activeNightAwakeStart: null,
   activeNightAwakenings: [],
   cycleStartAt: null,
+  dayStartOverride: false,
   naps: [],
   nights: [],
   feedings: [],
@@ -163,6 +166,8 @@ const els = {
   closeNightTimeSheet: document.querySelector("#closeNightTimeSheet"),
   nightTimeTitle: document.querySelector("#nightTimeTitle"),
   nightEventTime: document.querySelector("#nightEventTime"),
+  nightEventEndPanel: document.querySelector("#nightEventEndPanel"),
+  nightEventEndTime: document.querySelector("#nightEventEndTime"),
   confirmNightTime: document.querySelector("#confirmNightTime"),
   nightTimeError: document.querySelector("#nightTimeError"),
   startNap: document.querySelector("#startNap"),
@@ -300,25 +305,38 @@ let selectedDiaperType = "pee";
 let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
+let isInitialLoading = true;
 const recentlyClosedActiveSessions = new Map();
 
 init();
 
 function init() {
+  document.body.classList.add("is-loading");
   mountProfilePanel();
   hydrateForm();
   bindEvents();
   registerServiceWorker();
   updateNotificationState();
   render();
-  syncFromSheetThenPending();
-  if (state.activeNapStart || state.activeNightStart) syncActiveSessionToSheet();
+  startInitialDataLoad();
   setInterval(render, 1000);
-  loadActiveSessionFromSheet();
   setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadActiveSessionFromSheet();
   });
+}
+
+async function startInitialDataLoad() {
+  setHint("Carregando dados da planilha e timer ativo...");
+  await Promise.allSettled([
+    loadFromSheet(),
+    loadActiveSessionFromSheet()
+  ]);
+  if (state.activeNapStart || state.activeNightStart) syncActiveSessionToSheet();
+  isInitialLoading = false;
+  document.body.classList.remove("is-loading");
+  render();
+  syncPendingAfterInitialLoad();
 }
 
 function hydrateForm() {
@@ -535,16 +553,46 @@ function mountProfilePanel() {
 }
 
 function updateProfile() {
+  const previousDayStart = state.dayStart;
+  const previousCycleStart = currentCycleStartDate();
+  const nextDayStart = els.dayStart.value || DEFAULT_DAY_START;
   state.babyName = els.babyName.value.trim();
   state.babyBirthDate = els.babyBirthDate.value;
   state.babyAge = currentBabyAgeMonths();
-  state.dayStart = els.dayStart.value;
+  if (nextDayStart !== previousDayStart) {
+    applyDayStartOverride(nextDayStart, previousCycleStart);
+  } else {
+    state.dayStart = nextDayStart;
+  }
   state.lastWake = els.lastWake.value;
   state.bedtime = els.bedtime.value;
   state.plannedNapCount = plannedNapCount();
   saveState();
   scheduleUpcomingNotifications();
   render();
+}
+
+function applyDayStartOverride(dayStart, previousCycleStart = currentCycleStartDate()) {
+  const normalized = normalizeTimeField(dayStart) || DEFAULT_DAY_START;
+  state.dayStart = normalized;
+  state.dayStartOverride = true;
+
+  const base = previousCycleStart instanceof Date && !Number.isNaN(previousCycleStart.getTime())
+    ? new Date(previousCycleStart)
+    : new Date();
+  const minutes = safeTimeToMinutes(normalized, 7 * 60);
+  base.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  state.cycleStartAt = base.toISOString();
+
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+  [state.naps, state.feedings, state.diapers].forEach((records) => {
+    records.forEach((record) => {
+      const at = new Date(record.start || record.at || "");
+      if (!Number.isNaN(at.getTime()) && at >= previousCycleStart && at <= end) {
+        record.dayStart = normalized;
+      }
+    });
+  });
 }
 
 function hydrateFeedingOptions() {
@@ -615,25 +663,67 @@ function openNightTimeSheet(mode) {
   };
   els.nightTimeTitle.textContent = titles[mode] || "Registrar horário";
   els.nightEventTime.value = "";
+  if (els.nightEventEndTime) els.nightEventEndTime.value = "";
+  const periodMode = mode === "startAwake" || mode === "endAwake";
+  if (els.nightEventEndPanel) els.nightEventEndPanel.hidden = !periodMode;
+  if (mode === "endAwake" && state.activeNightAwakeStart && els.nightEventTime) {
+    els.nightEventTime.value = toLocalDateTimeValue(new Date(state.activeNightAwakeStart)).slice(0, 16);
+  }
   els.nightTimeError.textContent = "";
   toggleNightTimeSheet(true);
 }
 
 function confirmNightTime() {
-  const eventAt = nightEventTimeValue();
-  if (!eventAt) return;
+  const periodMode = nightEventMode === "startAwake" || nightEventMode === "endAwake";
+  const eventAt = periodMode ? null : nightEventTimeValue();
+  const awakeRange = periodMode ? nightAwakeRangeValue() : null;
+  if (!eventAt && !awakeRange) return;
 
   if (nightEventMode === "startNight") {
     startNightSleep(eventAt);
   } else if (nightEventMode === "endNight") {
     completeNightSleep(eventAt);
   } else if (nightEventMode === "startAwake") {
-    startNightAwake(eventAt);
+    if (awakeRange.endAt) {
+      recordNightAwakePeriod(awakeRange.startAt, awakeRange.endAt);
+    } else {
+      startNightAwake(awakeRange.startAt);
+    }
   } else if (nightEventMode === "endAwake") {
-    endNightAwake(eventAt);
+    recordNightAwakePeriod(awakeRange.startAt, awakeRange.endAt);
   }
 
   toggleNightTimeSheet(false);
+}
+
+function nightAwakeRangeValue() {
+  const startValue = els.nightEventTime?.value || "";
+  const endValue = els.nightEventEndTime?.value || "";
+  const activeAwakeStart = new Date(state.activeNightAwakeStart || "");
+  const defaultStart = !Number.isNaN(activeAwakeStart.getTime()) ? activeAwakeStart : new Date();
+  const startAt = startValue ? new Date(startValue) : defaultStart;
+  const endAt = endValue ? new Date(endValue) : (nightEventMode === "endAwake" ? new Date() : null);
+
+  if (Number.isNaN(startAt.getTime()) || (endAt && Number.isNaN(endAt.getTime()))) {
+    els.nightTimeError.textContent = "Horario invalido.";
+    return null;
+  }
+  if (startAt > new Date() || (endAt && endAt > new Date())) {
+    els.nightTimeError.textContent = "O horario nao pode ser no futuro.";
+    return null;
+  }
+  if (state.activeNightStart) {
+    const nightStart = new Date(state.activeNightStart);
+    if (!Number.isNaN(nightStart.getTime()) && startAt < nightStart) {
+      els.nightTimeError.textContent = "O horario precisa ser depois do inicio do sono noturno.";
+      return null;
+    }
+  }
+  if (endAt && endAt <= startAt) {
+    els.nightTimeError.textContent = "O fim precisa ser depois do inicio.";
+    return null;
+  }
+  return { startAt, endAt };
 }
 
 function nightEventTimeValue() {
@@ -682,6 +772,11 @@ function startNightAwake(startedAt = new Date()) {
 function endNightAwake(endedAt = new Date()) {
   if (!state.activeNightStart || !state.activeNightAwakeStart) return;
   const startedAt = new Date(state.activeNightAwakeStart);
+  recordNightAwakePeriod(startedAt, endedAt);
+}
+
+function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
+  if (!state.activeNightStart) return;
   if (shouldTurnNightAwakeIntoDayStart(startedAt, endedAt)) {
     convertNightAwakeToDayStartNap(startedAt, endedAt);
     return;
@@ -836,7 +931,8 @@ function saveManualNap() {
 
 function createNapRecord(startedAt, endedAt, mood, options = {}) {
   const napIndex = napIndexForStart(startedAt);
-  const goalDuration = napGoalMinutesForIndex(napIndex);
+  const nightPlan = activeNapNightProtectionPlan(startedAt);
+  const goalDuration = nightPlan?.goal || napGoalMinutesForIndex(napIndex);
   const duration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   return {
     id: options.id || newNapId(startedAt),
@@ -1006,6 +1102,7 @@ function applyNightAsCycleStartIfLatest(night) {
 
   state.cycleStartAt = endedAt.toISOString();
   state.dayStart = minutesToTime(dateToDayMinutes(endedAt));
+  state.dayStartOverride = false;
   els.dayStart.value = state.dayStart;
   if (!napsToday().length) {
     state.lastWake = state.dayStart;
@@ -1068,6 +1165,7 @@ function clearHistory() {
   state.feedings = [];
   state.diapers = [];
   state.cycleStartAt = null;
+  state.dayStartOverride = false;
   saveState();
   render();
 }
@@ -1126,6 +1224,10 @@ async function requestNotificationPermission() {
 }
 
 function render() {
+  if (isInitialLoading) {
+    renderLoadingState();
+    return;
+  }
   const prediction = calculatePrediction();
   renderProfile();
   updateProfileRoutineStats();
@@ -1137,6 +1239,19 @@ function render() {
   renderSleepDiary();
   renderActivities();
   renderReport();
+}
+
+function renderLoadingState() {
+  if (els.assistantInsight) els.assistantInsight.textContent = "Carregando sonecas, mamadas e timer ativo...";
+  if (els.dayCenterLabel) els.dayCenterLabel.textContent = "carregando";
+  if (els.dayCenterTime) els.dayCenterTime.textContent = "--";
+  if (els.dayCenterHint) els.dayCenterHint.textContent = "Aguarde a sincronizacao terminar.";
+  if (els.dayCenterFeedingLabel) els.dayCenterFeedingLabel.textContent = "";
+  if (els.dayCenterFeedingTime) els.dayCenterFeedingTime.textContent = "";
+  if (els.daySegments) els.daySegments.innerHTML = "";
+  if (els.dayMarkers) els.dayMarkers.innerHTML = "";
+  if (els.sleepPressure) els.sleepPressure.textContent = "--";
+  if (els.napStatus) els.napStatus.textContent = "Carregando rotina";
 }
 
 function renderProfile() {
@@ -1358,7 +1473,7 @@ function renderNightPlanner() {
     { type: "day-end", at: nightStart, label: timeLabel(startedAt) },
     ...feedings.map((feeding) => ({
       type: "feed",
-      at: dateToDayMinutes(new Date(feeding.at)),
+      at: nightFeedingMarkerMinute(new Date(feeding.at), nightStart),
       id: feedingIdentity(feeding)
     }))
   ]
@@ -1627,13 +1742,17 @@ function renderRingCenter(prediction, today) {
     const elapsed = Number.isNaN(startedAt.getTime())
       ? 0
       : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-    const goal = activeNapGoalMinutes();
+    const nightPlan = activeNapNightProtectionPlan(startedAt);
+    const goal = nightPlan?.goal || activeNapGoalMinutes();
     const remaining = Math.max(0, goal - elapsed);
     els.dayCenterLabel.textContent = "dormindo há";
     els.dayCenterTime.textContent = formatRingDuration(elapsed);
     els.dayCenterHint.textContent = remaining
       ? `meta ${formatDuration(goal)} · faltam ${formatDuration(remaining)}`
       : `meta ${formatDuration(goal)} atingida`;
+    if (nightPlan) {
+      els.dayCenterHint.textContent = nightPlanCenterHint(nightPlan, elapsed, remaining);
+    }
     return;
   }
 
@@ -3401,7 +3520,7 @@ function clearLocalActiveSession(message = "") {
   render();
 }
 
-async function syncFromSheetThenPending() {
+async function loadFromSheet() {
   const [sleepLoad, feedingLoad, diaryLoad, diaperLoad] = await Promise.allSettled([
     loadNapsFromSheet({ deferRender: true }),
     loadFeedingsFromSheet({ deferRender: true }),
@@ -3429,6 +3548,15 @@ async function syncFromSheetThenPending() {
     setHint(`Google Sheets carregado: ${loadedCount} registro(s) encontrados.`);
   }
 
+  return { loadedCount, errors };
+}
+
+async function syncFromSheetThenPending() {
+  await loadFromSheet();
+  await syncPendingAfterInitialLoad();
+}
+
+async function syncPendingAfterInitialLoad() {
   await Promise.allSettled([
     syncPendingNapsToSheet(),
     syncPendingFeedingsToSheet(),
@@ -3745,16 +3873,16 @@ function mergeNights(remoteNights) {
     if (!state.babyBirthDate && Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
     if (state.nights[0].bedtime) state.bedtime = state.nights[0].bedtime;
     const latestNightEnd = new Date(state.nights[0].end);
-    if (!Number.isNaN(latestNightEnd.getTime())) {
+    if (!Number.isNaN(latestNightEnd.getTime()) && !state.dayStartOverride) {
       state.cycleStartAt = latestNightEnd.toISOString();
       state.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
       if (!state.naps.length) state.lastWake = state.dayStart;
-      els.dayStart.value = state.dayStart;
-      els.lastWake.value = state.lastWake;
-      els.babyName.value = state.babyName;
-      els.babyBirthDate.value = state.babyBirthDate || "";
-      els.bedtime.value = state.bedtime;
     }
+    els.dayStart.value = state.dayStart;
+    els.lastWake.value = state.lastWake;
+    els.babyName.value = state.babyName;
+    els.babyBirthDate.value = state.babyBirthDate || "";
+    els.bedtime.value = state.bedtime;
   }
 }
 
@@ -4771,8 +4899,12 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
     const elapsed = Number.isNaN(startedAt.getTime())
       ? 0
       : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
-    const goal = activeNapGoalMinutes();
+    const nightPlan = activeNapNightProtectionPlan(startedAt);
+    const goal = nightPlan?.goal || activeNapGoalMinutes();
     const remaining = Math.max(0, goal - elapsed);
+    if (nightPlan) {
+      return activeLastNapAssistantText(nightPlan, elapsed, remaining);
+    }
     return remaining
       ? `Soneca em andamento: ${babyDisplayName()} esta dormindo ha ${formatRingDuration(elapsed)}. Meta atual ${formatDuration(goal)}, faltam ${formatDuration(remaining)}.`
       : `Soneca em andamento: ${babyDisplayName()} esta dormindo ha ${formatRingDuration(elapsed)} e ja atingiu a meta de ${formatDuration(goal)}.`;
@@ -4790,6 +4922,9 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
       ? `Sono noturno em curso. Ela j\u00e1 ficou acordada ${formatRingDuration(awakeMinutes)} nesta noite. Sem c\u00e1lculo de soneca at\u00e9 encerrar a noite.`
       : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
   }
+
+  const recoveryInsight = nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, today);
+  if (recoveryInsight) return recoveryInsight;
 
   const patternInsight = assistantPatternInsight();
   if (patternInsight) return patternInsight;
@@ -4835,6 +4970,30 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   }
 
   return "Rotina dentro do esperado até agora. Mantenha a próxima janela conforme o alvo calculado.";
+}
+
+function nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, today) {
+  if (!nightSleep || !goals?.night || !goals?.day) return "";
+  const nightDeficit = goals.night - nightSleep;
+  const awakeAtNight = latestNightAwakeMinutes();
+  if (nightDeficit < 45 && awakeAtNight < 30) return "";
+
+  const extraDaySleep = clamp(Math.round(nightDeficit * 0.35), 20, 60);
+  const dayTarget = clamp(goals.day + extraDaySleep, goals.day, goals.day + 60);
+  const remainingDaySleep = Math.max(0, dayTarget - daySleep);
+  const nextNapName = ordinalFeminine(today.length + 1);
+  const awakePart = awakeAtNight >= 30 ? ` e ficou acordada ${formatDuration(awakeAtNight)} na madrugada` : "";
+  const cycleHelp = remainingDaySleep > 0
+    ? `Hoje tente buscar mais ${formatDuration(remainingDaySleep)} de sono diurno. Se a ${nextNapName} soneca parar perto de 30-40min, vale ajudar a emendar ciclo.`
+    : "O sono diurno ja compensou boa parte da noite; mantenha a proxima janela sem alongar demais.";
+
+  return `A noite anterior ficou abaixo do ideal: ${formatDuration(nightSleep)} de ${formatDuration(goals.night)}${awakePart}. ${cycleHelp} Janela atual: ${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}.`;
+}
+
+function latestNightAwakeMinutes() {
+  const latestNight = state.nights[0];
+  if (!latestNight) return 0;
+  return Number(latestNight.awakeDuration || totalAwakeMinutes(latestNight.awakenings || [])) || 0;
 }
 
 function assistantPatternInsight() {
@@ -4993,12 +5152,15 @@ function feedingsToday() {
 
 function feedingsInActiveNight() {
   if (!state.activeNightStart) return [];
-  const start = new Date(state.activeNightStart);
+  const nightStart = new Date(state.activeNightStart);
+  const preNightStart = new Date(nightStart.getTime() - NIGHT_PRE_START_FEEDING_GRACE_MINUTES * 60000);
+  const cycleStart = currentCycleStartDate();
+  const start = !Number.isNaN(cycleStart.getTime()) && cycleStart > preNightStart ? cycleStart : preNightStart;
   const end = new Date();
   return state.feedings.filter((feeding) => {
     const fedAt = new Date(feeding.at);
     return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
-  });
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
 function diapersToday() {
@@ -5106,6 +5268,13 @@ function ringMarkerMinute(date) {
     return currentRingStartMinutes;
   }
   return minutes;
+}
+
+function nightFeedingMarkerMinute(date, nightStartMinutes) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return NaN;
+  const activeNight = new Date(state.activeNightStart || "");
+  if (!Number.isNaN(activeNight.getTime()) && date < activeNight) return nightStartMinutes;
+  return dateToDayMinutes(date);
 }
 
 function arcPath(startMinutes, endMinutes, type) {
@@ -5298,6 +5467,7 @@ function loadState() {
     loaded.lastWake = normalizeTimeField(loaded.lastWake);
     loaded.bedtime = normalizeTimeField(loaded.bedtime) || defaultState.bedtime;
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
+    loaded.dayStartOverride = Boolean(loaded.dayStartOverride);
     loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
@@ -5361,7 +5531,7 @@ function loadState() {
       synced: Boolean(diaper.synced)
     })).filter((diaper) => !Number.isNaN(new Date(diaper.at).getTime())))
       .sort((a, b) => new Date(b.at) - new Date(a.at));
-  if (loaded.nights[0]) {
+  if (loaded.nights[0] && !loaded.dayStartOverride) {
       const latestNightStart = new Date(loaded.nights[0].start);
       const latestNightEnd = new Date(loaded.nights[0].end);
       if (!Number.isNaN(latestNightEnd.getTime())) {
@@ -5941,7 +6111,57 @@ function minutesSinceDate(value) {
 }
 
 function activeNapGoalMinutes() {
-  return napGoalMinutesForIndex(napsToday().length + 1);
+  const activeStart = state.activeNapStart ? new Date(state.activeNapStart) : null;
+  const nightPlan = activeStart ? activeNapNightProtectionPlan(activeStart) : null;
+  return nightPlan?.goal || napGoalMinutesForIndex(napsToday().length + 1);
+}
+
+function activeNapNightProtectionPlan(startedAt) {
+  if (!(startedAt instanceof Date) || Number.isNaN(startedAt.getTime()) || state.activeNightStart) return null;
+  const startedMinutes = dateToDayMinutes(startedAt);
+  const bedtime = safeTimeToMinutes(state.bedtime, 20 * 60);
+  const minutesToBed = minutesBetweenClock(startedMinutes, bedtime);
+  if (minutesToBed > 5 * 60) return null;
+
+  const napIndex = napsToday().length + 1;
+  const likelyLastNap = napIndex >= plannedNapCount() || startedMinutes >= 16 * 60 || minutesToBed <= 4 * 60;
+  if (!likelyLastNap) return null;
+
+  const finalWindow = finalWakeWindowBeforeNight();
+  const latestWake = normalizeDayMinutes(bedtime - finalWindow);
+  const rawGoal = latestWake - startedMinutes;
+  const regularGoal = napGoalMinutesForIndex(napIndex);
+  const goal = rawGoal <= 0 ? 15 : clamp(Math.min(regularGoal, rawGoal), 15, regularGoal);
+  const routineStart = normalizeDayMinutes(bedtime - EVENING_ROUTINE_MINUTES);
+  const alreadyPastLatestWake = rawGoal <= 0;
+
+  return {
+    goal,
+    bedtime,
+    routineStart,
+    latestWake,
+    finalWindow,
+    alreadyPastLatestWake
+  };
+}
+
+function finalWakeWindowBeforeNight() {
+  const profile = wakeWindowForAge(currentBabyAgeMonths());
+  return clamp(profile.target + 35, profile.min + 20, profile.max + 35);
+}
+
+function nightPlanCenterHint(plan, elapsed, remaining) {
+  if (plan.alreadyPastLatestWake || remaining <= 0) {
+    return `ultima soneca: pode encerrar. Rotina ${minutesToTime(plan.routineStart)} e noite ${minutesToTime(plan.bedtime)}`;
+  }
+  return `ultima soneca: faltam ${formatDuration(remaining)}. Encerrar ate ${minutesToTime(plan.latestWake)} para rotina ${minutesToTime(plan.routineStart)}`;
+}
+
+function activeLastNapAssistantText(plan, elapsed, remaining) {
+  if (plan.alreadyPastLatestWake || remaining <= 0) {
+    return `Esta parece ser a ultima soneca do dia. Para proteger o sono noturno das ${minutesToTime(plan.bedtime)}, pode encerrar quando ela der sinais de despertar e seguir para brincadeira calma, banho e mamada.`;
+  }
+  return `Esta parece ser a ultima soneca. Deixe dormir ate cerca de ${formatDuration(plan.goal)} no total; faltam ${formatDuration(remaining)}. A ideia e acordar ate ${minutesToTime(plan.latestWake)} para caber brincadeira calma, banho, mamada e sono noturno as ${minutesToTime(plan.bedtime)}.`;
 }
 
 function napGoalMinutesForIndex(napIndex) {

@@ -13,9 +13,14 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=106">
+    <link rel="stylesheet" href="styles.css?v=108">
   </head>
-  <body>
+  <body class="is-loading">
+    <div class="app-loading" id="appLoading" role="status" aria-live="polite">
+      <div class="loading-moon" aria-hidden="true"></div>
+      <strong>Carregando rotina</strong>
+      <span>Buscando sonecas, mamadas e timer ativo...</span>
+    </div>
     <div class="app-shell">
       <header class="topbar">
         <div>
@@ -491,11 +496,18 @@
         <button class="icon-button close" id="closeNightTimeSheet" aria-label="Fechar">x</button>
         <p class="label">Sono noturno</p>
         <h2 id="nightTimeTitle">Registrar horário</h2>
+        <div class="night-time-grid">
         <label class="start-time-panel" for="nightEventTime">
           Horário
           <input id="nightEventTime" type="datetime-local">
           <small>Opcional. Se ficar vazio, usa o horário atual.</small>
         </label>
+        <label class="start-time-panel" id="nightEventEndPanel" for="nightEventEndTime" hidden>
+          <span id="nightEventEndLabel">Fim</span>
+          <input id="nightEventEndTime" type="datetime-local">
+          <small>Opcional. Se ficar vazio, usa o horario atual.</small>
+        </label>
+        </div>
         <button class="primary full-width" id="confirmNightTime" type="button">Confirmar</button>
         <p class="fineprint" id="nightTimeError"></p>
       </div>
@@ -586,6 +598,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=143" defer></script>
+    <script src="app.js?v=147" defer></script>
   </body>
 </html>

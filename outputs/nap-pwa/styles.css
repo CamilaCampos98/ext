@@ -61,6 +61,56 @@ body::after {
     linear-gradient(180deg, transparent 62%, rgba(9, 17, 41, 0.72) 100%);
 }
 
+.app-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  padding: 28px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 45% 35%, rgba(203, 183, 247, 0.18), transparent 30%),
+    linear-gradient(180deg, rgba(17, 26, 61, 0.98), rgba(10, 15, 38, 0.98));
+  color: #f8fbfd;
+  transition: opacity 0.22s ease, visibility 0.22s ease;
+}
+
+body:not(.is-loading) .app-loading {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-loading strong {
+  font-size: 1.05rem;
+}
+
+.app-loading span {
+  max-width: 280px;
+  color: rgba(248, 251, 253, 0.74);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.loading-moon {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 4px;
+  border-radius: 50%;
+  border: 3px solid rgba(168, 216, 240, 0.35);
+  border-top-color: #a8d8f0;
+  box-shadow: 0 0 26px rgba(203, 183, 247, 0.42);
+  animation: loading-spin 0.9s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 button,
 input,
 select {
@@ -1375,6 +1425,11 @@ select {
 .profile-sheet-card {
   width: min(720px, 100%);
   overflow-x: hidden;
+}
+
+.night-time-grid {
+  display: grid;
+  gap: 10px;
 }
 
 .report-sheet-card,
