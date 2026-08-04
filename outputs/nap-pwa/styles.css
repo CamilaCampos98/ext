@@ -15,6 +15,7 @@
   --next-nap-color: #A8D8F0;
   --night-color: #8E6AD8;
   --feed: #8A3FFC;
+  --tummy: #9EE6D3;
   --marker-shell-fill: #2C305D;
   --peach: #DFF3FF;
   --warn: #CBB7F7;
@@ -366,6 +367,12 @@ h2 {
   stroke-width: 1.15;
 }
 
+.day-marker-group.tummy .marker-orb {
+  fill: var(--marker-shell-fill);
+  stroke: var(--tummy);
+  stroke-width: 1.15;
+}
+
 .day-marker-group.next .marker-orb {
   fill: var(--marker-shell-fill);
   stroke: var(--next-nap-color);
@@ -413,6 +420,10 @@ h2 {
 
 .day-marker-group.next .marker-icon {
   fill: var(--next-nap-color);
+}
+
+.day-marker-group.tummy .marker-icon {
+  fill: var(--tummy);
 }
 
 .day-marker-group.feed .marker-icon {
@@ -2195,6 +2206,11 @@ select {
   background: rgba(168, 216, 240, 0.12);
 }
 
+.manual-card-button.tummy {
+  border-color: rgba(158, 230, 211, 0.34);
+  background: rgba(158, 230, 211, 0.12);
+}
+
 .manual-card-button.diaper i {
   background: rgba(168, 216, 240, 0.18);
   color: var(--baby-blue);
@@ -2203,6 +2219,11 @@ select {
 .manual-card-button.feeding i {
   background: rgba(138, 63, 252, 0.16);
   color: var(--feed);
+}
+
+.manual-card-button.tummy i {
+  background: rgba(158, 230, 211, 0.16);
+  color: var(--tummy);
 }
 
 .manual-card-button.night i {

@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=108">
+    <link rel="stylesheet" href="styles.css?v=109">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -442,6 +442,11 @@
             <strong>Troca de fraldas</strong>
             <span class="action-info" title="Registra xixi, cocô ou xixi e cocô."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
+          <button class="manual-card-button tummy" id="openTummyTime" type="button">
+            <i class="fa-solid fa-child-reaching" aria-hidden="true"></i>
+            <strong>Tummy time</strong>
+            <span class="action-info" title="Registra uma atividade acordada. Nao altera diretamente a janela de sono."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
+          </button>
           <button class="manual-card-button night" id="startNight" type="button">
             <i class="fa-solid fa-cloud-moon" aria-hidden="true"></i>
             <strong>Hora de dormir</strong>
@@ -598,6 +603,24 @@
       </div>
     </div>
 
-    <script src="app.js?v=147" defer></script>
+    <div class="sheet" id="tummyTimeSheet" aria-hidden="true">
+      <div class="sheet-card nap-start-card">
+        <button class="icon-button close" id="closeTummyTime" aria-label="Fechar">x</button>
+        <p class="label">Atividade</p>
+        <h2>Registrar tummy time</h2>
+        <label class="start-time-panel" for="tummyTimeAt">
+          Horario
+          <input id="tummyTimeAt" type="datetime-local">
+          <small>Opcional. Se ficar vazio, usa o horario atual.</small>
+        </label>
+        <label class="start-time-panel" for="tummyTimeDuration">
+          Duracao em minutos
+          <input id="tummyTimeDuration" type="number" min="1" max="120" step="1" value="10">
+        </label>
+        <button class="primary full-width" id="saveTummyTime" type="button">Salvar tummy time</button>
+      </div>
+    </div>
+
+    <script src="app.js?v=150" defer></script>
   </body>
 </html>

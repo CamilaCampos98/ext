@@ -114,6 +114,7 @@ const defaultState = {
   nights: [],
   feedings: [],
   diapers: [],
+  tummyTimes: [],
   sleepDiary: {},
   feedingOptions: {
     breast: true,
@@ -180,6 +181,7 @@ const els = {
   openManualNight: document.querySelector("#openManualNight"),
   openFeeding: document.querySelector("#openFeeding"),
   openDiaper: document.querySelector("#openDiaper"),
+  openTummyTime: document.querySelector("#openTummyTime"),
   openManualFeeding: document.querySelector("#openManualFeeding"),
   activeNapHint: document.querySelector("#activeNapHint"),
   babyName: document.querySelector("#babyName"),
@@ -288,6 +290,11 @@ const els = {
   diaperSheet: document.querySelector("#diaperSheet"),
   closeDiaper: document.querySelector("#closeDiaper"),
   diaperTime: document.querySelector("#diaperTime"),
+  tummyTimeSheet: document.querySelector("#tummyTimeSheet"),
+  closeTummyTime: document.querySelector("#closeTummyTime"),
+  tummyTimeAt: document.querySelector("#tummyTimeAt"),
+  tummyTimeDuration: document.querySelector("#tummyTimeDuration"),
+  saveTummyTime: document.querySelector("#saveTummyTime"),
   diaperTypeGroup: document.querySelector("#diaperTypeGroup"),
   saveDiaper: document.querySelector("#saveDiaper"),
   diaperError: document.querySelector("#diaperError")
@@ -439,6 +446,12 @@ function bindEvents() {
     toggleStartSheet(false);
     openDiaperSheet();
   });
+  if (els.openTummyTime) {
+    els.openTummyTime.addEventListener("click", () => {
+      toggleStartSheet(false);
+      openTummyTimeSheet();
+    });
+  }
   if (els.openManualFeeding) {
     els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
   }
@@ -479,6 +492,8 @@ function bindEvents() {
   els.saveFeeding.addEventListener("click", saveFeeding);
   els.closeDiaper.addEventListener("click", () => toggleDiaperSheet(false));
   els.saveDiaper.addEventListener("click", saveDiaper);
+  if (els.closeTummyTime) els.closeTummyTime.addEventListener("click", () => toggleTummyTimeSheet(false));
+  if (els.saveTummyTime) els.saveTummyTime.addEventListener("click", saveTummyTime);
   els.diaperTypeGroup.addEventListener("click", handleDiaperTypeClick);
   els.sleepDiaryList.addEventListener("click", handleSleepDiaryOptionClick);
   els.sleepDiaryList.addEventListener("change", handleSleepDiaryChange);
@@ -525,6 +540,11 @@ function bindEvents() {
   els.diaperSheet.addEventListener("click", (event) => {
     if (event.target === els.diaperSheet) toggleDiaperSheet(false);
   });
+  if (els.tummyTimeSheet) {
+    els.tummyTimeSheet.addEventListener("click", (event) => {
+      if (event.target === els.tummyTimeSheet) toggleTummyTimeSheet(false);
+    });
+  }
   els.history.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-nap]");
     if (button) removeNapRecord(button.dataset.deleteNap);
@@ -585,7 +605,7 @@ function applyDayStartOverride(dayStart, previousCycleStart = currentCycleStartD
   state.cycleStartAt = base.toISOString();
 
   const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
-  [state.naps, state.feedings, state.diapers].forEach((records) => {
+  [state.naps, state.feedings, state.diapers, state.tummyTimes].forEach((records) => {
     records.forEach((record) => {
       const at = new Date(record.start || record.at || "");
       if (!Number.isNaN(at.getTime()) && at >= previousCycleStart && at <= end) {
@@ -999,6 +1019,18 @@ function createDiaperRecord(changedAt, type) {
   };
 }
 
+function createTummyTimeRecord(startedAt, duration) {
+  return {
+    id: `tummy-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    babyName: state.babyName || "",
+    babyAge: currentBabyAgeMonths(),
+    at: startedAt.toISOString(),
+    duration: clamp(Math.round(Number(duration) || 0), 1, 120),
+    dayStart: state.dayStart,
+    synced: false
+  };
+}
+
 function activeNightAwakeningsUntil(endedAt = new Date()) {
   const awakenings = normalizeAwakenings(state.activeNightAwakenings || []);
   const awakeStart = new Date(state.activeNightAwakeStart || "");
@@ -1076,6 +1108,7 @@ function addFeedingRecord(feeding) {
   hydrateFeedingOptions();
   saveState();
   syncFeedingToSheet(feeding);
+  scheduleUpcomingNotifications();
 }
 
 function addDiaperRecord(diaper) {
@@ -1091,6 +1124,22 @@ function addDiaperRecord(diaper) {
     .slice(0, 240);
   saveState();
   syncDiaperToSheet(diaper);
+}
+
+function addTummyTimeRecord(tummyTime) {
+  const duplicate = state.tummyTimes.find((item) => tummyTimeSignature(item) === tummyTimeSignature(tummyTime));
+  if (duplicate) {
+    setHint("Tummy time duplicado ignorado: ja existe um registro igual neste horario.");
+    return;
+  }
+
+  state.tummyTimes.unshift(tummyTime);
+  state.tummyTimes = dedupeTummyTimes(state.tummyTimes)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+  saveState();
+  scheduleUpcomingNotifications();
+  render();
 }
 
 function applyNightAsCycleStartIfLatest(night) {
@@ -1164,6 +1213,7 @@ function clearHistory() {
   state.nights = [];
   state.feedings = [];
   state.diapers = [];
+  state.tummyTimes = [];
   state.cycleStartAt = null;
   state.dayStartOverride = false;
   saveState();
@@ -1403,6 +1453,7 @@ function renderDayPlanner(prediction) {
   const today = napsToday();
   const ringNaps = [...today].sort((a, b) => new Date(a.start) - new Date(b.start));
   const feedings = feedingsToday();
+  const tummyTimes = tummyTimesToday();
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
   currentRingEndMinutes = night.start;
   const plannedNaps = plannedNapMarkers(prediction, today, night);
@@ -1422,6 +1473,11 @@ function renderDayPlanner(prediction) {
       type: "feed",
       at: ringMarkerMinute(new Date(feeding.at)),
       id: feedingIdentity(feeding)
+    })),
+    ...tummyTimes.map((item) => ({
+      type: "tummy",
+      at: ringMarkerMinute(new Date(item.at)),
+      id: tummyTimeIdentity(item)
     })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
     { type: "day-end", at: night.start, label: minutesToTime(night.start) }
@@ -1493,6 +1549,9 @@ function renderNightPlanner() {
 }
 
 function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
+  if (els.dayCenterFeedingLabel) els.dayCenterFeedingLabel.textContent = "";
+  if (els.dayCenterFeedingTime) els.dayCenterFeedingTime.textContent = "";
+
   if (state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
     els.dayCenterLabel.textContent = "acordada h\u00e1";
@@ -1533,6 +1592,15 @@ function handleDayMarkerClick(event) {
     const feeding = [...feedingsToday(), ...feedingsInActiveNight()].find((item) => feedingIdentity(item) === feedMarker.dataset.feedingId);
     if (feeding) {
       showFeedingDetailCard(feeding);
+      return;
+    }
+  }
+
+  const tummyMarker = event.target.closest(".day-marker-group.tummy[data-tummy-id]");
+  if (tummyMarker) {
+    const tummyTime = tummyTimesToday().find((item) => tummyTimeIdentity(item) === tummyMarker.dataset.tummyId);
+    if (tummyTime) {
+      showTummyTimeDetailCard(tummyTime);
       return;
     }
   }
@@ -1721,6 +1789,18 @@ function showFeedingDetailCard(feeding) {
     <span>Mamada</span>
     <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
     <small>Lado: ${side || "não informado"}</small>
+  `;
+  els.napDetailCard.hidden = false;
+}
+
+function showTummyTimeDetailCard(tummyTime) {
+  if (!els.napDetailCard) return;
+  const startedAt = new Date(tummyTime.at);
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">Ã—</button>
+    <span>Tummy time</span>
+    <strong>${timeLabel(startedAt)} - ${formatDuration(Number(tummyTime.duration) || 0)}</strong>
+    <small>Atividade acordada. Nao entra no tempo de sono, mas pode ajudar no gasto de energia.</small>
   `;
   els.napDetailCard.hidden = false;
 }
@@ -2439,7 +2519,7 @@ function safeTummyTimeSuggestionText() {
 }
 
 function tummyTimeSuggestionText() {
-  const suggestions = tummyTimeSuggestions();
+  const suggestions = tummyTimeSuggestionMinutes().map(minutesToTime);
   if (!suggestions.length) {
     return "Tummy time: tente blocos curtos quando ela estiver acordada, calma e sem sinais de sono.";
   }
@@ -2447,6 +2527,10 @@ function tummyTimeSuggestionText() {
 }
 
 function tummyTimeSuggestions() {
+  return tummyTimeSuggestionMinutes().map(minutesToTime);
+}
+
+function tummyTimeSuggestionMinutes() {
   const candidates = [];
   const addCandidate = (minutes) => {
     const normalized = normalizeDayMinutes(minutes);
@@ -2469,13 +2553,14 @@ function tummyTimeSuggestions() {
   const prediction = calculatePrediction();
   const bedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
   const now = nowMinutes();
+  const doneToday = tummyTimesToday().map((item) => dateToDayMinutes(new Date(item.at)));
   return candidates
     .filter((minutes) => minutes >= now - 30)
     .filter((minutes) => Math.abs(minutes - prediction.start) > 35 && Math.abs(minutes - prediction.target) > 35)
     .filter((minutes) => minutes < bedtime - 45)
+    .filter((minutes) => !doneToday.some((doneAt) => Math.abs(doneAt - minutes) < 45))
     .sort((a, b) => a - b)
-    .slice(0, 3)
-    .map(minutesToTime);
+    .slice(0, 3);
 }
 
 function renderReport() {
@@ -4397,6 +4482,7 @@ function scheduleUpcomingNotifications() {
   const now = nowMinutes();
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
   const hasNapSlot = shouldSuggestNapBeforeNight(prediction) && !shouldSkipNextNapForNight(prediction, night);
+  const tummyReminders = tummyTimeSuggestionReminders(prediction, now);
   const reminders = [
     {
       at: prediction.start - 15,
@@ -4431,6 +4517,7 @@ function scheduleUpcomingNotifications() {
       tag: "soneca-noite"
     }
   ];
+  reminders.push(...tummyReminders);
   if (!hasNapSlot) {
     reminders.splice(0, 3);
   }
@@ -4501,6 +4588,31 @@ function applyFriendlyActiveNapCopy(reminder) {
   reminder.body = copies[reminder.tag] || reminder.body;
 }
 
+function tummyTimeSuggestionReminders(prediction, now = nowMinutes()) {
+  if (state.activeNapStart || state.activeNightStart) return [];
+  return tummyTimeSuggestionMinutes()
+    .filter((minutes) => {
+      const delay = minutesUntilToday(minutes, now);
+      return (Number.isFinite(delay) && delay <= 4 * 60) || isClockMinuteBetween(now, minutes, normalizeDayMinutes(minutes + 20));
+    })
+    .slice(0, 2)
+    .map((minutes, index) => ({
+      at: minutes,
+      title: "Bom momento para tummy time",
+      body: tummyTimeReminderBody(minutes, prediction),
+      tag: `soneca-tummy-${index + 1}`,
+      catchUpUntil: normalizeDayMinutes(minutes + 20)
+    }));
+}
+
+function tummyTimeReminderBody(minutes, prediction) {
+  const nextWindow = prediction ? minutesUntilToday(prediction.start, minutes) : NaN;
+  const distanceText = Number.isFinite(nextWindow)
+    ? `Ainda faltam cerca de ${formatDuration(nextWindow)} para a janela de sono.`
+    : "Nao parece estar perto de uma janela de sono agora.";
+  return `Se ${babyDisplayName()} estiver acordada e calma, vale tentar 5-15min. ${distanceText}`;
+}
+
 function applyFriendlyReminderCopy(reminder, prediction, night) {
   const name = babyDisplayName();
   const copies = {
@@ -4523,6 +4635,14 @@ function applyFriendlyReminderCopy(reminder, prediction, night) {
     "soneca-noite": {
       title: "Hora do soninho da noite 🌙",
       body: `${name} dormiu? Se sim, toque em Hora de dormir. Hora de descansar 💞`
+    },
+    "soneca-tummy-1": {
+      title: "Tummy time agora? ✨",
+      body: reminder.body
+    },
+    "soneca-tummy-2": {
+      title: "Outro bom momento para brincar ✨",
+      body: reminder.body
     }
   };
   Object.assign(reminder, copies[reminder.tag] || {});
@@ -5174,6 +5294,17 @@ function diapersToday() {
   }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
+function tummyTimesToday() {
+  const cycleStart = currentCycleStartDate();
+  const start = new Date(cycleStart.getTime() - CYCLE_START_GRACE_MINUTES * 60000);
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+
+  return dedupeTummyTimes(state.tummyTimes || []).filter((item) => {
+    const startedAt = new Date(item.at);
+    return !Number.isNaN(startedAt.getTime()) && startedAt >= start && startedAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
 function diapersInActiveNight() {
   if (!state.activeNightStart) return [];
   const start = new Date(state.activeNightStart);
@@ -5331,6 +5462,9 @@ function markerAttributes(marker) {
   if (marker.type === "feed") {
     return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
   }
+  if (marker.type === "tummy") {
+    return `data-tummy-id="${marker.id}" role="button" tabindex="0"`;
+  }
   return `data-nap-id="${marker.id}" data-nap-index="${marker.index || ""}" role="button" tabindex="0"`;
 }
 
@@ -5357,6 +5491,7 @@ function markerIconFa(type) {
     nap: "\uf0c2",
     next: "\uf0c2",
     feed: "\ue4c4",
+    tummy: "\ue59d",
     awake: "\uf186",
     "day-start": "\uf6c4",
     "day-end": "\uf6c3"
@@ -5531,6 +5666,16 @@ function loadState() {
       synced: Boolean(diaper.synced)
     })).filter((diaper) => !Number.isNaN(new Date(diaper.at).getTime())))
       .sort((a, b) => new Date(b.at) - new Date(a.at));
+    loaded.tummyTimes = dedupeTummyTimes((loaded.tummyTimes || []).map((item) => ({
+      ...item,
+      id: item.id || `tummy-legacy-${Math.abs(hashString(tummyTimeIdentity(item)))}`,
+      at: item.at,
+      duration: clamp(Math.round(Number(item.duration) || 0), 1, 120),
+      babyAge: Number.isFinite(Number(item.babyAge)) ? Number(item.babyAge) : loaded.babyAge,
+      dayStart: normalizeTimeField(item.dayStart) || loaded.dayStart,
+      synced: Boolean(item.synced)
+    })).filter((item) => !Number.isNaN(new Date(item.at).getTime())))
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
   if (loaded.nights[0] && !loaded.dayStartOverride) {
       const latestNightStart = new Date(loaded.nights[0].start);
       const latestNightEnd = new Date(loaded.nights[0].end);
@@ -5576,7 +5721,8 @@ function closeAllSheets(exceptSheet = null) {
     els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet,
-    els.diaperSheet
+    els.diaperSheet,
+    els.tummyTimeSheet
   ].forEach((sheet) => {
     if (sheet && sheet !== exceptSheet) {
       sheet.setAttribute("aria-hidden", "true");
@@ -5606,7 +5752,8 @@ function updateSheetOpenState() {
     els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet,
-    els.diaperSheet
+    els.diaperSheet,
+    els.tummyTimeSheet
   ].some((sheet) => sheet && sheet.getAttribute("aria-hidden") === "false");
   document.body.classList.toggle("sheet-open", hasOpenSheet);
 }
@@ -5726,6 +5873,17 @@ function toggleDiaperSheet(open) {
   setSheetOpen(els.diaperSheet, open);
 }
 
+function openTummyTimeSheet() {
+  if (!els.tummyTimeSheet) return;
+  if (els.tummyTimeAt) els.tummyTimeAt.value = "";
+  if (els.tummyTimeDuration) els.tummyTimeDuration.value = "10";
+  toggleTummyTimeSheet(true);
+}
+
+function toggleTummyTimeSheet(open) {
+  setSheetOpen(els.tummyTimeSheet, open);
+}
+
 function handleDiaperTypeClick(event) {
   const button = event.target.closest("[data-diaper-type]");
   if (!button) return;
@@ -5825,6 +5983,28 @@ function saveDiaper() {
   toggleDiaperSheet(false);
   els.saveDiaper.disabled = false;
   render();
+}
+
+function saveTummyTime() {
+  if (!els.saveTummyTime || els.saveTummyTime.disabled) return;
+  els.saveTummyTime.disabled = true;
+  const startedAt = els.tummyTimeAt?.value ? new Date(els.tummyTimeAt.value) : new Date();
+  const duration = Number(els.tummyTimeDuration?.value || 10);
+
+  if (Number.isNaN(startedAt.getTime()) || startedAt > new Date()) {
+    setHint("Horario do tummy time invalido.");
+    els.saveTummyTime.disabled = false;
+    return;
+  }
+  if (!Number.isFinite(duration) || duration <= 0) {
+    setHint("Informe a duracao do tummy time em minutos.");
+    els.saveTummyTime.disabled = false;
+    return;
+  }
+
+  addTummyTimeRecord(createTummyTimeRecord(startedAt, duration));
+  toggleTummyTimeSheet(false);
+  els.saveTummyTime.disabled = false;
 }
 
 function showDiaperError(message) {
@@ -6030,6 +6210,37 @@ function dedupeDiapers(diapers = []) {
       synced: Boolean(diaper.synced)
     };
     const signature = diaperSignature(normalized);
+    const current = bySignature.get(signature);
+    if (!current || (!current.synced && normalized.synced)) {
+      bySignature.set(signature, normalized);
+    }
+  });
+  return Array.from(bySignature.values());
+}
+
+function tummyTimeIdentity(item) {
+  return item.id || `${item.at}|${item.duration || ""}`;
+}
+
+function tummyTimeSignature(item) {
+  const date = new Date(item.at);
+  const minuteKey = Number.isNaN(date.getTime())
+    ? String(item.at || "")
+    : `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
+  return [minuteKey, Math.round(Number(item.duration) || 0)].join("|");
+}
+
+function dedupeTummyTimes(items = []) {
+  const bySignature = new Map();
+  items.forEach((item) => {
+    if (!item || Number.isNaN(new Date(item.at).getTime())) return;
+    const normalized = {
+      ...item,
+      id: item.id || `tummy-legacy-${Math.abs(hashString(tummyTimeIdentity(item)))}`,
+      duration: clamp(Math.round(Number(item.duration) || 0), 1, 120),
+      synced: Boolean(item.synced)
+    };
+    const signature = tummyTimeSignature(normalized);
     const current = bySignature.get(signature);
     if (!current || (!current.synced && normalized.synced)) {
       bySignature.set(signature, normalized);
