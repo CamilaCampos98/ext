@@ -797,10 +797,12 @@ function endNightAwake(endedAt = new Date()) {
 
 function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
   if (!state.activeNightStart) return;
-  if (shouldTurnNightAwakeIntoDayStart(startedAt, endedAt)) {
-    convertNightAwakeToDayStartNap(startedAt, endedAt);
-    return;
-  }
+  // Despertar de madrugada ou manha cedo continua sendo noite.
+  // O inicio do dia so muda quando a usuario tocar em "Acordou".
+  // if (shouldTurnNightAwakeIntoDayStart(startedAt, endedAt)) {
+  //   convertNightAwakeToDayStartNap(startedAt, endedAt);
+  //   return;
+  // }
   if (!Number.isNaN(startedAt.getTime()) && endedAt > startedAt) {
     state.activeNightAwakenings = [
       ...(state.activeNightAwakenings || []),
