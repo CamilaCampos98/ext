@@ -5098,6 +5098,10 @@ function nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, 
   if (!nightSleep || !goals?.night || !goals?.day) return "";
   const nightDeficit = goals.night - nightSleep;
   const awakeAtNight = latestNightAwakeMinutes();
+  if (nightDeficit <= 0) {
+    if (awakeAtNight < 30) return "";
+    return `A noite anterior atingiu a meta: ${formatDuration(nightSleep)} de ${formatDuration(goals.night)}, mas teve ${formatDuration(awakeAtNight)} acordada na madrugada. Hoje observe se ela pede uma janela um pouco menor antes das primeiras sonecas.`;
+  }
   if (nightDeficit < 45 && awakeAtNight < 30) return "";
 
   const extraDaySleep = clamp(Math.round(nightDeficit * 0.35), 20, 60);
