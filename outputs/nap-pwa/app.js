@@ -1458,10 +1458,11 @@ function renderDayPlanner(prediction) {
   const tummyTimes = tummyTimesToday();
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
   currentRingEndMinutes = night.start;
-  const plannedNaps = plannedNapMarkers(prediction, today, night);
+  const plannedNaps = plannedNapMarkers(prediction, today, night)
+    .filter((nap) => !plannedNapOverlapsCompleted(nap, ringNaps));
 
   els.daySegments.innerHTML = "";
-  els.dayMarkers.innerHTML = [
+  const markers = [
     { type: "day-start", at: safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60), label: state.dayStart || state.lastWake || DEFAULT_DAY_START },
     ...ringNaps.map((nap, index) => ({
       type: "nap",
@@ -1483,7 +1484,9 @@ function renderDayPlanner(prediction) {
     })),
     ...plannedNaps.map((nap) => ({ type: "next", at: nap.target, label: minutesToTime(nap.target), startAt: nap.start, endAt: nap.end, startLabel: minutesToTime(nap.start), endLabel: minutesToTime(nap.end) })),
     { type: "day-end", at: night.start, label: minutesToTime(night.start) }
-  ]
+  ];
+
+  els.dayMarkers.innerHTML = layoutRingMarkers(markers)
     .filter((marker) => Number.isFinite(marker.at))
     .map((marker) => markerSvg(marker))
     .join("");
@@ -1956,6 +1959,34 @@ function plannedNapMarkers(prediction, today, night) {
   }
 
   return markers;
+}
+
+function plannedNapOverlapsCompleted(plannedNap, completedNaps) {
+  return completedNaps.some((nap) => {
+    const start = dateToDayMinutes(new Date(nap.start));
+    const end = dateToDayMinutes(new Date(nap.end || nap.start));
+    return clockDistance(plannedNap.target, start) <= 25
+      || clockDistance(plannedNap.start, start) <= 25
+      || clockRangesOverlap(plannedNap.start, plannedNap.end, start, end);
+  });
+}
+
+function layoutRingMarkers(markers) {
+  const placed = [];
+  const radiusByCollision = [92, 82, 102, 74, 110];
+
+  return markers.map((marker) => {
+    if (!Number.isFinite(marker.at) || marker.type === "day-start" || marker.type === "day-end") {
+      return marker;
+    }
+
+    const nearbyCount = placed.filter((placedMarker) => clockDistance(placedMarker.at, marker.at) <= 10).length;
+    placed.push(marker);
+    return {
+      ...marker,
+      trackRadius: radiusByCollision[Math.min(nearbyCount, radiusByCollision.length - 1)]
+    };
+  });
 }
 
 function calculateNightSuggestion(prediction) {
@@ -5368,7 +5399,7 @@ function mergeNapLists(...lists) {
     byId.set(napIdentity(nap), nap);
   });
   return Array.from(byId.values())
-    .sort((a, b) => new Date(a.start) - new Date(b.start));
+    .sort((a, b) => new Date(b.end || b.start) - new Date(a.end || a.start));
 }
 
 function expectedNapCount(value) {
@@ -5391,6 +5422,20 @@ function minutesBetweenClock(start, end) {
   let diff = normalizeDayMinutes(end) - normalizeDayMinutes(start);
   if (diff < 0) diff += 24 * 60;
   return diff;
+}
+
+function clockDistance(a, b) {
+  const diff = Math.abs(normalizeDayMinutes(a) - normalizeDayMinutes(b));
+  return Math.min(diff, 24 * 60 - diff);
+}
+
+function clockRangesOverlap(startA, endA, startB, endB) {
+  const aStart = normalizeDayMinutes(startA);
+  const aEnd = normalizeDayMinutes(endA);
+  const bStart = normalizeDayMinutes(startB);
+  const bEnd = normalizeDayMinutes(endB);
+  if (aEnd < aStart || bEnd < bStart) return false;
+  return aStart <= bEnd && bStart <= aEnd;
 }
 
 function clampClockWithinDay(value, max) {
@@ -5436,7 +5481,7 @@ function arcPath(startMinutes, endMinutes, type) {
 }
 
 function markerSvg(marker) {
-  const point = pointOnCircle(marker.at, 92);
+  const point = pointOnCircle(marker.at, marker.trackRadius || 92);
   const icon = markerIconFa(marker.type);
   const markerRadius = 8.4;
 
