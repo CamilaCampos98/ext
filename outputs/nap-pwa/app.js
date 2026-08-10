@@ -5323,10 +5323,8 @@ function diapersInActiveNight() {
 
 function napsInCurrentDay() {
   const operationalNaps = operationalDayNaps();
-  if (operationalNaps.length) return operationalNaps;
-
-  const calendarNaps = calendarDayNaps();
-  return calendarNaps.length ? calendarNaps : operationalNaps;
+  const calendarNaps = calendarDayNaps(currentCycleStartDate());
+  return mergeNapLists(operationalNaps, calendarNaps);
 }
 
 function operationalDayNaps() {
@@ -5361,6 +5359,16 @@ function calendarDayNaps(date = new Date()) {
     const napStart = new Date(nap.start);
     return !Number.isNaN(napStart.getTime()) && napStart.toDateString() === day;
   });
+}
+
+function mergeNapLists(...lists) {
+  const byId = new Map();
+  lists.flat().forEach((nap) => {
+    if (!nap || Number.isNaN(new Date(nap.start).getTime())) return;
+    byId.set(napIdentity(nap), nap);
+  });
+  return Array.from(byId.values())
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
 }
 
 function expectedNapCount(value) {
