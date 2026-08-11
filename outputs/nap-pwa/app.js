@@ -326,7 +326,7 @@ function init() {
   updateNotificationState();
   render();
   startInitialDataLoad();
-  setInterval(render, 1000);
+  setInterval(renderLiveTick, 1000);
   setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadActiveSessionFromSheet();
@@ -334,16 +334,22 @@ function init() {
 }
 
 async function startInitialDataLoad() {
-  setHint("Carregando dados da planilha e timer ativo...");
-  await Promise.allSettled([
-    loadFromSheet(),
-    loadActiveSessionFromSheet()
-  ]);
+  setHint("Abrindo com os dados salvos no aparelho. Atualizando planilha em segundo plano...");
+  await withTimeout(loadActiveSessionFromSheet(), 1800);
   if (state.activeNapStart || state.activeNightStart) syncActiveSessionToSheet();
   isInitialLoading = false;
   document.body.classList.remove("is-loading");
   render();
-  syncPendingAfterInitialLoad();
+  loadFromSheet()
+    .then(() => syncPendingAfterInitialLoad())
+    .catch(() => syncPendingAfterInitialLoad());
+}
+
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
 }
 
 function hydrateForm() {
@@ -1291,6 +1297,15 @@ function render() {
   renderSleepDiary();
   renderActivities();
   renderReport();
+}
+
+function renderLiveTick() {
+  if (isInitialLoading) return;
+  const prediction = calculatePrediction();
+  renderPrediction(prediction);
+  renderDayPlanner(prediction);
+  renderTimer();
+  renderInsights(prediction);
 }
 
 function renderLoadingState() {
