@@ -3423,30 +3423,40 @@ async function syncPendingNapsToSheet() {
 
 function activeSessionPayload() {
   if (state.activeNapStart) {
-    if (!state.activeNapResumeId) state.activeNapResumeId = newNapId(new Date(state.activeNapStart));
+    const startedAt = new Date(state.activeNapStart);
+    if (!state.activeNapResumeId) state.activeNapResumeId = newNapId(startedAt);
     return {
       id: state.activeNapResumeId,
       type: "nap",
-      start: state.activeNapStart,
+      start: toLocalDateTimeValue(startedAt),
       babyName: state.babyName || "",
       babyAge: currentBabyAgeMonths()
     };
   }
 
   if (state.activeNightStart) {
-    if (!state.activeNightId) state.activeNightId = newNightId(new Date(state.activeNightStart));
+    const startedAt = new Date(state.activeNightStart);
+    if (!state.activeNightId) state.activeNightId = newNightId(startedAt);
+    const awakeStartedAt = state.activeNightAwakeStart ? new Date(state.activeNightAwakeStart) : null;
     return {
       id: state.activeNightId,
       type: "night",
-      start: state.activeNightStart,
+      start: toLocalDateTimeValue(startedAt),
       babyName: state.babyName || "",
       babyAge: currentBabyAgeMonths(),
-      nightAwakeStart: state.activeNightAwakeStart || "",
-      awakenings: normalizeAwakenings(state.activeNightAwakenings || [])
+      nightAwakeStart: awakeStartedAt ? toLocalDateTimeValue(awakeStartedAt) : "",
+      awakenings: activeSessionAwakeningsPayload()
     };
   }
 
   return null;
+}
+
+function activeSessionAwakeningsPayload() {
+  return normalizeAwakenings(state.activeNightAwakenings || []).map((item) => ({
+    start: toLocalDateTimeValue(new Date(item.start)),
+    end: toLocalDateTimeValue(new Date(item.end))
+  }));
 }
 
 async function syncActiveSessionToSheet() {
@@ -3559,7 +3569,8 @@ async function loadActiveSessionFromSheet() {
 }
 
 function applyRemoteActiveSession(session) {
-  const startedAt = new Date(session.start);
+  const startedAt = activeSessionStartDate(session);
+  const startWasCorrected = activeSessionStartWasCorrected(session, startedAt);
   if (!session.id || Number.isNaN(startedAt.getTime())) return;
   if (completedSessionExists(session.id)) {
     rememberClosedActiveSession(session.id);
@@ -3591,6 +3602,14 @@ function applyRemoteActiveSession(session) {
     scheduleActiveNapNotifications();
   } else {
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
+    if (sameNight) {
+      state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : state.activeNightAwakeStart;
+      state.activeNightAwakenings = normalizeAwakenings(session.awakenings || state.activeNightAwakenings || []);
+      saveState();
+      if (startWasCorrected) syncActiveSessionToSheet();
+      render();
+      return;
+    }
     state.activeNightStart = startedAt.toISOString();
     state.activeNightId = String(session.id);
     state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
@@ -3605,16 +3624,41 @@ function applyRemoteActiveSession(session) {
 
   if (session.babyName && !state.babyName) state.babyName = session.babyName;
   saveState();
+  if (startWasCorrected) syncActiveSessionToSheet();
   hydrateForm();
   render();
 }
 
 function isStaleActiveSession(session) {
-  const startedAt = new Date(session?.start);
+  const startedAt = activeSessionStartDate(session);
   if (Number.isNaN(startedAt.getTime())) return true;
   const age = Date.now() - startedAt.getTime();
   if (session.type === "night") return age > ACTIVE_NIGHT_MAX_AGE_MS;
   return age > ACTIVE_NAP_MAX_AGE_MS;
+}
+
+function activeSessionStartDate(session) {
+  const parsedStart = new Date(session?.start || "");
+  const idStart = activeSessionStartDateFromId(session?.id);
+  if (Number.isNaN(parsedStart.getTime())) return idStart;
+  if (!Number.isNaN(idStart.getTime()) && Math.abs(parsedStart - idStart) > 60 * 60000) {
+    return idStart;
+  }
+  return parsedStart;
+}
+
+function activeSessionStartDateFromId(id) {
+  const match = String(id || "").match(/^(?:night-)?(\d{12,})-/);
+  if (!match) return new Date("");
+  const date = new Date(Number(match[1]));
+  return Number.isNaN(date.getTime()) ? new Date("") : date;
+}
+
+function activeSessionStartWasCorrected(session, resolvedStart) {
+  const parsedStart = new Date(session?.start || "");
+  return !Number.isNaN(parsedStart.getTime())
+    && !Number.isNaN(resolvedStart.getTime())
+    && Math.abs(parsedStart - resolvedStart) > 60 * 60000;
 }
 
 function completedSessionExists(id) {
