@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzjAo50gBEjr8YDvMEPTov6XIcINaA3WXfEDkJ7QD3G2cALcpOKvhBaiV2Cj8Q5o9g4/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycby6NldNbNLVaqL5XMTm2MoLJMGD0AJEW4PaCEjkok2nxWZ8QDUM-QEJR5OX9D48oL_N/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -104,6 +104,7 @@ const defaultState = {
   plannedNapCount: 5,
   activeNapStart: null,
   activeNapResumeId: null,
+  activeNapAwakeMinutes: 0,
   activeNightStart: null,
   activeNightId: null,
   activeNightAwakeStart: null,
@@ -656,6 +657,7 @@ function startNap() {
   const sessionId = newNapId(startedAt);
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = sessionId;
+  state.activeNapAwakeMinutes = 0;
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -853,6 +855,7 @@ function convertNightAwakeToDayStartNap(dayStartedAt, napStartedAt) {
   state.activeNightAwakenings = [];
   state.activeNapStart = napStartedAt.toISOString();
   state.activeNapResumeId = newNapId(napStartedAt);
+  state.activeNapAwakeMinutes = 0;
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -900,10 +903,11 @@ function completeNap(mood) {
   const endedAt = new Date();
   const activeNapId = state.activeNapResumeId || newNapId(startedAt);
   state.activeNapResumeId = activeNapId;
-  const nap = createNapRecord(startedAt, endedAt, mood, { id: activeNapId });
+  const nap = createNapRecord(startedAt, endedAt, mood, { id: activeNapId, awakeDuration: activeNapAwakeMinutes() });
   rememberClosedActiveSession(activeNapId);
   state.activeNapStart = null;
   state.activeNapResumeId = null;
+  state.activeNapAwakeMinutes = 0;
   clearNotificationTimers();
   saveState();
   addNapRecord(nap);
@@ -961,7 +965,9 @@ function createNapRecord(startedAt, endedAt, mood, options = {}) {
   const napIndex = napIndexForStart(startedAt);
   const nightPlan = activeNapNightProtectionPlan(startedAt);
   const goalDuration = nightPlan?.goal || napGoalMinutesForIndex(napIndex);
-  const duration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
+  const grossDuration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
+  const awakeDuration = Math.max(0, Math.round(Number(options.awakeDuration) || 0));
+  const duration = Math.max(1, grossDuration - awakeDuration);
   return {
     id: options.id || newNapId(startedAt),
     type: "nap",
@@ -973,6 +979,7 @@ function createNapRecord(startedAt, endedAt, mood, options = {}) {
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
     duration,
+    awakeDuration,
     goalDuration,
     goalPercent: napGoalPercent(duration, goalDuration),
     mood,
@@ -1771,19 +1778,24 @@ function continueNapFromRecord(napKey) {
   }
 
   const startedAt = new Date(nap.start);
+  const endedAt = new Date(nap.end);
   if (Number.isNaN(startedAt.getTime())) return;
 
   const resumedId = nap.id || stableNapId(nap);
+  const awakeGapMinutes = Number.isNaN(endedAt.getTime())
+    ? 0
+    : Math.max(0, Math.round((Date.now() - endedAt.getTime()) / 60000));
   state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = resumedId;
+  state.activeNapAwakeMinutes = (Number(nap.awakeDuration) || 0) + awakeGapMinutes;
   if (nap.id) deleteNapFromSheet(nap.id, { silent: true });
   clearNotificationTimers();
   hideNapDetailCard();
   saveState();
   syncActiveSessionToSheet();
   scheduleActiveNapNotifications();
-  setHint("Timer retomado na mesma soneca. Ao encerrar, a duracao sera atualizada.");
+  setHint(`Timer retomado na mesma soneca. Vou descontar ${formatDuration(state.activeNapAwakeMinutes)} acordada entre os ciclos.`);
   render();
 }
 
@@ -1839,9 +1851,7 @@ function renderRingCenter(prediction, today) {
 
   if (state.activeNapStart) {
     const startedAt = new Date(state.activeNapStart);
-    const elapsed = Number.isNaN(startedAt.getTime())
-      ? 0
-      : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
+    const elapsed = activeNapElapsedMinutes(startedAt);
     const nightPlan = activeNapNightProtectionPlan(startedAt);
     const goal = nightPlan?.goal || activeNapGoalMinutes();
     const remaining = Math.max(0, goal - elapsed);
@@ -2099,8 +2109,9 @@ function renderTimer() {
     return;
   }
   const startedAt = new Date(state.activeNapStart);
-  const minutes = Math.floor((Date.now() - startedAt.getTime()) / 60000);
-  const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000) % 60;
+  const elapsedSeconds = activeNapElapsedSeconds(startedAt);
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
   const goal = activeNapGoalMinutes();
   els.timer.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   els.currentStart.textContent = timeLabel(startedAt);
@@ -2108,6 +2119,24 @@ function renderTimer() {
   els.currentMood.textContent = "-";
   els.napStatus.textContent = `Dormindo há ${formatDuration(minutes)}`;
   els.napStatus.textContent = `Dormindo h\u00e1 ${formatDuration(minutes)} · ${napGoalPercent(minutes, goal)}% da meta`;
+}
+
+function activeNapElapsedSeconds(startedAt = new Date(state.activeNapStart || "")) {
+  if (!(startedAt instanceof Date) || Number.isNaN(startedAt.getTime())) return 0;
+  const grossSeconds = Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 1000));
+  return Math.max(0, grossSeconds - activeNapAwakeMinutes() * 60);
+}
+
+function activeNapElapsedMinutes(startedAt = new Date(state.activeNapStart || "")) {
+  return Math.floor(activeNapElapsedSeconds(startedAt) / 60);
+}
+
+function activeNapAwakeMinutes() {
+  return normalizeNapAwakeMinutes(state.activeNapAwakeMinutes);
+}
+
+function normalizeNapAwakeMinutes(value) {
+  return clamp(Math.max(0, Math.round(Number(value) || 0)), 0, 240);
 }
 
 function renderInsights(prediction) {
@@ -3445,7 +3474,8 @@ function activeSessionPayload() {
       type: "nap",
       start: toLocalDateTimeValue(startedAt),
       babyName: state.babyName || "",
-      babyAge: currentBabyAgeMonths()
+      babyAge: currentBabyAgeMonths(),
+      napAwakeMinutes: activeNapAwakeMinutes()
     };
   }
 
@@ -3609,6 +3639,7 @@ function applyRemoteActiveSession(session) {
   if (type === "nap") {
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
+    state.activeNapAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
     state.activeNightStart = null;
     state.activeNightId = null;
     state.activeNightAwakeStart = null;
@@ -3632,6 +3663,7 @@ function applyRemoteActiveSession(session) {
     if (!sameNight) {
       state.activeNapStart = null;
       state.activeNapResumeId = null;
+      state.activeNapAwakeMinutes = 0;
       clearNotificationTimers();
       syncRemoteNotificationScheduleAbsolute([]);
     }
@@ -3686,6 +3718,7 @@ function completedSessionExists(id) {
 function clearLocalActiveSession(message = "") {
   state.activeNapStart = null;
   state.activeNapResumeId = null;
+  state.activeNapAwakeMinutes = 0;
   state.activeNightStart = null;
   state.activeNightId = null;
   state.activeNightAwakeStart = null;
@@ -5722,6 +5755,7 @@ function loadState() {
     loaded.plannedNapCount = clamp(Math.round(Number(loaded.plannedNapCount) || defaultState.plannedNapCount), 1, 8);
     loaded.dayStartOverride = Boolean(loaded.dayStartOverride);
     loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
+    loaded.activeNapAwakeMinutes = normalizeNapAwakeMinutes(loaded.activeNapAwakeMinutes);
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);

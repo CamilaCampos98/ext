@@ -81,6 +81,7 @@ const ACTIVE_SESSION_HEADERS = [
   'Início',
   'Acordou em',
   'Despertares',
+  'Pausa soneca (min)',
   'Atualizado em'
 ];
 
@@ -455,6 +456,7 @@ function setActiveSession(sheet, payload) {
     toDateTimeString(payload.start),
     toDateTimeString(payload.nightAwakeStart),
     JSON.stringify(payload.awakenings || []),
+    activeNapAwakeMinutes(payload.napAwakeMinutes),
     new Date()
   ];
 
@@ -514,8 +516,14 @@ function activeSessionRowToObject(row) {
     start: toDateTimeString(row[5]),
     nightAwakeStart: toDateTimeString(row[6]),
     awakenings: parseAwakenings(row[7]),
-    updatedAt: toIsoString(row[8])
+    napAwakeMinutes: activeNapAwakeMinutes(row[8]),
+    updatedAt: toIsoString(row[9] || row[8])
   };
+}
+
+function activeNapAwakeMinutes(value) {
+  const minutes = Math.max(0, Math.round(Number(value) || 0));
+  return Math.min(minutes, 240);
 }
 
 function parseAwakenings(value) {
