@@ -4942,7 +4942,7 @@ async function subscribeToPushIfConfigured() {
     if (!keyResponse.ok || !keyResult.ok || !keyResult.publicKey) {
       return {
         ok: false,
-        message: keyResult.error || "Permissão OK. O servidor ainda não está pronto para push remoto."
+        message: `${keyResult.error || "Servidor de push remoto indisponivel."} Avisos locais foram ativados neste aparelho enquanto o app puder rodar.`
       };
     }
 
@@ -4966,12 +4966,12 @@ async function subscribeToPushIfConfigured() {
     });
 
     if (!response.ok) {
-      return { ok: false, message: "Permissão OK, mas o servidor não aceitou a assinatura push deste aparelho." };
+      return { ok: false, message: "Permissao OK. O servidor nao aceitou o push remoto, mas os avisos locais foram ativados neste aparelho." };
     }
 
     return { ok: true, message: "Push remoto ativado. O servidor vai enviar os próximos avisos mesmo se o app sair de cena." };
   } catch (error) {
-    return { ok: false, message: `Permissão OK, mas o push remoto falhou: ${error.message}` };
+    return { ok: false, message: "Permissao OK. Push remoto indisponivel agora; avisos locais foram ativados neste aparelho enquanto o app puder rodar." };
   }
 }
 

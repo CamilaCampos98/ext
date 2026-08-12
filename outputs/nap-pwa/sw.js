@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-v186";
+const CACHE_NAME = "soneca-pwa-v188";
 const ASSETS = [
   "./",
   "./index.html",
@@ -12,7 +12,7 @@ const ASSETS = [
   "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
   "./styles.css?v=109",
-  "./app.js?v=162",
+  "./app.js?v=164",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
@@ -34,6 +34,20 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+
+  if (url.pathname.startsWith("/api/push/")) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .catch(() => new Response(JSON.stringify({
+          ok: false,
+          error: "Servidor de push remoto indisponivel. Avisos locais podem continuar funcionando."
+        }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        }))
+    );
+    return;
+  }
 
   if (event.request.mode === "navigate") {
     event.respondWith(
