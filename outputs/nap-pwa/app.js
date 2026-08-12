@@ -692,14 +692,31 @@ function openNightTimeSheet(mode) {
   };
   els.nightTimeTitle.textContent = titles[mode] || "Registrar horário";
   els.nightEventTime.value = "";
-  if (els.nightEventEndTime) els.nightEventEndTime.value = "";
   const periodMode = mode === "startAwake";
   updateNightTimeFieldLabels(mode);
-  if (els.nightEventEndPanel) els.nightEventEndPanel.hidden = !periodMode;
-  els.nightTimeError.textContent = mode === "endAwake"
-    ? "Informe somente a hora que ela voltou a dormir. Se ficar vazio, uso o horario atual."
-    : "";
+  setNightEventEndVisible(periodMode);
+  els.nightTimeError.textContent = nightTimeHint(mode);
   toggleNightTimeSheet(true);
+}
+
+function setNightEventEndVisible(visible) {
+  if (!els.nightEventEndPanel) return;
+  els.nightEventEndPanel.hidden = !visible;
+  els.nightEventEndPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+  els.nightEventEndPanel.style.display = visible ? "" : "none";
+  if (els.nightEventEndTime) {
+    els.nightEventEndTime.value = "";
+  }
+}
+
+function nightTimeHint(mode) {
+  if (mode === "endNight") {
+    return "Informe somente a hora que ela acordou. Se ficar vazio, uso o horario atual.";
+  }
+  if (mode === "endAwake") {
+    return "Informe somente a hora que ela voltou a dormir. Se ficar vazio, uso o horario atual.";
+  }
+  return "";
 }
 
 function updateNightTimeFieldLabels(mode) {
