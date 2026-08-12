@@ -167,8 +167,10 @@ const els = {
   nightTimeSheet: document.querySelector("#nightTimeSheet"),
   closeNightTimeSheet: document.querySelector("#closeNightTimeSheet"),
   nightTimeTitle: document.querySelector("#nightTimeTitle"),
+  nightEventField: document.querySelector("label[for='nightEventTime']"),
   nightEventTime: document.querySelector("#nightEventTime"),
   nightEventEndPanel: document.querySelector("#nightEventEndPanel"),
+  nightEventEndLabel: document.querySelector("#nightEventEndLabel"),
   nightEventEndTime: document.querySelector("#nightEventEndTime"),
   confirmNightTime: document.querySelector("#confirmNightTime"),
   nightTimeError: document.querySelector("#nightTimeError"),
@@ -337,7 +339,6 @@ function init() {
 async function startInitialDataLoad() {
   setHint("Abrindo com os dados salvos no aparelho. Atualizando planilha em segundo plano...");
   await withTimeout(loadActiveSessionFromSheet(), 1800);
-  if (state.activeNapStart || state.activeNightStart) syncActiveSessionToSheet();
   isInitialLoading = false;
   document.body.classList.remove("is-loading");
   render();
@@ -692,17 +693,39 @@ function openNightTimeSheet(mode) {
   els.nightTimeTitle.textContent = titles[mode] || "Registrar horário";
   els.nightEventTime.value = "";
   if (els.nightEventEndTime) els.nightEventEndTime.value = "";
-  const periodMode = mode === "startAwake" || mode === "endAwake";
+  const periodMode = mode === "startAwake";
+  updateNightTimeFieldLabels(mode);
   if (els.nightEventEndPanel) els.nightEventEndPanel.hidden = !periodMode;
-  if (mode === "endAwake" && state.activeNightAwakeStart && els.nightEventTime) {
-    els.nightEventTime.value = toLocalDateTimeValue(new Date(state.activeNightAwakeStart)).slice(0, 16);
-  }
-  els.nightTimeError.textContent = "";
+  els.nightTimeError.textContent = mode === "endAwake"
+    ? "Informe somente a hora que ela voltou a dormir. Se ficar vazio, uso o horario atual."
+    : "";
   toggleNightTimeSheet(true);
 }
 
+function updateNightTimeFieldLabels(mode) {
+  const labels = {
+    startNight: "Hora que dormiu",
+    endNight: "Hora que acordou",
+    startAwake: "Acordou em",
+    endAwake: "Voltou a dormir em"
+  };
+  setLabelText(els.nightEventField, labels[mode] || "Horario");
+  if (els.nightEventEndLabel) {
+    els.nightEventEndLabel.textContent = "Voltou a dormir em";
+  }
+}
+
+function setLabelText(label, text) {
+  if (!label) return;
+  const textNode = Array.from(label.childNodes)
+    .find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+  if (textNode) {
+    textNode.textContent = `\n          ${text}\n          `;
+  }
+}
+
 function confirmNightTime() {
-  const periodMode = nightEventMode === "startAwake" || nightEventMode === "endAwake";
+  const periodMode = nightEventMode === "startAwake";
   const eventAt = periodMode ? null : nightEventTimeValue();
   const awakeRange = periodMode ? nightAwakeRangeValue() : null;
   if (!eventAt && !awakeRange) return;
@@ -718,7 +741,7 @@ function confirmNightTime() {
       startNightAwake(awakeRange.startAt);
     }
   } else if (nightEventMode === "endAwake") {
-    recordNightAwakePeriod(awakeRange.startAt, awakeRange.endAt);
+    endNightAwake(eventAt);
   }
 
   toggleNightTimeSheet(false);
