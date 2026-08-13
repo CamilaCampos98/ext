@@ -1037,6 +1037,34 @@ function resumeClosedNightSleep() {
   render();
 }
 
+function reconcileInvalidResumedNight() {
+  if (!state.activeNightStart) return false;
+  const nightStart = new Date(state.activeNightStart);
+  const cycleStart = new Date(state.cycleStartAt || "");
+  if (Number.isNaN(nightStart.getTime()) || Number.isNaN(cycleStart.getTime())) return false;
+  if (cycleStart <= nightStart || cycleStart > new Date()) return false;
+
+  const nightId = state.activeNightId || newNightId(nightStart);
+  const restoredNight = createNightRecord(
+    nightStart,
+    cycleStart,
+    activeNightAwakeningsUntil(cycleStart),
+    { id: nightId }
+  );
+  rememberClosedActiveSession(nightId);
+  addNightRecord(restoredNight);
+  state.activeNightStart = null;
+  state.activeNightId = null;
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = [];
+  applyNightAsCycleStartIfLatest(restoredNight);
+  saveState();
+  clearActiveSessionFromSheet(nightId);
+  syncNightToSheet(restoredNight);
+  setHint("Voltei para a concha do dia atual. A noite anterior ficou encerrada no inicio do dia.");
+  return true;
+}
+
 function lastClosedNightForResume() {
   if (state.activeNapStart || state.activeNightStart) return null;
   const now = Date.now();
@@ -1049,8 +1077,23 @@ function lastClosedNightForResume() {
       return !Number.isNaN(startedAt.getTime())
         && !Number.isNaN(endedAt.getTime())
         && endedAt.getTime() <= now
-        && now - endedAt.getTime() <= 8 * 60 * 60 * 1000;
+        && now - endedAt.getTime() <= 8 * 60 * 60 * 1000
+        && !hasDayRecordAfter(endedAt);
     }) || null;
+}
+
+function hasDayRecordAfter(date) {
+  const time = new Date(date).getTime();
+  if (!Number.isFinite(time)) return false;
+  const after = (value) => {
+    const recordTime = new Date(value || "").getTime();
+    return Number.isFinite(recordTime) && recordTime > time + 60 * 1000;
+  };
+
+  return state.naps.some((nap) => after(nap.start) || after(nap.end))
+    || state.feedings.some((feeding) => after(feeding.at))
+    || state.diapers.some((diaper) => after(diaper.at))
+    || state.tummyTimes.some((item) => after(item.at));
 }
 
 function createNapRecord(startedAt, endedAt, mood, options = {}) {
@@ -1385,6 +1428,7 @@ function render() {
     renderLoadingState();
     return;
   }
+  reconcileInvalidResumedNight();
   const prediction = calculatePrediction();
   renderProfile();
   updateProfileRoutineStats();
@@ -1400,6 +1444,7 @@ function render() {
 
 function renderLiveTick() {
   if (isInitialLoading) return;
+  reconcileInvalidResumedNight();
   const prediction = calculatePrediction();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
@@ -3699,6 +3744,11 @@ async function loadActiveSessionFromSheet() {
         clearActiveSessionFromSheet(result.session.id);
         return;
       }
+      if (activeNightConflictsWithCurrentCycle(result.session)) {
+        rememberClosedActiveSession(result.session.id);
+        clearActiveSessionFromSheet(result.session.id);
+        return;
+      }
       applyRemoteActiveSession(result.session);
       return;
     }
@@ -3727,6 +3777,11 @@ function applyRemoteActiveSession(session) {
     return;
   }
   if (wasRecentlyClosedActiveSession(session.id)) {
+    clearActiveSessionFromSheet(session.id);
+    return;
+  }
+  if (activeNightConflictsWithCurrentCycle(session)) {
+    rememberClosedActiveSession(session.id);
     clearActiveSessionFromSheet(session.id);
     return;
   }
@@ -3782,6 +3837,16 @@ function isStaleActiveSession(session) {
   const age = Date.now() - startedAt.getTime();
   if (session.type === "night") return age > ACTIVE_NIGHT_MAX_AGE_MS;
   return age > ACTIVE_NAP_MAX_AGE_MS;
+}
+
+function activeNightConflictsWithCurrentCycle(session) {
+  if (session?.type !== "night") return false;
+  const startedAt = activeSessionStartDate(session);
+  const cycleStart = new Date(state.cycleStartAt || "");
+  return !Number.isNaN(startedAt.getTime())
+    && !Number.isNaN(cycleStart.getTime())
+    && cycleStart <= new Date()
+    && cycleStart > startedAt;
 }
 
 function activeSessionStartDate(session) {
