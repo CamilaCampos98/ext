@@ -610,9 +610,7 @@ function applyDayStartOverride(dayStart, previousCycleStart = currentCycleStartD
   state.dayStart = normalized;
   state.dayStartOverride = true;
 
-  const base = previousCycleStart instanceof Date && !Number.isNaN(previousCycleStart.getTime())
-    ? new Date(previousCycleStart)
-    : new Date();
+  const base = dayStartOverrideBaseDate(previousCycleStart);
   const minutes = safeTimeToMinutes(normalized, 7 * 60);
   base.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
   state.cycleStartAt = base.toISOString();
@@ -626,6 +624,15 @@ function applyDayStartOverride(dayStart, previousCycleStart = currentCycleStartD
       }
     });
   });
+}
+
+function dayStartOverrideBaseDate(previousCycleStart = currentCycleStartDate()) {
+  if (state.activeNightStart) {
+    return previousCycleStart instanceof Date && !Number.isNaN(previousCycleStart.getTime())
+      ? new Date(previousCycleStart)
+      : new Date();
+  }
+  return new Date();
 }
 
 function hydrateFeedingOptions() {
@@ -6014,9 +6021,28 @@ function loadState() {
         loaded.lastWake = minutesToTime(dateToDayMinutes(latestWake));
       }
     }
+    normalizeManualCycleDate(loaded);
     return loaded;
   } catch {
     return { ...defaultState };
+  }
+}
+
+function normalizeManualCycleDate(loaded) {
+  if (!loaded?.dayStartOverride || loaded.activeNightStart) return;
+  const cycleStart = new Date(loaded.cycleStartAt || "");
+  if (Number.isNaN(cycleStart.getTime())) return;
+
+  const today = new Date();
+  const sameDay = cycleStart.getFullYear() === today.getFullYear()
+    && cycleStart.getMonth() === today.getMonth()
+    && cycleStart.getDate() === today.getDate();
+  if (sameDay) return;
+
+  const minutes = safeTimeToMinutes(loaded.dayStart || DEFAULT_DAY_START, 7 * 60);
+  today.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  if (today <= new Date()) {
+    loaded.cycleStartAt = today.toISOString();
   }
 }
 
