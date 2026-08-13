@@ -1497,6 +1497,7 @@ function calculatePrediction() {
 }
 
 function renderPrediction(prediction) {
+  const today = napsToday();
   els.wakeWindowUsed.textContent = `${formatDuration(prediction.minWindow)} - ${formatDuration(prediction.maxWindow)}`;
   els.sleepPressure.textContent = `${Math.min(prediction.pressure, 100)}%`;
   els.sleepPressureRing.style.strokeDashoffset = String(CIRCLE_LENGTH - CIRCLE_LENGTH * Math.min(prediction.pressure, 100) / 100);
@@ -1538,7 +1539,7 @@ function renderPrediction(prediction) {
   }
 
   const night = calculateNightSuggestion(prediction);
-  if (shouldSkipNextNapForNight(prediction, night)) {
+  if (shouldSkipNextNapForNight(prediction, night, today)) {
     const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
     if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Sono noturno em ${formatDuration(delay)}` : "Sono noturno agora";
     if (els.nextHint) els.nextHint.textContent = `A próxima soneca ficaria muito perto do sono noturno. Melhor preparar a noite por volta de ${minutesToTime(night.start)}.`;
@@ -1993,7 +1994,7 @@ function renderRingCenter(prediction, today) {
   }
 
   const night = calculateNightSuggestion(prediction);
-  if (shouldSkipNextNapForNight(prediction, night)) {
+  if (shouldSkipNextNapForNight(prediction, night, today)) {
     const delay = minutesUntilTodayOrNow(night.start, now);
     els.dayCenterLabel.textContent = "sono noturno em";
     els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
@@ -2057,7 +2058,7 @@ function plannedNapMarkers(prediction, today, night) {
   const total = Math.max(plannedNapCount(), done + (shouldSuggestNapBeforeNight(prediction, today) ? 1 : 0));
   const remaining = Math.max(0, total - done);
   if (!remaining || state.activeNightStart) return [];
-  if (shouldSkipNextNapForNight(prediction, night)) return [];
+  if (shouldSkipNextNapForNight(prediction, night, today)) return [];
 
   const markers = [];
   const now = nowMinutes();
@@ -2138,8 +2139,9 @@ function calculateNightSuggestion(prediction) {
   return { start: suggested, reason };
 }
 
-function shouldSkipNextNapForNight(prediction, night) {
+function shouldSkipNextNapForNight(prediction, night, today = napsToday()) {
   if (!prediction || !night) return false;
+  if (hasPlannedNapSlot(today)) return false;
   const napWouldEndTooClose = prediction.end >= night.start - 45;
   const napWouldStartTooClose = prediction.start >= night.start - 90;
   return napWouldEndTooClose || napWouldStartTooClose;
