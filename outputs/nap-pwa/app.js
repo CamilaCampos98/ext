@@ -4255,9 +4255,14 @@ function mergeNights(remoteNights) {
     if (!state.babyBirthDate && Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
     if (state.nights[0].bedtime) state.bedtime = state.nights[0].bedtime;
     const latestNightEnd = new Date(state.nights[0].end);
-    if (!Number.isNaN(latestNightEnd.getTime()) && !state.dayStartOverride) {
+    const currentCycle = new Date(state.cycleStartAt || "");
+    const nightEndShouldResetCycle = !state.dayStartOverride
+      || Number.isNaN(currentCycle.getTime())
+      || latestNightEnd > currentCycle;
+    if (!Number.isNaN(latestNightEnd.getTime()) && nightEndShouldResetCycle) {
       state.cycleStartAt = latestNightEnd.toISOString();
       state.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
+      state.dayStartOverride = false;
       if (!state.naps.length) state.lastWake = state.dayStart;
     }
     els.dayStart.value = state.dayStart;
@@ -5617,9 +5622,8 @@ function diapersInActiveNight() {
 }
 
 function napsInCurrentDay() {
-  const operationalNaps = operationalDayNaps();
-  const calendarNaps = calendarDayNaps(currentCycleStartDate());
-  return mergeNapLists(operationalNaps, calendarNaps);
+  return operationalDayNaps()
+    .sort((a, b) => new Date(b.end || b.start) - new Date(a.end || a.start));
 }
 
 function operationalDayNaps() {
@@ -6000,12 +6004,17 @@ function loadState() {
       synced: Boolean(item.synced)
     })).filter((item) => !Number.isNaN(new Date(item.at).getTime())))
       .sort((a, b) => new Date(b.at) - new Date(a.at));
-  if (loaded.nights[0] && !loaded.dayStartOverride) {
+  if (loaded.nights[0]) {
       const latestNightStart = new Date(loaded.nights[0].start);
       const latestNightEnd = new Date(loaded.nights[0].end);
-      if (!Number.isNaN(latestNightEnd.getTime())) {
+      const currentCycle = new Date(loaded.cycleStartAt || "");
+      const nightEndShouldResetCycle = !loaded.dayStartOverride
+        || Number.isNaN(currentCycle.getTime())
+        || latestNightEnd > currentCycle;
+      if (!Number.isNaN(latestNightEnd.getTime()) && nightEndShouldResetCycle) {
         loaded.cycleStartAt = latestNightEnd.toISOString();
         loaded.dayStart = minutesToTime(dateToDayMinutes(latestNightEnd));
+        loaded.dayStartOverride = false;
         if (!loaded.naps.length) {
           loaded.lastWake = loaded.dayStart;
         }
