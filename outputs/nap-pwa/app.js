@@ -180,6 +180,7 @@ const els = {
   endNight: document.querySelector("#endNight"),
   startNightAwake: document.querySelector("#startNightAwake"),
   endNightAwake: document.querySelector("#endNightAwake"),
+  resumeNight: document.querySelector("#resumeNight"),
   openManualNap: document.querySelector("#openManualNap"),
   openManualNight: document.querySelector("#openManualNight"),
   openFeeding: document.querySelector("#openFeeding"),
@@ -437,6 +438,10 @@ function bindEvents() {
   els.endNightAwake.addEventListener("click", () => {
     toggleStartSheet(false);
     openNightTimeSheet("endAwake");
+  });
+  els.resumeNight.addEventListener("click", () => {
+    toggleStartSheet(false);
+    resumeClosedNightSleep();
   });
   els.openManualNap.addEventListener("click", () => {
     toggleStartSheet(false);
@@ -999,6 +1004,53 @@ function saveManualNap() {
 
   toggleManualNapSheet(false);
   render();
+}
+
+function resumeClosedNightSleep() {
+  if (state.activeNapStart || state.activeNightStart) return;
+  const night = lastClosedNightForResume();
+  if (!night) {
+    setHint("Nao encontrei um sono noturno recente para continuar.");
+    return;
+  }
+
+  const nightEnd = new Date(night.end);
+  const nightStart = new Date(night.start);
+  if (Number.isNaN(nightStart.getTime()) || Number.isNaN(nightEnd.getTime())) {
+    setHint("Nao consegui reabrir esse sono noturno.");
+    return;
+  }
+
+  const nightId = night.id || newNightId(nightStart);
+  const awakenings = normalizeAwakenings(night.awakenings || []);
+
+  state.nights = state.nights.filter((item) => napIdentity(item) !== napIdentity(night));
+  state.activeNightStart = nightStart.toISOString();
+  state.activeNightId = nightId;
+  state.activeNightAwakeStart = null;
+  state.activeNightAwakenings = normalizeAwakenings(awakenings);
+  forgetClosedActiveSession(nightId);
+  saveState();
+  deleteNapFromSheet(nightId, { silent: true });
+  syncActiveSessionToSheet();
+  setHint("Sono noturno reaberto. A contagem continuou sem descontar tempo acordada.");
+  render();
+}
+
+function lastClosedNightForResume() {
+  if (state.activeNapStart || state.activeNightStart) return null;
+  const now = Date.now();
+  return state.nights
+    .slice()
+    .sort((a, b) => new Date(b.end) - new Date(a.end))
+    .find((night) => {
+      const endedAt = new Date(night.end);
+      const startedAt = new Date(night.start);
+      return !Number.isNaN(startedAt.getTime())
+        && !Number.isNaN(endedAt.getTime())
+        && endedAt.getTime() <= now
+        && now - endedAt.getTime() <= 8 * 60 * 60 * 1000;
+    }) || null;
 }
 
 function createNapRecord(startedAt, endedAt, mood, options = {}) {
@@ -2128,6 +2180,7 @@ function renderTimer() {
   els.endNight.disabled = !nightActive;
   els.startNightAwake.disabled = !nightActive || nightAwake;
   els.endNightAwake.disabled = !nightActive || !nightAwake;
+  els.resumeNight.disabled = active || nightActive || !lastClosedNightForResume();
 
   if (nightActive) {
     const startedAt = new Date(state.activeNightStart);
@@ -3593,6 +3646,11 @@ function rememberClosedActiveSession(id) {
   if (!id) return;
   recentlyClosedActiveSessions.set(String(id), Date.now());
   pruneClosedActiveSessions();
+}
+
+function forgetClosedActiveSession(id) {
+  if (!id) return;
+  recentlyClosedActiveSessions.delete(String(id));
 }
 
 function wasRecentlyClosedActiveSession(id) {
