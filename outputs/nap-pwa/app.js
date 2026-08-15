@@ -8,7 +8,8 @@ const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycby6NldNbNLVa
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
-const ACTIVE_SESSION_POLL_MS = 15000;
+const ACTIVE_SESSION_POLL_MS = 5000;
+const ACTIVE_SESSION_REQUEST_TIMEOUT_MS = 8000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
@@ -333,19 +334,37 @@ function init() {
   setInterval(renderLiveTick, 1000);
   setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) loadActiveSessionFromSheet();
+    if (!document.hidden) refreshActiveSessionNow();
   });
+  window.addEventListener("focus", refreshActiveSessionNow);
+  window.addEventListener("pageshow", refreshActiveSessionNow);
+  window.addEventListener("online", refreshActiveSessionNow);
 }
 
 async function startInitialDataLoad() {
-  setHint("Abrindo com os dados salvos no aparelho. Atualizando planilha em segundo plano...");
-  await withTimeout(loadActiveSessionFromSheet(), 1800);
+  setHint("Verificando se existe timer ativo em outro aparelho...");
+  await withTimeout(loadActiveSessionFromSheet(), 4500);
   isInitialLoading = false;
   document.body.classList.remove("is-loading");
   render();
+  scheduleActiveSessionReadRetry();
   loadFromSheet()
+    .then(() => loadActiveSessionFromSheet())
     .then(() => syncPendingAfterInitialLoad())
     .catch(() => syncPendingAfterInitialLoad());
+}
+
+function refreshActiveSessionNow() {
+  if (isInitialLoading) return;
+  loadActiveSessionFromSheet();
+}
+
+function scheduleActiveSessionReadRetry(delaysMs = [1200, 3500, 7000]) {
+  delaysMs.forEach((delayMs) => {
+    window.setTimeout(() => {
+      if (!isInitialLoading) loadActiveSessionFromSheet();
+    }, delayMs);
+  });
 }
 
 function withTimeout(promise, timeoutMs) {
@@ -674,6 +693,7 @@ function startNap() {
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   scheduleActiveNapNotifications();
   render();
 }
@@ -688,6 +708,7 @@ function startNightSleep(startedAt = new Date()) {
   syncRemoteNotificationScheduleAbsolute([]);
   saveState();
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   if (canNotify()) {
     notify("Sono noturno iniciado \ud83c\udf19", `${babyDisplayName()} dormiu! Hora de descansar \ud83d\udc9e`, "soneca-noite-iniciada");
   }
@@ -846,6 +867,7 @@ function startNightAwake(startedAt = new Date()) {
   state.activeNightAwakeStart = startedAt.toISOString();
   saveState();
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   render();
 }
 
@@ -872,6 +894,7 @@ function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
   state.activeNightAwakeStart = null;
   saveState();
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   render();
 }
 
@@ -1040,6 +1063,7 @@ function resumeClosedNightSleep() {
   saveState();
   deleteNapFromSheet(nightId, { silent: true });
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   setHint("Sono noturno reaberto. A contagem continuou sem descontar tempo acordada.");
   render();
 }
@@ -1939,6 +1963,7 @@ function continueNapFromRecord(napKey) {
   hideNapDetailCard();
   saveState();
   syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   scheduleActiveNapNotifications();
   setHint(`Timer retomado na mesma soneca. Vou descontar ${formatDuration(state.activeNapAwakeMinutes)} acordada entre os ciclos.`);
   render();
@@ -3042,8 +3067,12 @@ function hasNightAwakeInfo(night) {
 }
 
 function awakeDurationFromNightNote(note) {
-  const match = String(note || "").match(/Acordada na noite:\s*(\d+)min/i);
-  return match ? Number(match[1]) : 0;
+  const text = String(note || "");
+  const duration = text.match(/Acordada na noite:\s*(?:(\d+)h)?\s*(?:(\d+)min)?/i);
+  if (!duration) return 0;
+  const hours = Number(duration[1] || 0);
+  const minutes = Number(duration[2] || 0);
+  return (hours * 60) + minutes;
 }
 
 function averageFeedingInterval(feedings) {
@@ -3675,6 +3704,16 @@ async function syncActiveSessionToSheet() {
   }
 }
 
+function scheduleActiveSessionWriteRetry(delaysMs = [2500, 6500]) {
+  delaysMs.forEach((delayMs) => {
+    window.setTimeout(() => {
+      if (state.activeNapStart || state.activeNightStart) {
+        syncActiveSessionToSheet();
+      }
+    }, delayMs);
+  });
+}
+
 async function clearActiveSessionFromSheet(id = "") {
   if (!SHEETS_WEB_APP_URL) return;
   lastActiveSessionWriteAt = Date.now();
@@ -3725,21 +3764,21 @@ function pruneClosedActiveSessions() {
 async function loadActiveSessionFromSheet() {
   if (!SHEETS_WEB_APP_URL || activeSessionPollInFlight) return;
   activeSessionPollInFlight = true;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ACTIVE_SESSION_REQUEST_TIMEOUT_MS);
 
   try {
-    const url = `${SHEETS_WEB_APP_URL}?action=getActiveSession&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
+    const url = `${SHEETS_WEB_APP_URL}?action=getActiveSession&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}&_=${Date.now()}`;
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal
+    });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Falha ao carregar timer ativo.");
     if (!result.activeSessionSupported) return;
     activeSessionSheetSupport = true;
 
     if (result.session) {
-      if (completedSessionExists(result.session.id)) {
-        rememberClosedActiveSession(result.session.id);
-        clearActiveSessionFromSheet(result.session.id);
-        return;
-      }
       if (isStaleActiveSession(result.session)) {
         clearActiveSessionFromSheet(result.session.id);
         if (state.activeNapResumeId === result.session.id || state.activeNightId === result.session.id) {
@@ -3760,12 +3799,14 @@ async function loadActiveSessionFromSheet() {
       return;
     }
 
-    if ((state.activeNapStart || state.activeNightStart) && Date.now() - lastActiveSessionWriteAt > 5000) {
-      clearLocalActiveSession("Timer encerrado em outro aparelho.");
+    if (state.activeNapStart || state.activeNightStart) {
+      syncActiveSessionToSheet();
+      scheduleActiveSessionWriteRetry();
     }
   } catch {
     if (activeSessionSheetSupport === null) activeSessionSheetSupport = false;
   } finally {
+    clearTimeout(timeoutId);
     activeSessionPollInFlight = false;
   }
 }
@@ -3774,11 +3815,6 @@ function applyRemoteActiveSession(session) {
   const startedAt = activeSessionStartDate(session);
   const startWasCorrected = activeSessionStartWasCorrected(session, startedAt);
   if (!session.id || Number.isNaN(startedAt.getTime())) return;
-  if (completedSessionExists(session.id)) {
-    rememberClosedActiveSession(session.id);
-    clearActiveSessionFromSheet(session.id);
-    return;
-  }
   if (isStaleActiveSession(session)) {
     clearActiveSessionFromSheet(session.id);
     return;
@@ -3920,6 +3956,7 @@ async function loadFromSheet() {
     .map((result) => result.error);
 
   if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed || loadedDiapers?.changed) {
+    clearLocalActiveSessionIfCompleted();
     saveState();
     render();
   }
@@ -3931,6 +3968,17 @@ async function loadFromSheet() {
   }
 
   return { loadedCount, errors };
+}
+
+function clearLocalActiveSessionIfCompleted() {
+  const activeId = state.activeNapStart
+    ? state.activeNapResumeId
+    : state.activeNightStart
+      ? state.activeNightId
+      : "";
+  if (!activeId || !completedSessionExists(activeId)) return false;
+  clearLocalActiveSession("Timer encerrado em outro aparelho.");
+  return true;
 }
 
 async function syncFromSheetThenPending() {
