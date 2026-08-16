@@ -522,18 +522,36 @@ function activeSessionRowToObject(row) {
 }
 
 function activeNapAwakeMinutes(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') return 0;
   const minutes = Math.max(0, Math.round(Number(value) || 0));
   return Math.min(minutes, 240);
 }
 
 function parseAwakenings(value) {
   if (!value) return [];
+  const text = String(value);
   try {
-    const parsed = JSON.parse(String(value));
+    const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    return [];
+    return parseAwakeningsLoose(text);
   }
+}
+
+function parseAwakeningsLoose(text) {
+  const awakenings = [];
+  const pattern = /"start"\s*:\s*"([^"]+)"\s*,\s*"end"\s*:\s*"?([^"}\]]+)/g;
+  let match;
+
+  while ((match = pattern.exec(String(text || ''))) !== null) {
+    const start = toDateTimeString(match[1]);
+    const end = toDateTimeString(match[2]);
+    if (start && end && new Date(end) > new Date(start)) {
+      awakenings.push({ start: start, end: end });
+    }
+  }
+
+  return awakenings;
 }
 
 function isStaleActiveSession(session) {
