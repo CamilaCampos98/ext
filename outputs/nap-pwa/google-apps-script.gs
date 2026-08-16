@@ -1,6 +1,7 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
 const DIAPERS_SHEET_NAME = 'Fraldas';
+const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
@@ -48,6 +49,16 @@ const DIAPER_HEADERS = [
   'Horário',
   'Tipo',
   'Teve cocô',
+  'Inicio do dia'
+];
+
+const TUMMY_TIME_HEADERS = [
+  'Recebido em',
+  'ID',
+  'Bebê',
+  'Idade (meses)',
+  'Horário',
+  'Duração (min)',
   'Inicio do dia'
 ];
 
@@ -104,6 +115,10 @@ function doGet(e) {
     return jsonResponse(listDiaperRows(getDiaperSheet()));
   }
 
+  if (e && e.parameter && e.parameter.action === 'listTummyTimes') {
+    return jsonResponse(listTummyTimeRows(getTummyTimeSheet()));
+  }
+
   if (e && e.parameter && e.parameter.action === 'listSleepDiary') {
     return jsonResponse(listSleepDiaryRows(getSleepDiarySheet()));
   }
@@ -140,6 +155,10 @@ function doPost(e) {
       return jsonResponse(deleteRowById(getDiaperSheet(), payload.id));
     }
 
+    if (payload.action === 'deleteTummyTime') {
+      return jsonResponse(deleteRowById(getTummyTimeSheet(), payload.id));
+    }
+
     if (payload.action === 'appendFeeding') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), [payload]));
     }
@@ -154,6 +173,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendDiapers') {
       return jsonResponse(appendMissingDiaperRows(getDiaperSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendTummyTime') {
+      return jsonResponse(appendMissingTummyTimeRows(getTummyTimeSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendTummyTimes') {
+      return jsonResponse(appendMissingTummyTimeRows(getTummyTimeSheet(), payload.records || []));
     }
 
     if (payload.action === 'upsertSleepDiary') {
@@ -241,6 +268,24 @@ function getDiaperSheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, DIAPER_HEADERS);
+  }
+
+  return sheet;
+}
+
+function getTummyTimeSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(TUMMY_TIMES_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(TUMMY_TIMES_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(TUMMY_TIME_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, TUMMY_TIME_HEADERS);
   }
 
   return sheet;
@@ -400,6 +445,35 @@ function appendMissingDiaperRows(sheet, records) {
 
   if (rows.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DIAPER_HEADERS.length).setValues(rows);
+  }
+
+  return {
+    ok: true,
+    inserted: inserted,
+    skipped: skipped
+  };
+}
+
+function appendMissingTummyTimeRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+
+  records.forEach((record) => {
+    const id = String(record.id || '');
+    if (!id || existingIds.has(id)) {
+      skipped.push(id);
+      return;
+    }
+
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push(toTummyTimeSheetRow(record));
+  });
+
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, TUMMY_TIME_HEADERS.length).setValues(rows);
   }
 
   return {
@@ -644,6 +718,18 @@ function toDiaperSheetRow(payload) {
   ];
 }
 
+function toTummyTimeSheetRow(payload) {
+  return [
+    new Date(),
+    payload.id || '',
+    payload.babyName || '',
+    payload.babyAge || '',
+    toDateTimeString(payload.at),
+    Math.max(1, Math.round(Number(payload.duration) || 0)),
+    toTimeString(payload.dayStart)
+  ];
+}
+
 function toSleepDiarySheetRow(payload) {
   return [
     new Date(),
@@ -742,6 +828,28 @@ function listDiaperRows(sheet) {
       type: diaperTypeKey(row[5]),
       hasPoop: row[6] || '',
       dayStart: toTimeString(row[7])
+    }));
+
+  return { ok: true, records: records };
+}
+
+function listTummyTimeRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { ok: true, records: [] };
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, TUMMY_TIME_HEADERS.length).getValues();
+  const records = values
+    .filter((row) => row[1])
+    .map((row) => ({
+      receivedAt: toIsoString(row[0]),
+      id: String(row[1]),
+      babyName: row[2] || '',
+      babyAge: row[3] || '',
+      at: toDateTimeString(row[4]),
+      duration: Number(row[5] || 0),
+      dayStart: toTimeString(row[6])
     }));
 
   return { ok: true, records: records };

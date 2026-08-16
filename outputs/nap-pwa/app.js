@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwcO3CPAPsOd2QHh4forlFKB18fg9IXhwg2cdxRDOUWTy_a6csHjK2zZsC8T3HP16B_Yw/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwo681AGzVayshEkCEHw3KLs-njEOWbni57DTmKqKV5MmDHresOpeTKJY2_OA19gaoX5g/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -312,10 +312,12 @@ let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
 let diaperSheetSupport = null;
+let tummyTimeSheetSupport = null;
 let sleepDiarySheetSupport = null;
 let selectedDiaperType = "pee";
 let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
+let activeSessionPollPromise = null;
 let lastActiveSessionWriteAt = 0;
 let isInitialLoading = true;
 const recentlyClosedActiveSessions = new Map();
@@ -357,6 +359,18 @@ async function startInitialDataLoad() {
 function refreshActiveSessionNow() {
   if (isInitialLoading) return;
   loadActiveSessionFromSheet();
+}
+
+async function refreshBeforeNightAwakeAction() {
+  await refreshBeforeTimerAction();
+}
+
+async function refreshBeforeTimerAction() {
+  await withTimeout(loadActiveSessionFromSheet(), 2500);
+  if (state.activeNapStart || state.activeNightStart) {
+    await withTimeout(loadNapsFromSheet({ deferRender: true }), 3500);
+    clearLocalActiveSessionIfCompleted();
+  }
 }
 
 function scheduleActiveSessionReadRetry(delaysMs = [1200, 3500, 7000]) {
@@ -435,11 +449,17 @@ function bindEvents() {
   }
   els.startNap.addEventListener("click", () => toggleNapStartSheet(true));
   els.closeNapStartSheet.addEventListener("click", () => toggleNapStartSheet(false));
-  els.confirmStartNap.addEventListener("click", startNap);
+  els.confirmStartNap.addEventListener("click", () => startNap());
   els.closeNightTimeSheet.addEventListener("click", () => toggleNightTimeSheet(false));
   els.confirmNightTime.addEventListener("click", confirmNightTime);
-  els.endNap.addEventListener("click", () => {
+  els.endNap.addEventListener("click", async () => {
     toggleStartSheet(false);
+    await refreshBeforeTimerAction();
+    if (!state.activeNapStart) {
+      setHint("Essa soneca ja foi encerrada em outro aparelho.");
+      render();
+      return;
+    }
     toggleMoodSheet(true);
   });
   els.startNight.addEventListener("click", () => {
@@ -450,12 +470,28 @@ function bindEvents() {
     toggleStartSheet(false);
     openNightTimeSheet("endNight");
   });
-  els.startNightAwake.addEventListener("click", () => {
+  els.startNightAwake.addEventListener("click", async () => {
     toggleStartSheet(false);
+    await refreshBeforeNightAwakeAction();
+    if (!state.activeNightStart) {
+      setHint("Sono noturno nao esta ativo neste aparelho. Atualize e tente novamente.");
+      return;
+    }
+    if (state.activeNightAwakeStart) {
+      setHint(`Despertar ja registrado em outro aparelho: ${timeLabel(new Date(state.activeNightAwakeStart))}.`);
+      render();
+      return;
+    }
     openNightTimeSheet("startAwake");
   });
-  els.endNightAwake.addEventListener("click", () => {
+  els.endNightAwake.addEventListener("click", async () => {
     toggleStartSheet(false);
+    await refreshBeforeTimerAction();
+    if (!state.activeNightAwakeStart) {
+      setHint("Esse despertar ja foi finalizado em outro aparelho.");
+      render();
+      return;
+    }
     openNightTimeSheet("endAwake");
   });
   els.resumeNight.addEventListener("click", () => {
@@ -678,7 +714,8 @@ function updateFeedingOptions() {
   renderFeedingTypeOptions();
 }
 
-function startNap() {
+async function startNap() {
+  await refreshBeforeTimerAction();
   if (state.activeNapStart || state.activeNightStart) return;
   toggleNapStartSheet(false);
   const informedStart = els.napStartTime?.value ? new Date(els.napStartTime.value) : null;
@@ -698,7 +735,8 @@ function startNap() {
   render();
 }
 
-function startNightSleep(startedAt = new Date()) {
+async function startNightSleep(startedAt = new Date()) {
+  await refreshBeforeTimerAction();
   if (state.activeNapStart || state.activeNightStart) return;
   state.activeNightStart = startedAt.toISOString();
   state.activeNightId = newNightId(startedAt);
@@ -774,24 +812,24 @@ function setLabelText(label, text) {
   }
 }
 
-function confirmNightTime() {
+async function confirmNightTime() {
   const periodMode = nightEventMode === "startAwake";
   const eventAt = periodMode ? null : nightEventTimeValue();
   const awakeRange = periodMode ? nightAwakeRangeValue() : null;
   if (!eventAt && !awakeRange) return;
 
   if (nightEventMode === "startNight") {
-    startNightSleep(eventAt);
+    await startNightSleep(eventAt);
   } else if (nightEventMode === "endNight") {
-    completeNightSleep(eventAt);
+    await completeNightSleep(eventAt);
   } else if (nightEventMode === "startAwake") {
     if (awakeRange.endAt) {
       recordNightAwakePeriod(awakeRange.startAt, awakeRange.endAt);
     } else {
-      startNightAwake(awakeRange.startAt);
+      await startNightAwake(awakeRange.startAt);
     }
   } else if (nightEventMode === "endAwake") {
-    endNightAwake(eventAt);
+    await endNightAwake(eventAt);
   }
 
   toggleNightTimeSheet(false);
@@ -862,8 +900,21 @@ function nightEventTimeValue() {
   return eventAt;
 }
 
-function startNightAwake(startedAt = new Date()) {
+async function startNightAwake(startedAt = new Date()) {
   if (!state.activeNightStart || state.activeNightAwakeStart) return;
+  const localNightId = state.activeNightId;
+  const localNightStart = state.activeNightStart;
+  await refreshBeforeNightAwakeAction();
+  if (!state.activeNightStart || state.activeNightStart !== localNightStart || state.activeNightId !== localNightId) {
+    setHint("O sono noturno mudou em outro aparelho. Conferi antes de registrar o despertar.");
+    render();
+    return;
+  }
+  if (state.activeNightAwakeStart) {
+    setHint(`Despertar ja registrado em outro aparelho: ${timeLabel(new Date(state.activeNightAwakeStart))}.`);
+    render();
+    return;
+  }
   state.activeNightAwakeStart = startedAt.toISOString();
   saveState();
   syncActiveSessionToSheet();
@@ -871,8 +922,19 @@ function startNightAwake(startedAt = new Date()) {
   render();
 }
 
-function endNightAwake(endedAt = new Date()) {
-  if (!state.activeNightStart || !state.activeNightAwakeStart) return;
+async function endNightAwake(endedAt = new Date()) {
+  const localNightId = state.activeNightId;
+  await refreshBeforeTimerAction();
+  if (!state.activeNightStart || !state.activeNightAwakeStart) {
+    setHint("Esse despertar ja foi finalizado em outro aparelho.");
+    render();
+    return;
+  }
+  if (localNightId && state.activeNightId && state.activeNightId !== localNightId) {
+    setHint("O sono noturno mudou em outro aparelho. Conferi antes de registrar a volta ao sono.");
+    render();
+    return;
+  }
   const startedAt = new Date(state.activeNightAwakeStart);
   recordNightAwakePeriod(startedAt, endedAt);
 }
@@ -939,8 +1001,19 @@ function convertNightAwakeToDayStartNap(dayStartedAt, napStartedAt) {
   render();
 }
 
-function completeNightSleep(endedAt = new Date()) {
-  if (!state.activeNightStart) return;
+async function completeNightSleep(endedAt = new Date()) {
+  const localNightId = state.activeNightId;
+  await refreshBeforeTimerAction();
+  if (!state.activeNightStart) {
+    setHint("Esse sono noturno ja foi encerrado em outro aparelho.");
+    render();
+    return;
+  }
+  if (localNightId && state.activeNightId && state.activeNightId !== localNightId) {
+    setHint("O sono noturno mudou em outro aparelho. Conferi antes de encerrar.");
+    render();
+    return;
+  }
   const startedAt = new Date(state.activeNightStart);
 
   if (Number.isNaN(startedAt.getTime()) || endedAt <= startedAt) {
@@ -972,8 +1045,21 @@ function completeNightSleep(endedAt = new Date()) {
   render();
 }
 
-function completeNap(mood) {
-  if (!state.activeNapStart) return;
+async function completeNap(mood) {
+  const localNapId = state.activeNapResumeId;
+  await refreshBeforeTimerAction();
+  if (!state.activeNapStart) {
+    toggleMoodSheet(false);
+    setHint("Essa soneca ja foi encerrada em outro aparelho.");
+    render();
+    return;
+  }
+  if (localNapId && state.activeNapResumeId && state.activeNapResumeId !== localNapId) {
+    toggleMoodSheet(false);
+    setHint("A soneca ativa mudou em outro aparelho. Conferi antes de encerrar.");
+    render();
+    return;
+  }
   const startedAt = new Date(state.activeNapStart);
   const endedAt = new Date();
   const activeNapId = state.activeNapResumeId || newNapId(startedAt);
@@ -1319,6 +1405,7 @@ function addTummyTimeRecord(tummyTime) {
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, 240);
   saveState();
+  syncTummyTimeToSheet(tummyTime);
   scheduleUpcomingNotifications();
   render();
 }
@@ -1815,7 +1902,7 @@ function handleDayMarkerClick(event) {
   showNapDetailCard(nap, Number(marker.dataset.napIndex || 0));
 }
 
-function handleNapDetailCardClick(event) {
+async function handleNapDetailCardClick(event) {
   if (event.target.closest("[data-close-nap-detail]")) {
     hideNapDetailCard();
     return;
@@ -1825,7 +1912,7 @@ function handleNapDetailCardClick(event) {
   if (continueButton) {
     event.preventDefault();
     event.stopPropagation();
-    continueNapFromRecord(continueButton.dataset.continueNap);
+    await continueNapFromRecord(continueButton.dataset.continueNap);
     return;
   }
 
@@ -1833,7 +1920,7 @@ function handleNapDetailCardClick(event) {
   if (saveEditButton) {
     event.preventDefault();
     event.stopPropagation();
-    saveNapDetailEdits(saveEditButton.dataset.saveNapEdit);
+    await saveNapDetailEdits(saveEditButton.dataset.saveNapEdit);
   }
 }
 
@@ -1874,6 +1961,7 @@ function showNapDetailCard(nap, index) {
 }
 
 async function saveNapDetailEdits(napKey) {
+  await refreshBeforeTimerAction();
   if (state.activeNapStart || state.activeNightStart) {
     showNapEditError(napKey, "Encerre o timer ativo antes de editar.");
     return;
@@ -1934,7 +2022,8 @@ function napDetailField(kind, napKey) {
     .find((item) => item.dataset[attribute] === napKey) || null;
 }
 
-function continueNapFromRecord(napKey) {
+async function continueNapFromRecord(napKey) {
+  await refreshBeforeTimerAction();
   if (state.activeNapStart || state.activeNightStart) {
     setHint("Ja existe um sono em andamento.");
     return;
@@ -3762,6 +3851,17 @@ function pruneClosedActiveSessions() {
 }
 
 async function loadActiveSessionFromSheet() {
+  if (!SHEETS_WEB_APP_URL) return;
+  if (activeSessionPollPromise) return activeSessionPollPromise;
+  activeSessionPollPromise = loadActiveSessionFromSheetOnce();
+  try {
+    return await activeSessionPollPromise;
+  } finally {
+    activeSessionPollPromise = null;
+  }
+}
+
+async function loadActiveSessionFromSheetOnce() {
   if (!SHEETS_WEB_APP_URL || activeSessionPollInFlight) return;
   activeSessionPollInFlight = true;
   const controller = new AbortController();
@@ -3847,7 +3947,7 @@ function applyRemoteActiveSession(session) {
   } else {
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
-      state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : state.activeNightAwakeStart;
+      state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
       state.activeNightAwakenings = normalizeAwakenings(session.awakenings || state.activeNightAwakenings || []);
       saveState();
       if (startWasCorrected) syncActiveSessionToSheet();
@@ -3939,23 +4039,25 @@ function clearLocalActiveSession(message = "") {
 }
 
 async function loadFromSheet() {
-  const [sleepLoad, feedingLoad, diaryLoad, diaperLoad] = await Promise.allSettled([
+  const [sleepLoad, feedingLoad, diaryLoad, diaperLoad, tummyLoad] = await Promise.allSettled([
     loadNapsFromSheet({ deferRender: true }),
     loadFeedingsFromSheet({ deferRender: true }),
     loadSleepDiaryFromSheet({ deferRender: true }),
-    loadDiapersFromSheet({ deferRender: true })
+    loadDiapersFromSheet({ deferRender: true }),
+    loadTummyTimesFromSheet({ deferRender: true })
   ]);
 
   const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
   const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
   const loadedDiary = diaryLoad.status === "fulfilled" ? diaryLoad.value : null;
   const loadedDiapers = diaperLoad.status === "fulfilled" ? diaperLoad.value : null;
-  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0) + (loadedDiapers?.count || 0);
-  const errors = [loadedSleep, loadedFeedings, loadedDiary, loadedDiapers]
+  const loadedTummyTimes = tummyLoad.status === "fulfilled" ? tummyLoad.value : null;
+  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0) + (loadedDiapers?.count || 0) + (loadedTummyTimes?.count || 0);
+  const errors = [loadedSleep, loadedFeedings, loadedDiary, loadedDiapers, loadedTummyTimes]
     .filter((result) => result && result.error)
     .map((result) => result.error);
 
-  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed || loadedDiapers?.changed) {
+  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed || loadedDiapers?.changed || loadedTummyTimes?.changed) {
     clearLocalActiveSessionIfCompleted();
     saveState();
     render();
@@ -3991,7 +4093,8 @@ async function syncPendingAfterInitialLoad() {
     syncPendingNapsToSheet(),
     syncPendingFeedingsToSheet(),
     syncPendingSleepDiaryToSheet(),
-    syncPendingDiapersToSheet()
+    syncPendingDiapersToSheet(),
+    syncPendingTummyTimesToSheet()
   ]);
 }
 
@@ -4181,6 +4284,55 @@ function sheetRecordToDiaper(record) {
   };
 }
 
+async function loadTummyTimesFromSheet(options = {}) {
+  const { deferRender = false } = options;
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
+
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listTummyTimes&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao carregar tummy time.");
+    if (!Array.isArray(result.records)) {
+      tummyTimeSheetSupport = false;
+      return { count: 0, changed: false };
+    }
+    tummyTimeSheetSupport = true;
+
+    const remoteTummyTimes = (result.records || [])
+      .map(sheetRecordToTummyTime)
+      .filter(Boolean);
+
+    const hadLocalSynced = state.tummyTimes.some((item) => item.synced);
+    mergeTummyTimes(remoteTummyTimes);
+    if (!deferRender) {
+      saveState();
+      render();
+      setHint(`Google Sheets carregado: ${remoteTummyTimes.length} tummy time encontrado(s).`);
+    }
+    return { count: remoteTummyTimes.length, changed: hadLocalSynced || Boolean(remoteTummyTimes.length) };
+  } catch (error) {
+    const message = `Nao consegui carregar os tummy times do Google Sheets: ${error.message}`;
+    if (!deferRender) setHint(message);
+    return { count: 0, changed: false, error: message };
+  }
+}
+
+function sheetRecordToTummyTime(record) {
+  if (!record.id || !record.at) return null;
+  const startedAt = new Date(record.at);
+  if (Number.isNaN(startedAt.getTime())) return null;
+  return {
+    id: String(record.id),
+    babyName: record.babyName || "",
+    babyAge: Number(record.babyAge || 0),
+    at: startedAt.toISOString(),
+    duration: clamp(Math.round(Number(record.duration) || 0), 1, 120),
+    dayStart: normalizeTimeField(record.dayStart),
+    synced: true
+  };
+}
+
 async function loadSleepDiaryFromSheet(options = {}) {
   const { deferRender = false } = options;
   if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
@@ -4340,6 +4492,17 @@ function mergeDiapers(remoteDiapers) {
     .forEach((diaper) => byId.set(String(diaper.id || diaperIdentity(diaper)), diaper));
   remoteDiapers.forEach((diaper) => byId.set(String(diaper.id), diaper));
   state.diapers = dedupeDiapers(Array.from(byId.values()))
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+}
+
+function mergeTummyTimes(remoteTummyTimes) {
+  const byId = new Map();
+  state.tummyTimes
+    .filter((item) => !item.synced)
+    .forEach((item) => byId.set(String(item.id || tummyTimeIdentity(item)), item));
+  remoteTummyTimes.forEach((item) => byId.set(String(item.id), item));
+  state.tummyTimes = dedupeTummyTimes(Array.from(byId.values()))
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, 240);
 }
@@ -4614,6 +4777,84 @@ function sheetPayloadForDiaper(diaper) {
     typeLabel: diaperTypeLabel(type),
     hasPoop: diaperHasPoop({ type }) ? "Sim" : "Não",
     dayStart: normalizeTimeField(diaper.dayStart || state.dayStart)
+  };
+}
+
+async function syncTummyTimeToSheet(tummyTime) {
+  if (!SHEETS_WEB_APP_URL || !tummyTime) return;
+  return syncTummyTimesToSheet([tummyTime], "Tummy time salvo no aparelho. Enviando para o Google Sheets...");
+}
+
+async function syncPendingTummyTimesToSheet() {
+  state.tummyTimes = dedupeTummyTimes(state.tummyTimes)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+  saveState();
+  const pending = state.tummyTimes.filter((record) => !record.synced);
+  if (!pending.length) return;
+  await syncTummyTimesToSheet(pending, "Sincronizando tummy times pendentes com o Google Sheets...");
+}
+
+async function syncTummyTimesToSheet(tummyTimes, statusMessage) {
+  if (!SHEETS_WEB_APP_URL || !tummyTimes.length) return;
+  const supported = await ensureTummyTimeSheetSupport(true);
+  if (!supported) {
+    setHint("Tummy time salvo no aparelho. Reimplante o Apps Script novo para criar/sincronizar a aba TummyTime.");
+    return;
+  }
+
+  const records = tummyTimes.map((item) => sheetPayloadForTummyTime(item));
+  const payload = {
+    token: SHEETS_SHARED_TOKEN,
+    action: records.length > 1 ? "bulkAppendTummyTimes" : "appendTummyTime",
+    records,
+    ...records[0]
+  };
+
+  try {
+    setHint(statusMessage);
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar tummy time.");
+
+    const syncedIds = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.tummyTimes = state.tummyTimes.map((item) => (
+      syncedIds.has(String(item.id || tummyTimeIdentity(item))) ? { ...item, synced: true } : item
+    ));
+    saveState();
+    setHint("Tummy time salvo no aparelho e sincronizado com o Google Sheets.");
+  } catch (error) {
+    setHint(`Tummy time salvo no aparelho, mas nao foi enviado ao Google Sheets: ${error.message}`);
+  }
+}
+
+async function ensureTummyTimeSheetSupport(forceRetry = false) {
+  if (tummyTimeSheetSupport === true && !forceRetry) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listTummyTimes&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    tummyTimeSheetSupport = Boolean(result.ok && Array.isArray(result.records));
+  } catch {
+    if (!forceRetry) tummyTimeSheetSupport = false;
+    return false;
+  }
+  return tummyTimeSheetSupport;
+}
+
+function sheetPayloadForTummyTime(tummyTime) {
+  const startedAt = new Date(tummyTime.at);
+  return {
+    id: tummyTime.id || tummyTimeIdentity(tummyTime),
+    babyName: tummyTime.babyName || state.babyName || "Bebê",
+    babyAge: Number(tummyTime.babyAge || currentBabyAgeMonths() || 0),
+    at: toLocalDateTimeValue(startedAt),
+    duration: clamp(Math.round(Number(tummyTime.duration) || 0), 1, 120),
+    dayStart: normalizeTimeField(tummyTime.dayStart || state.dayStart)
   };
 }
 
