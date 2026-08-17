@@ -78,10 +78,17 @@ body::after {
   transition: opacity 0.22s ease, visibility 0.22s ease;
 }
 
-body:not(.is-loading) .app-loading {
+body:not(.is-loading):not(.is-action-loading) .app-loading {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+body.is-action-loading .app-loading {
+  background:
+    radial-gradient(circle at 45% 35%, rgba(203, 183, 247, 0.16), transparent 30%),
+    linear-gradient(180deg, rgba(17, 26, 61, 0.86), rgba(10, 15, 38, 0.88));
+  backdrop-filter: blur(4px);
 }
 
 .app-loading strong {

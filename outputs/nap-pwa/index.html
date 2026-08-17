@@ -13,13 +13,13 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=109">
+    <link rel="stylesheet" href="styles.css?v=110">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
       <div class="loading-moon" aria-hidden="true"></div>
-      <strong>Carregando rotina</strong>
-      <span>Buscando sonecas, mamadas e timer ativo...</span>
+      <strong id="appLoadingTitle">Carregando rotina</strong>
+      <span id="appLoadingText">Buscando sonecas, mamadas e timer ativo...</span>
     </div>
     <div class="app-shell">
       <header class="topbar">
@@ -130,7 +130,7 @@
               <input id="lastWake" type="time">
             </label>
             <label>
-              Hora de dormir
+              Alvo para dormir
               <input id="bedtime" type="time" value="19:30">
             </label>
             <label>
@@ -626,6 +626,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=178" defer></script>
+    <script src="app.js?v=181" defer></script>
   </body>
 </html>
