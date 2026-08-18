@@ -2261,6 +2261,7 @@ function plannedNapMarkers(prediction, today, night) {
   const total = Math.max(plannedNapCount(), done + (shouldSuggestNapBeforeNight(prediction, today) ? 1 : 0));
   const remaining = Math.max(0, total - done);
   if (!remaining || state.activeNightStart) return [];
+  if (state.activeNapStart && activeNapNightProtectionPlan(new Date(state.activeNapStart))) return [];
   if (shouldSkipNextNapForNight(prediction, night, today)) return [];
 
   const markers = [];
@@ -7161,7 +7162,11 @@ function activeNapNightProtectionPlan(startedAt) {
   const latestWakeForDesiredBedtime = desiredBedtimeAbsolute - finalWindow;
   const rawGoal = latestWakeForDesiredBedtime - startedMinutes;
   const regularGoal = napGoalMinutesForIndex(napIndex);
-  const goal = rawGoal <= 0 ? 15 : clamp(Math.min(regularGoal, rawGoal), 15, regularGoal);
+  const goals = sleepGoalsForAge(currentBabyAgeMonths());
+  const completedDaySleep = dayNapSleepMinutes();
+  const daySleepDeficit = Math.max(0, Math.round((goals.day || 0) - completedDaySleep));
+  const recoveryGoal = Math.max(regularGoal, Math.min(rawGoal, daySleepDeficit || regularGoal));
+  const goal = rawGoal <= 0 ? 15 : clamp(recoveryGoal, 15, Math.max(regularGoal, rawGoal));
   const elapsed = activeNapElapsedMinutes(startedAt);
   const projectedWake = startedMinutes + Math.max(goal, elapsed);
   const pressureBasedBedtime = projectedWake + finalWindow;
