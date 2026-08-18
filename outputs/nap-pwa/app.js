@@ -1890,7 +1890,7 @@ function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
     const awakeStart = new Date(state.activeNightAwakeStart);
     els.dayCenterLabel.textContent = "acordada h\u00e1";
     els.dayCenterTime.textContent = formatRingDuration(minutesSinceDate(awakeStart));
-    els.dayCenterHint.textContent = feedings.length ? `mamada ${timeLabel(new Date(feedings[0].at))}` : "mamada e colo ficam na concha da noite";
+    els.dayCenterHint.textContent = "sono noturno pausado";
     return;
   }
 
@@ -1898,10 +1898,7 @@ function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
   const awake = totalAwakeMinutes(awakenings);
   els.dayCenterLabel.textContent = "dormindo h\u00e1";
   els.dayCenterTime.textContent = formatRingDuration(Math.max(0, elapsed - awake));
-  const lastFeeding = feedings[0];
-  els.dayCenterHint.textContent = lastFeeding
-    ? `\u00faltima mamada ${timeLabel(new Date(lastFeeding.at))}`
-    : awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
+  els.dayCenterHint.textContent = awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
 }
 
 function renderNightRingLabels(startedAt, now) {
