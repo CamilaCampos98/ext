@@ -255,7 +255,7 @@ h2 {
 }
 
 .home-assistant-card {
-  order: 2;
+  order: 3;
   width: min(520px, calc(100vw - 34px));
   margin: 6px auto 0;
   padding: 9px 12px;
@@ -266,7 +266,7 @@ h2 {
   -webkit-backdrop-filter: blur(8px);
 }
 
-.home-assistant-card span {
+.home-assistant-card > span {
   display: block;
   margin-bottom: 4px;
   color: var(--accent);
@@ -282,6 +282,34 @@ h2 {
   line-height: 1.28;
 }
 
+.home-assistant-card .assistant-line {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 8px;
+  align-items: start;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.28;
+  text-transform: none;
+}
+
+.home-assistant-card .assistant-line + .assistant-line {
+  margin-top: 5px;
+}
+
+.home-assistant-card .assistant-line b {
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.home-assistant-card .assistant-line.attention b {
+  color: #ffd071;
+}
+
 .day-ring-wrap {
   order: 1;
   position: relative;
@@ -289,6 +317,86 @@ h2 {
   aspect-ratio: 1;
   justify-self: center;
   filter: drop-shadow(0 0 32px rgba(203, 183, 247, 0.2));
+}
+
+.last-feeding-dock {
+  order: 2;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, calc(100vw - 34px));
+  margin: -12px auto 8px;
+  border: 1px solid rgba(138, 63, 252, 0.24);
+  border-radius: 999px;
+  background: rgba(12, 18, 44, 0.42);
+  color: var(--ink);
+  padding: 7px 9px;
+  text-align: left;
+  box-shadow: 0 12px 26px rgba(4, 8, 26, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.last-feeding-icon,
+.breast-side {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.last-feeding-icon {
+  width: 32px;
+  height: 32px;
+  background: rgba(138, 63, 252, 0.16);
+  color: var(--feed);
+}
+
+.last-feeding-copy {
+  min-width: 0;
+}
+
+.last-feeding-copy small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.last-feeding-copy strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ice);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breast-indicator {
+  display: flex;
+  gap: 5px;
+}
+
+.breast-side {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(203, 183, 247, 0.22);
+  background: rgba(44, 48, 93, 0.78);
+  color: rgba(248, 251, 253, 0.48);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.breast-side.is-active {
+  border-color: rgba(203, 183, 247, 0.76);
+  background: rgba(138, 63, 252, 0.66);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(203, 183, 247, 0.32);
+}
+
+.breast-side.is-muted {
+  opacity: 0.46;
 }
 
 .day-ring {
@@ -605,9 +713,7 @@ h2 {
   text-transform: uppercase;
 }
 
-.day-ring-center span:empty,
-.day-ring-center .day-ring-feeding-label:empty,
-.day-ring-center .day-ring-feeding-time:empty {
+.day-ring-center span:empty {
   display: none;
 }
 
@@ -638,23 +744,6 @@ h2 {
   font-weight: 700;
   text-transform: none;
   line-height: 1.18;
-}
-
-.day-ring-center .day-ring-feeding-label {
-  order: 4;
-  margin-top: 13px;
-  color: #d7d0ff;
-  font-size: 0.74rem;
-  font-weight: 700;
-  text-transform: lowercase;
-}
-
-.day-ring-center .day-ring-feeding-time {
-  order: 5;
-  margin: 2px 0 0;
-  color: var(--ink);
-  font-size: 1.04rem;
-  line-height: 1;
 }
 
 .ring-day-label {
@@ -1328,6 +1417,16 @@ select {
   background: rgba(12, 18, 44, 0.72);
 }
 
+.history li.history-cycle-header {
+  grid-template-columns: 1fr;
+  border-color: rgba(203, 183, 247, 0.24);
+  background: rgba(203, 183, 247, 0.1);
+}
+
+.history-cycle-header .history-times b {
+  color: var(--ice);
+}
+
 .history strong {
   white-space: nowrap;
 }
@@ -1618,6 +1717,11 @@ select {
   padding: 14px;
 }
 
+.sleep-diary-card.is-complete {
+  border-color: rgba(158, 230, 211, 0.24);
+  background: rgba(158, 230, 211, 0.08);
+}
+
 .sleep-diary-head {
   display: flex;
   align-items: flex-start;
@@ -1637,6 +1741,21 @@ select {
 .diary-duration {
   min-width: 92px;
   text-align: right;
+}
+
+.diary-status {
+  align-self: center;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(255, 208, 113, 0.12);
+  color: #ffd071;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.sleep-diary-card.is-complete .diary-status {
+  background: rgba(158, 230, 211, 0.14);
+  color: var(--mint);
 }
 
 .diary-fields {
@@ -2168,6 +2287,12 @@ select {
   cursor: pointer;
 }
 
+.manual-card-button.is-context-primary {
+  border-color: rgba(168, 216, 240, 0.52);
+  background: rgba(168, 216, 240, 0.2);
+  box-shadow: 0 0 18px rgba(168, 216, 240, 0.12);
+}
+
 .manual-card-button i {
   display: grid;
   place-items: center;
@@ -2590,7 +2715,7 @@ select {
     padding: 8px 10px;
   }
 
-  .home-assistant-card span {
+  .home-assistant-card > span {
     font-size: 0.62rem;
   }
 
@@ -2599,8 +2724,29 @@ select {
     line-height: 1.22;
   }
 
+  .home-assistant-card .assistant-line {
+    grid-template-columns: 50px 1fr;
+    gap: 6px;
+    text-align: left;
+  }
+
   .day-ring-wrap {
     width: min(calc(100vw - 20px), calc(100dvh - 162px));
+  }
+
+  .last-feeding-dock {
+    width: min(100%, calc(100vw - 34px));
+    margin-top: -8px;
+    padding: 6px 8px;
+  }
+
+  .last-feeding-copy strong {
+    font-size: 0.76rem;
+  }
+
+  .breast-side {
+    width: 26px;
+    height: 26px;
   }
 
   .day-ring-center strong {

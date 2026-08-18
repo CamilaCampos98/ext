@@ -139,13 +139,15 @@ const els = {
   dayCenterTime: document.querySelector("#dayCenterTime"),
   dayCenterLabel: document.querySelector("#dayCenterLabel"),
   dayCenterHint: document.querySelector("#dayCenterHint"),
-  dayCenterFeedingLabel: document.querySelector("#dayCenterFeedingLabel"),
-  dayCenterFeedingTime: document.querySelector("#dayCenterFeedingTime"),
   ringDayStart: document.querySelector("#ringDayStart"),
   ringDayEnd: document.querySelector("#ringDayEnd"),
   ringCaptions: document.querySelector("#ringCaptions"),
   appLoadingTitle: document.querySelector("#appLoadingTitle"),
   appLoadingText: document.querySelector("#appLoadingText"),
+  lastFeedingDock: document.querySelector("#lastFeedingDock"),
+  lastFeedingSummary: document.querySelector("#lastFeedingSummary"),
+  breastLeft: document.querySelector("#breastLeft"),
+  breastRight: document.querySelector("#breastRight"),
   napDetailCard: document.querySelector("#napDetailCard"),
   dayLegend: document.querySelector("#dayLegend"),
   bedtimeSuggestion: document.querySelector("#bedtimeSuggestion"),
@@ -529,6 +531,9 @@ function bindEvents() {
   }
   if (els.openManualFeeding) {
     els.openManualFeeding.addEventListener("click", () => openFeedingSheet(true));
+  }
+  if (els.lastFeedingDock) {
+    els.lastFeedingDock.addEventListener("click", () => openFeedingSheet(false));
   }
   els.requestNotifications.addEventListener("click", requestNotificationPermission);
   els.clearHistory.addEventListener("click", clearHistory);
@@ -1559,6 +1564,7 @@ function render() {
   updateProfileRoutineStats();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
+  renderLastFeedingDock();
   renderTimer();
   renderInsights(prediction);
   renderHistory();
@@ -1573,6 +1579,7 @@ function renderLiveTick() {
   const prediction = calculatePrediction();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
+  renderLastFeedingDock();
   renderTimer();
   renderInsights(prediction);
 }
@@ -1582,12 +1589,52 @@ function renderLoadingState() {
   if (els.dayCenterLabel) els.dayCenterLabel.textContent = "carregando";
   if (els.dayCenterTime) els.dayCenterTime.textContent = "--";
   if (els.dayCenterHint) els.dayCenterHint.textContent = "Aguarde a sincronizacao terminar.";
-  if (els.dayCenterFeedingLabel) els.dayCenterFeedingLabel.textContent = "";
-  if (els.dayCenterFeedingTime) els.dayCenterFeedingTime.textContent = "";
   if (els.daySegments) els.daySegments.innerHTML = "";
   if (els.dayMarkers) els.dayMarkers.innerHTML = "";
   if (els.sleepPressure) els.sleepPressure.textContent = "--";
   if (els.napStatus) els.napStatus.textContent = "Carregando rotina";
+}
+
+function renderLastFeedingDock() {
+  if (!els.lastFeedingDock) return;
+  const feeding = latestPastFeeding();
+  els.lastFeedingDock.classList.toggle("has-feeding", Boolean(feeding));
+  els.lastFeedingDock.classList.toggle("is-bottle", Boolean(feeding && feeding.type !== "breast"));
+  els.breastLeft?.classList.remove("is-active", "is-muted");
+  els.breastRight?.classList.remove("is-active", "is-muted");
+
+  if (!feeding) {
+    if (els.lastFeedingSummary) els.lastFeedingSummary.textContent = "Sem registro hoje";
+    els.breastLeft?.classList.add("is-muted");
+    els.breastRight?.classList.add("is-muted");
+    return;
+  }
+
+  const age = formatFeedingAge(feeding);
+  const label = feeding.type === "breast"
+    ? feedingSideLabel(feeding.side) || "Peito"
+    : feedingLabel(feeding);
+  if (els.lastFeedingSummary) els.lastFeedingSummary.textContent = `${label} há ${age}`;
+
+  const side = feeding.side || "";
+  if (feeding.type !== "breast") {
+    els.breastLeft?.classList.add("is-muted");
+    els.breastRight?.classList.add("is-muted");
+    return;
+  }
+  if (side === "left") {
+    els.breastLeft?.classList.add("is-active");
+    els.breastRight?.classList.add("is-muted");
+  } else if (side === "right") {
+    els.breastLeft?.classList.add("is-muted");
+    els.breastRight?.classList.add("is-active");
+  } else if (side === "both") {
+    els.breastLeft?.classList.add("is-active");
+    els.breastRight?.classList.add("is-active");
+  } else {
+    els.breastLeft?.classList.add("is-muted");
+    els.breastRight?.classList.add("is-muted");
+  }
 }
 
 function renderProfile() {
@@ -1780,7 +1827,6 @@ function renderDayPlanner(prediction) {
   els.dayNowHand.setAttribute("x2", String(nowPoint.x));
   els.dayNowHand.setAttribute("y2", String(nowPoint.y));
   renderRingCenter(prediction, today);
-  renderLastFeedingInRingCenter();
   renderRingDayLabels(night);
   if (els.bedtimeSuggestion) {
     els.bedtimeSuggestion.textContent = minutesToTime(night.start);
@@ -1839,8 +1885,6 @@ function renderNightPlanner() {
 }
 
 function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
-  if (els.dayCenterFeedingLabel) els.dayCenterFeedingLabel.textContent = "";
-  if (els.dayCenterFeedingTime) els.dayCenterFeedingTime.textContent = "";
 
   if (state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
@@ -2195,19 +2239,6 @@ function renderRingCenter(prediction, today) {
   els.dayCenterHint.textContent = `${name} já passou do alvo provável.`;
 }
 
-function renderLastFeedingInRingCenter() {
-  if (!els.dayCenterFeedingLabel || !els.dayCenterFeedingTime) return;
-  const lastFeeding = latestPastFeeding();
-  if (!lastFeeding) {
-    els.dayCenterFeedingLabel.textContent = "";
-    els.dayCenterFeedingTime.textContent = "";
-    return;
-  }
-
-  els.dayCenterFeedingLabel.textContent = "\u00faltima mamada";
-  els.dayCenterFeedingTime.textContent = formatFeedingAge(lastFeeding);
-}
-
 function latestPastFeeding() {
   const now = Date.now();
   return dedupeFeedings(state.feedings || [])
@@ -2361,6 +2392,7 @@ function renderTimer() {
   els.startNightAwake.disabled = !nightActive || nightAwake;
   els.endNightAwake.disabled = !nightActive || !nightAwake;
   els.resumeNight.disabled = active || nightActive || !lastClosedNightForResume();
+  updateStartActionContext();
 
   if (nightActive) {
     const startedAt = new Date(state.activeNightStart);
@@ -2392,6 +2424,38 @@ function renderTimer() {
   els.currentMood.textContent = "-";
   els.napStatus.textContent = `Dormindo há ${formatDuration(minutes)}`;
   els.napStatus.textContent = `Dormindo h\u00e1 ${formatDuration(minutes)} · ${napGoalPercent(minutes, goal)}% da meta`;
+}
+
+function updateStartActionContext() {
+  const buttons = [
+    els.startNap,
+    els.endNap,
+    els.openFeeding,
+    els.openDiaper,
+    els.openTummyTime,
+    els.startNight,
+    els.endNight,
+    els.startNightAwake,
+    els.endNightAwake,
+    els.resumeNight,
+    els.openManualNap,
+    els.openManualNight
+  ].filter(Boolean);
+  buttons.forEach((button, index) => {
+    button.classList.remove("is-context-primary");
+    button.style.order = String(index + 20);
+  });
+
+  const priority = state.activeNapStart
+    ? [els.endNap, els.openFeeding, els.openDiaper, els.openTummyTime, els.startNap]
+    : state.activeNightStart
+      ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, els.openFeeding, els.openDiaper, els.endNight, els.resumeNight]
+      : [els.startNap, els.openFeeding, els.openDiaper, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
+
+  priority.filter(Boolean).forEach((button, index) => {
+    button.style.order = String(index + 1);
+    if (index < 4) button.classList.add("is-context-primary");
+  });
 }
 
 function activeNapElapsedSeconds(startedAt = new Date(state.activeNapStart || "")) {
@@ -2426,8 +2490,47 @@ function renderInsights(prediction) {
     els.nightSleepGoal.textContent = `${babyDisplayName()} fez ${formatDuration(nightSleep)}`;
   }
   if (els.assistantInsight) {
-    els.assistantInsight.textContent = assistantSuggestion(prediction, daySleep, nightSleep, goals);
+    renderAssistantInsight(assistantSuggestion(prediction, daySleep, nightSleep, goals), prediction);
   }
+}
+
+function renderAssistantInsight(message, prediction) {
+  if (!els.assistantInsight) return;
+  const insight = assistantInsightParts(message, prediction);
+  els.assistantInsight.innerHTML = `
+    <span class="assistant-line"><b>Agora</b>${escapeHtml(insight.now)}</span>
+    <span class="assistant-line"><b>Por quê</b>${escapeHtml(insight.why)}</span>
+    ${insight.attention ? `<span class="assistant-line attention"><b>Atenção</b>${escapeHtml(insight.attention)}</span>` : ""}
+  `;
+}
+
+function assistantInsightParts(message, prediction) {
+  const text = String(message || "").trim();
+  if (state.activeNapStart) {
+    return {
+      now: text,
+      why: "A próxima previsão será recalculada quando a soneca terminar.",
+      attention: activeNapNightProtectionPlan(new Date(state.activeNapStart)) ? "Como parece ser a última soneca, o alvo da noite pode mudar se ela esticar." : ""
+    };
+  }
+  if (state.activeNightStart) {
+    return {
+      now: text,
+      why: "Durante o sono noturno, o app pausa cálculo de sonecas.",
+      attention: state.activeNightAwakeStart ? "Registre mamada e toque em Voltou a dormir quando ela pegar no sono." : ""
+    };
+  }
+  const night = prediction ? calculateNightSuggestion(prediction) : null;
+  const isNightFocused = /rotina|noite|dormir|soneca esticou/i.test(text);
+  return {
+    now: text || "Acompanhe a próxima janela calculada.",
+    why: isNightFocused && night
+      ? `Rotina sugerida ${minutesToTime(night.start)}; alvo de dormir perto de ${minutesToTime(night.sleepTime)}.`
+      : "A leitura usa o último despertar, duração das sonecas e padrão recente.",
+    attention: /perto da rotina|muito perto|sem forçar|alerta/i.test(text)
+      ? "Evite forçar sono se ela ainda estiver ativa; mantenha estímulo baixo."
+      : ""
+  };
 }
 
 function renderHistory() {
@@ -2439,16 +2542,18 @@ function renderHistory() {
     ...state.naps.map((record) => ({ ...record, type: "nap" })),
     ...state.nights.map((record) => ({ ...record, type: "night" })),
     ...dedupeFeedings(state.feedings).map((record) => ({ ...record, type: "feeding", start: record.at, end: record.at })),
-    ...dedupeDiapers(state.diapers).map((record) => ({ ...record, type: "diaper", diaperType: record.type, start: record.at, end: record.at }))
+    ...dedupeDiapers(state.diapers).map((record) => ({ ...record, type: "diaper", diaperType: record.type, start: record.at, end: record.at })),
+    ...dedupeTummyTimes(state.tummyTimes).map((record) => ({ ...record, type: "tummy", start: record.at, end: record.at }))
   ]
     .filter((record) => recordDateInputValue(record) === els.historyDate.value)
     .sort((a, b) => new Date(b.end) - new Date(a.end));
 
   if (!records.length) {
-    els.history.innerHTML = `<li><span>Nenhum registro nesta data</span><strong>-</strong></li>`;
+    els.history.innerHTML = `${historyCycleHeader(els.historyDate.value)}<li><span>Nenhum registro nesta data</span><strong>-</strong></li>`;
     return;
   }
-  els.history.innerHTML = records.map((record) => {
+  const napNumbers = historyNapNumbers(records);
+  els.history.innerHTML = historyCycleHeader(els.historyDate.value) + records.map((record) => {
     const start = new Date(record.start);
     const end = new Date(record.end);
     if (record.type === "feeding") {
@@ -2457,10 +2562,33 @@ function renderHistory() {
     if (record.type === "diaper") {
       return `<li><div><span>Troca de fralda · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${diaperTypeLabel(record.diaperType || record.kind || record.typeValue || record.type)}</b></div></div><div class="history-actions"><div class="history-mood">${diaperHasPoop(record) ? "Com cocô" : "Sem cocô"}</div><button class="delete-nap" data-delete-diaper="${diaperIdentity(record)}" aria-label="Excluir troca" title="Excluir troca">×</button></div></li>`;
     }
+    if (record.type === "tummy") {
+      return `<li><div><span>Tummy time · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${formatDuration(record.duration || 0)}</b></div></div><div class="history-actions"><div class="history-mood">Atividade</div></div></li>`;
+    }
     const label = record.type === "night" ? "Sono noturno" : moodLabel(record.mood);
-    const typeLabel = record.type === "night" ? "Noite" : "Soneca";
+    const typeLabel = record.type === "night" ? "Noite" : `${napNumbers.get(napIdentity(record)) || ""}ª soneca`;
     return `<li><div><span>${typeLabel} · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)} - ${timeLabel(end)}</b><b>${formatDuration(safeDuration(record))}</b></div></div><div class="history-actions"><div class="history-mood">${label}</div><button class="delete-nap" data-delete-nap="${napIdentity(record)}" aria-label="Excluir registro" title="Excluir registro">×</button></div></li>`;
   }).join("");
+}
+
+function historyCycleHeader(dateValue) {
+  const date = dateValue ? dateAtTime(dateValue, state.dayStart || DEFAULT_DAY_START) : new Date();
+  const dayStart = state.dayStart || DEFAULT_DAY_START;
+  const night = state.nights
+    .filter((item) => recordDateInputValue(item) === dateValue)
+    .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+  const endLabel = night ? timeLabel(new Date(night.end)) : "em andamento";
+  return `<li class="history-cycle-header"><div><span>Ciclo do dia</span><div class="history-times"><b>Início ${dayStart}</b><b>${dateLabel(date)} · noite ${endLabel}</b></div></div></li>`;
+}
+
+function historyNapNumbers(records) {
+  const numbers = new Map();
+  records
+    .filter((record) => record.type === "nap")
+    .slice()
+    .sort((a, b) => new Date(a.start) - new Date(b.start))
+    .forEach((nap, index) => numbers.set(napIdentity(nap), index + 1));
+  return numbers;
 }
 
 function renderSleepDiary() {
@@ -2488,13 +2616,15 @@ function sleepDiaryCard(nap, napNumber) {
   const start = new Date(nap.start);
   const end = new Date(nap.end);
   const wakeWindowUsed = wakeWindowUsedForNap(nap);
+  const completed = sleepDiaryEntryCompleted(entry);
   return `
-    <article class="sleep-diary-card">
+    <article class="sleep-diary-card${completed ? " is-complete" : ""}">
       <div class="sleep-diary-head">
         <div>
           <span>${napNumber}ª soneca</span>
           <strong>${timeLabel(start)} - ${timeLabel(end)}</strong>
         </div>
+        <span class="diary-status">${completed ? "Anotada" : "Pendente"}</span>
         <div class="diary-duration">
           <span>Duração</span>
           <strong>${formatDuration(safeDuration(nap))}</strong>
@@ -2545,6 +2675,10 @@ function sleepDiaryCard(nap, napNumber) {
       </div>
     </article>
   `;
+}
+
+function sleepDiaryEntryCompleted(entry) {
+  return Boolean(entry && entry.sleepEndPlace && entry.wakeMood);
 }
 
 function diaryChoiceGroup(id, field, label, currentValue, options) {
@@ -2787,8 +2921,11 @@ function renderSleepDiaryStats(naps) {
   const pacifierWakeYes = entries.filter((entry) => entry.pacifierWake === "yes").length;
   const avgDuration = Math.round(naps.reduce((sum, nap) => sum + safeDuration(nap), 0) / naps.length);
   const cribRate = filledPlace ? Math.round((cribEnd / filledPlace) * 100) : 0;
+  const completed = entries.filter(sleepDiaryEntryCompleted).length;
 
   els.diaryStats.innerHTML = `
+    <div><span>Diário preenchido</span><strong>${completed}/${naps.length}</strong></div>
+    <div><span>Pendentes</span><strong>${Math.max(0, naps.length - completed)}</strong></div>
     <div><span>Sonecas</span><strong>${naps.length}</strong></div>
     <div><span>Média</span><strong>${formatDuration(avgDuration)}</strong></div>
     <div><span>Terminou no berço</span><strong>${filledPlace ? `${cribRate}%` : "-"}</strong></div>
@@ -7200,6 +7337,13 @@ function escapeAttribute(value) {
   return String(value)
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }

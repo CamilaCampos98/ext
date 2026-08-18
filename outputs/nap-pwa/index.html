@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=110">
+    <link rel="stylesheet" href="styles.css?v=113">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -48,8 +48,6 @@
               <small id="dayCenterLabel">dia de sono</small>
               <strong id="dayCenterTime">--:--</strong>
               <span id="dayCenterHint" aria-live="polite"></span>
-              <small class="day-ring-feeding-label" id="dayCenterFeedingLabel"></small>
-              <strong class="day-ring-feeding-time" id="dayCenterFeedingTime"></strong>
             </div>
             <div class="ring-day-label ring-day-start" id="ringDayStart">
               <span aria-hidden="true">☀</span>
@@ -61,6 +59,17 @@
             </div>
             <div class="ring-caption-row" id="ringCaptions"></div>
           </div>
+          <button class="last-feeding-dock" id="lastFeedingDock" type="button" aria-label="Registrar ou consultar última mamada">
+            <span class="last-feeding-icon" aria-hidden="true"><i class="fa-solid fa-person-breastfeeding"></i></span>
+            <span class="last-feeding-copy">
+              <small>Última mamada</small>
+              <strong id="lastFeedingSummary">Sem registro</strong>
+            </span>
+            <span class="breast-indicator" aria-hidden="true">
+              <span class="breast-side" id="breastLeft">E</span>
+              <span class="breast-side" id="breastRight">D</span>
+            </span>
+          </button>
           <div class="hero-meter" aria-label="Pressão de sono estimada">
             <svg viewBox="0 0 120 120" role="img">
               <circle class="meter-bg" cx="60" cy="60" r="50"></circle>
@@ -626,6 +635,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=181" defer></script>
+    <script src="app.js?v=183" defer></script>
   </body>
 </html>
