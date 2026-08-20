@@ -521,6 +521,20 @@ function setActiveSession(sheet, payload) {
     return { ok: false, activeSessionSupported: true, error: 'Sessão ativa incompleta.' };
   }
 
+  const currentRow = sheet.getLastRow() >= 2
+    ? sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).getValues()[0]
+    : null;
+  const currentSession = currentRow && String(currentRow[0] || '') === 'active'
+    ? activeSessionRowToObject(currentRow)
+    : null;
+  const sameNightSession = currentSession
+    && currentSession.id === String(payload.id)
+    && currentSession.type === 'night'
+    && payload.type === 'night';
+  const awakenings = sameNightSession
+    ? mergeAwakenings(currentSession.awakenings || [], payload.awakenings || [])
+    : (payload.awakenings || []);
+
   const row = [
     'active',
     String(payload.id),
@@ -529,7 +543,7 @@ function setActiveSession(sheet, payload) {
     payload.babyAge || '',
     toDateTimeString(payload.start),
     toDateTimeString(payload.nightAwakeStart),
-    JSON.stringify(payload.awakenings || []),
+    JSON.stringify(awakenings),
     activeNapAwakeMinutes(payload.napAwakeMinutes),
     new Date()
   ];
@@ -603,6 +617,7 @@ function activeNapAwakeMinutes(value) {
 
 function parseAwakenings(value) {
   if (!value) return [];
+  if (Array.isArray(value)) return value;
   const text = String(value);
   try {
     const parsed = JSON.parse(text);
@@ -610,6 +625,22 @@ function parseAwakenings(value) {
   } catch (error) {
     return parseAwakeningsLoose(text);
   }
+}
+
+function mergeAwakenings() {
+  const byRange = {};
+  Array.prototype.slice.call(arguments).forEach(function(group) {
+    parseAwakenings(group).forEach(function(item) {
+      const start = toDateTimeString(item.start);
+      const end = toDateTimeString(item.end);
+      if (!start || !end || new Date(end) <= new Date(start)) return;
+      byRange[start + '|' + end] = { start: start, end: end };
+    });
+  });
+
+  return Object.keys(byRange)
+    .sort()
+    .map(function(key) { return byRange[key]; });
 }
 
 function parseAwakeningsLoose(text) {

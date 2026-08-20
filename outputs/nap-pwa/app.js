@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwo681AGzVayshEkCEHw3KLs-njEOWbni57DTmKqKV5MmDHresOpeTKJY2_OA19gaoX5g/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwA9WWap0RJQiKxjyibGucu9nHyjIWYgig5SA3pt01lfRV8eK5yWoL3YK90RUITVQUsEw/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -3918,6 +3918,16 @@ function activeSessionAwakeningsPayload() {
   }));
 }
 
+function mergeAwakenings(...groups) {
+  const byRange = new Map();
+  groups.flat().forEach((item) => {
+    const normalized = normalizeAwakenings([item])[0];
+    if (!normalized) return;
+    byRange.set(`${normalized.start}|${normalized.end}`, normalized);
+  });
+  return Array.from(byRange.values()).sort((a, b) => new Date(a.start) - new Date(b.start));
+}
+
 function shouldKeepPendingLocalActiveSession(remoteSession, remoteType = "") {
   if (!pendingLocalActiveSession || !pendingLocalActiveSession.id) return false;
   if (Date.now() - pendingLocalActiveSession.writtenAt > ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS) {
@@ -4157,7 +4167,7 @@ function applyRemoteActiveSession(session) {
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
       state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
-      state.activeNightAwakenings = normalizeAwakenings(session.awakenings || state.activeNightAwakenings || []);
+      state.activeNightAwakenings = mergeAwakenings(state.activeNightAwakenings || [], session.awakenings || []);
       saveState();
       if (startWasCorrected) syncActiveSessionToSheet();
       render();
