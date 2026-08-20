@@ -11,6 +11,7 @@ const CYCLE_START_GRACE_MINUTES = 5;
 const ACTIVE_SESSION_POLL_MS = 5000;
 const ACTIVE_SESSION_REQUEST_TIMEOUT_MS = 8000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
+const ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS = 15000;
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const NIGHT_PRE_START_FEEDING_GRACE_MINUTES = 90;
@@ -323,6 +324,7 @@ let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
 let activeSessionPollPromise = null;
 let lastActiveSessionWriteAt = 0;
+let pendingLocalActiveSession = null;
 let isInitialLoading = true;
 const recentlyClosedActiveSessions = new Map();
 
@@ -3916,11 +3918,66 @@ function activeSessionAwakeningsPayload() {
   }));
 }
 
+function shouldKeepPendingLocalActiveSession(remoteSession, remoteType = "") {
+  if (!pendingLocalActiveSession || !pendingLocalActiveSession.id) return false;
+  if (Date.now() - pendingLocalActiveSession.writtenAt > ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS) {
+    pendingLocalActiveSession = null;
+    return false;
+  }
+  if (String(remoteSession?.id || "") !== String(pendingLocalActiveSession.id)) {
+    return pendingLocalSessionMatchesCurrentState();
+  }
+
+  const localSignature = activeSessionSignature(pendingLocalActiveSession);
+  const remoteSignature = activeSessionSignature({
+    id: remoteSession.id,
+    type: remoteType || remoteSession.type,
+    start: remoteSession.start,
+    nightAwakeStart: remoteSession.nightAwakeStart || "",
+    awakenings: remoteSession.awakenings || [],
+    napAwakeMinutes: remoteSession.napAwakeMinutes
+  });
+
+  return localSignature !== remoteSignature;
+}
+
+function pendingLocalSessionMatchesCurrentState() {
+  if (!pendingLocalActiveSession?.id) return false;
+  if (pendingLocalActiveSession.type === "nap") {
+    return Boolean(state.activeNapStart)
+      && String(state.activeNapResumeId || "") === String(pendingLocalActiveSession.id);
+  }
+  if (pendingLocalActiveSession.type === "night") {
+    return Boolean(state.activeNightStart)
+      && String(state.activeNightId || "") === String(pendingLocalActiveSession.id);
+  }
+  return false;
+}
+
+function activeSessionSignature(session) {
+  const type = session?.type === "night" ? "night" : "nap";
+  const startedAt = activeSessionStartDate(session);
+  const start = Number.isNaN(startedAt.getTime()) ? String(session?.start || "") : toLocalDateTimeValue(startedAt);
+  const awakeStart = session?.nightAwakeStart ? toLocalDateTimeValue(new Date(session.nightAwakeStart)) : "";
+  const awakenings = normalizeAwakenings(session?.awakenings || [])
+    .map((item) => `${toLocalDateTimeValue(new Date(item.start))}-${toLocalDateTimeValue(new Date(item.end))}`)
+    .join("|");
+  return [
+    String(session?.id || ""),
+    type,
+    start,
+    awakeStart,
+    awakenings,
+    normalizeNapAwakeMinutes(session?.napAwakeMinutes)
+  ].join("::");
+}
+
 async function syncActiveSessionToSheet() {
   if (!SHEETS_WEB_APP_URL) return;
   const session = activeSessionPayload();
   if (!session) return;
   lastActiveSessionWriteAt = Date.now();
+  pendingLocalActiveSession = { ...session, writtenAt: lastActiveSessionWriteAt };
   saveState();
 
   try {
@@ -3953,6 +4010,7 @@ function scheduleActiveSessionWriteRetry(delaysMs = [2500, 6500]) {
 async function clearActiveSessionFromSheet(id = "") {
   if (!SHEETS_WEB_APP_URL) return;
   lastActiveSessionWriteAt = Date.now();
+  pendingLocalActiveSession = null;
 
   try {
     const response = await fetch(SHEETS_WEB_APP_URL, {
@@ -4077,6 +4135,10 @@ function applyRemoteActiveSession(session) {
   }
 
   const type = session.type === "night" ? "night" : "nap";
+  if (shouldKeepPendingLocalActiveSession(session, type)) {
+    syncActiveSessionToSheet();
+    return;
+  }
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
   const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
   if (sameNap) return;
