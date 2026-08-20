@@ -534,6 +534,7 @@ function setActiveSession(sheet, payload) {
   const awakenings = sameNightSession
     ? mergeAwakenings(currentSession.awakenings || [], payload.awakenings || [])
     : (payload.awakenings || []);
+  const nightAwakeStart = validNightAwakeStart(payload.nightAwakeStart, awakenings);
 
   const row = [
     'active',
@@ -542,9 +543,9 @@ function setActiveSession(sheet, payload) {
     payload.babyName || '',
     payload.babyAge || '',
     toDateTimeString(payload.start),
-    toDateTimeString(payload.nightAwakeStart),
+    nightAwakeStart,
     JSON.stringify(awakenings),
-    activeNapAwakeMinutes(payload.napAwakeMinutes),
+    payload.type === 'nap' ? activeNapAwakeMinutes(payload.napAwakeMinutes) : '',
     new Date()
   ];
 
@@ -641,6 +642,22 @@ function mergeAwakenings() {
   return Object.keys(byRange)
     .sort()
     .map(function(key) { return byRange[key]; });
+}
+
+function validNightAwakeStart(value, awakenings) {
+  const start = toDateTimeString(value);
+  if (!start) return '';
+  const latestEnd = latestAwakeningEnd(awakenings);
+  if (latestEnd && new Date(start) <= new Date(latestEnd)) return '';
+  return start;
+}
+
+function latestAwakeningEnd(awakenings) {
+  return parseAwakenings(awakenings)
+    .map(function(item) { return toDateTimeString(item.end); })
+    .filter(function(value) { return value && !Number.isNaN(new Date(value).getTime()); })
+    .sort()
+    .pop() || '';
 }
 
 function parseAwakeningsLoose(text) {

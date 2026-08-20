@@ -4,7 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwA9WWap0RJQiKxjyibGucu9nHyjIWYgig5SA3pt01lfRV8eK5yWoL3YK90RUITVQUsEw/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxD-QdDtPKB0l8_1VC07q882TZ9N5_FcTzofx1nV0o6fEfcxqpfA817UB73rWl4cg2b6g/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -1313,29 +1313,98 @@ function createTummyTimeRecord(startedAt, duration) {
 }
 
 function activeNightAwakeningsUntil(endedAt = new Date()) {
-  const awakenings = normalizeAwakenings(state.activeNightAwakenings || []);
-  const awakeStart = new Date(state.activeNightAwakeStart || "");
-  if (!Number.isNaN(awakeStart.getTime()) && endedAt > awakeStart) {
-    awakenings.push({ start: awakeStart.toISOString(), end: endedAt.toISOString() });
-  }
-  return awakenings;
-}
-
-function normalizeAwakenings(awakenings = []) {
-  return awakenings
+  const limit = endedAt instanceof Date ? endedAt : new Date(endedAt);
+  const nightStart = new Date(state.activeNightStart || "");
+  const hasLimit = !Number.isNaN(limit.getTime());
+  const hasNightStart = !Number.isNaN(nightStart.getTime());
+  const awakenings = normalizeAwakenings(state.activeNightAwakenings || [])
     .map((item) => {
       const start = new Date(item.start);
-      const end = new Date(item.end);
+      let end = new Date(item.end);
+      if (hasNightStart && start < nightStart) return null;
+      if (hasLimit && end > limit) end = limit;
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
       return { start: start.toISOString(), end: end.toISOString() };
     })
     .filter(Boolean);
+  const awakeStart = new Date(state.activeNightAwakeStart || "");
+  const latestEnd = latestAwakeningEndDate(awakenings);
+  if (!Number.isNaN(awakeStart.getTime())
+    && (!hasNightStart || awakeStart >= nightStart)
+    && (Number.isNaN(latestEnd.getTime()) || awakeStart > latestEnd)
+    && hasLimit
+    && limit > awakeStart) {
+    awakenings.push({ start: awakeStart.toISOString(), end: limit.toISOString() });
+  }
+  return normalizeAwakenings(awakenings);
+}
+
+function normalizeAwakenings(awakenings = []) {
+  const ranges = awakenings
+    .map((item) => {
+      const start = new Date(item.start);
+      const end = new Date(item.end);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+      return { start, end };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start);
+
+  const merged = [];
+  ranges.forEach((item) => {
+    const last = merged[merged.length - 1];
+    if (last && item.start <= last.end) {
+      if (item.end > last.end) last.end = item.end;
+      return;
+    }
+    merged.push({ start: item.start, end: item.end });
+  });
+
+  return merged.map((item) => ({ start: item.start.toISOString(), end: item.end.toISOString() }));
 }
 
 function totalAwakeMinutes(awakenings = []) {
   return normalizeAwakenings(awakenings).reduce((sum, item) => {
     return sum + Math.max(1, Math.round((new Date(item.end) - new Date(item.start)) / 60000));
   }, 0);
+}
+
+function latestAwakeningEndDate(awakenings = []) {
+  const latest = normalizeAwakenings(awakenings)
+    .map((item) => new Date(item.end))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b - a)[0];
+  return latest || new Date("");
+}
+
+function validNightAwakeStart(awakeStart, awakenings = []) {
+  const startedAt = new Date(awakeStart || "");
+  if (Number.isNaN(startedAt.getTime())) return null;
+  const latestEnd = latestAwakeningEndDate(awakenings);
+  if (!Number.isNaN(latestEnd.getTime()) && startedAt <= latestEnd) return null;
+  return startedAt;
+}
+
+function activeNightSleepMinutesUntil(startedAt, endedAt = new Date(), awakenings = []) {
+  const start = new Date(startedAt);
+  const end = new Date(endedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 0;
+
+  let slept = 0;
+  let segmentStart = start;
+  normalizeAwakenings(awakenings).forEach((item) => {
+    const awakeStart = new Date(item.start);
+    const awakeEnd = new Date(item.end);
+    if (awakeEnd <= start || awakeStart >= end) return;
+    const boundedAwakeStart = awakeStart < start ? start : awakeStart;
+    const boundedAwakeEnd = awakeEnd > end ? end : awakeEnd;
+    if (boundedAwakeStart > segmentStart) {
+      slept += Math.round((boundedAwakeStart - segmentStart) / 60000);
+    }
+    if (boundedAwakeEnd > segmentStart) segmentStart = boundedAwakeEnd;
+  });
+  if (end > segmentStart) slept += Math.round((end - segmentStart) / 60000);
+  return Math.max(0, slept);
 }
 
 function nightAwakeningsNote(night) {
@@ -1896,10 +1965,10 @@ function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
     return;
   }
 
-  const elapsed = Math.max(0, Math.floor((now - startedAt) / 60000));
   const awake = totalAwakeMinutes(awakenings);
+  const slept = activeNightSleepMinutesUntil(startedAt, now, awakenings);
   els.dayCenterLabel.textContent = "dormindo h\u00e1";
-  els.dayCenterTime.textContent = formatRingDuration(Math.max(0, elapsed - awake));
+  els.dayCenterTime.textContent = formatRingDuration(slept);
   els.dayCenterHint.textContent = awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
 }
 
@@ -3978,7 +4047,7 @@ function activeSessionSignature(session) {
     start,
     awakeStart,
     awakenings,
-    normalizeNapAwakeMinutes(session?.napAwakeMinutes)
+    type === "nap" ? normalizeNapAwakeMinutes(session?.napAwakeMinutes) : 0
   ].join("::");
 }
 
@@ -4166,8 +4235,9 @@ function applyRemoteActiveSession(session) {
   } else {
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
-      state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
       state.activeNightAwakenings = mergeAwakenings(state.activeNightAwakenings || [], session.awakenings || []);
+      const validRemoteAwakeStart = validNightAwakeStart(remoteAwakeStart, state.activeNightAwakenings);
+      state.activeNightAwakeStart = validRemoteAwakeStart ? validRemoteAwakeStart.toISOString() : null;
       saveState();
       if (startWasCorrected) syncActiveSessionToSheet();
       render();
@@ -4175,8 +4245,9 @@ function applyRemoteActiveSession(session) {
     }
     state.activeNightStart = startedAt.toISOString();
     state.activeNightId = String(session.id);
-    state.activeNightAwakeStart = remoteAwakeStart && !Number.isNaN(remoteAwakeStart.getTime()) ? remoteAwakeStart.toISOString() : null;
     state.activeNightAwakenings = normalizeAwakenings(session.awakenings || []);
+    const validRemoteAwakeStart = validNightAwakeStart(remoteAwakeStart, state.activeNightAwakenings);
+    state.activeNightAwakeStart = validRemoteAwakeStart ? validRemoteAwakeStart.toISOString() : null;
     if (!sameNight) {
       state.activeNapStart = null;
       state.activeNapResumeId = null;
