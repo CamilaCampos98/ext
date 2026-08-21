@@ -5996,7 +5996,7 @@ function nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, 
   const awakeAtNight = latestNightAwakeMinutes();
   if (nightDeficit <= 0) {
     if (awakeAtNight < 30) return "";
-    return `A noite anterior atingiu a meta: ${formatDuration(nightSleep)} de ${formatDuration(goals.night)}, mas teve ${formatDuration(awakeAtNight)} acordada na madrugada. Hoje observe se ela pede uma janela um pouco menor antes das primeiras sonecas.`;
+    return `A noite anterior atingiu a meta em sono liquido: ${formatDuration(nightSleep)} de ${formatDuration(goals.night)}. Ela ficou ${formatDuration(awakeAtNight)} acordada na madrugada, entao a noite foi mais fragmentada, mas nao vou reduzir automaticamente a primeira janela. Mantenha a janela normal e ajuste so se ela mostrar sono antes.`;
   }
   if (nightDeficit < 45 && awakeAtNight < 30) return "";
 
