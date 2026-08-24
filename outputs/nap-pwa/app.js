@@ -9,6 +9,7 @@ const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
 const ACTIVE_SESSION_POLL_MS = 5000;
+const SHARED_RECORDS_POLL_MS = 20000;
 const ACTIVE_SESSION_REQUEST_TIMEOUT_MS = 8000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 const ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS = 15000;
@@ -323,6 +324,7 @@ let selectedDiaperType = "pee";
 let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
 let activeSessionPollPromise = null;
+let sharedRecordsPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
 let pendingLocalActiveSession = null;
 let isInitialLoading = true;
@@ -341,6 +343,7 @@ function init() {
   startInitialDataLoad();
   setInterval(renderLiveTick, 1000);
   setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
+  setInterval(refreshSharedRecordsNow, SHARED_RECORDS_POLL_MS);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshActiveSessionNow();
   });
@@ -365,6 +368,26 @@ async function startInitialDataLoad() {
 function refreshActiveSessionNow() {
   if (isInitialLoading) return;
   loadActiveSessionFromSheet();
+  refreshSharedRecordsNow();
+}
+
+async function refreshSharedRecordsNow() {
+  if (isInitialLoading || sharedRecordsPollInFlight) return;
+  sharedRecordsPollInFlight = true;
+  try {
+    const [feedingLoad, tummyLoad] = await Promise.allSettled([
+      loadFeedingsFromSheet({ deferRender: true }),
+      loadTummyTimesFromSheet({ deferRender: true })
+    ]);
+    const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
+    const loadedTummyTimes = tummyLoad.status === "fulfilled" ? tummyLoad.value : null;
+    if (loadedFeedings?.changed || loadedTummyTimes?.changed) {
+      saveState();
+      render();
+    }
+  } finally {
+    sharedRecordsPollInFlight = false;
+  }
 }
 
 async function refreshBeforeNightAwakeAction() {
@@ -4492,15 +4515,16 @@ async function loadFeedingsFromSheet(options = {}) {
       .map(sheetRecordToFeeding)
       .filter(Boolean);
 
-    const hadLocalSynced = state.feedings.some((feeding) => feeding.synced);
+    const previousSignature = feedingCollectionSignature(state.feedings);
 
     mergeFeedings(remoteFeedings);
+    const changed = previousSignature !== feedingCollectionSignature(state.feedings);
     if (!deferRender) {
       saveState();
       render();
       setHint(`Google Sheets carregado: ${remoteFeedings.length} mamada(s) encontrada(s).`);
     }
-    return { count: remoteFeedings.length, changed: hadLocalSynced || Boolean(remoteFeedings.length) };
+    return { count: remoteFeedings.length, changed };
   } catch (error) {
     const message = `Nao consegui carregar as mamadas do Google Sheets: ${error.message}`;
     if (!deferRender) setHint(message);
@@ -4743,7 +4767,6 @@ function mergeNights(remoteNights) {
   if (state.nights.length) {
     if (state.nights[0].babyName) state.babyName = state.nights[0].babyName;
     if (!state.babyBirthDate && Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
-    if (state.nights[0].bedtime) state.bedtime = state.nights[0].bedtime;
     const latestNightEnd = new Date(state.nights[0].end);
     const currentCycle = new Date(state.cycleStartAt || "");
     const nightEndShouldResetCycle = !state.dayStartOverride
@@ -4824,7 +4847,6 @@ function applyProfileFromLatestNap() {
   if (latest.babyName) state.babyName = latest.babyName;
   if (!state.babyBirthDate && Number(latest.babyAge) > 0) state.babyAge = clamp(Number(latest.babyAge), 0, 36);
   if (!state.nights.length && latest.dayStart) state.dayStart = latest.dayStart;
-  if (!state.nights.length && latest.bedtime) state.bedtime = latest.bedtime;
 
   els.babyName.value = state.babyName;
   els.babyBirthDate.value = state.babyBirthDate || "";
@@ -4954,6 +4976,7 @@ async function syncFeedingsToSheet(feedings, statusMessage) {
     ));
     saveState();
     setHint("Mamada salva no aparelho e sincronizada com o Google Sheets.");
+    window.setTimeout(refreshSharedRecordsNow, 1200);
   } catch (error) {
     setHint(`Mamada salva no aparelho, mas nao foi enviada ao Google Sheets: ${error.message}`);
   }
@@ -6629,9 +6652,6 @@ function loadState() {
           loaded.lastWake = loaded.dayStart;
         }
       }
-      if (!Number.isNaN(latestNightStart.getTime())) {
-        loaded.bedtime = normalizeTimeField(loaded.nights[0].bedtime) || minutesToTime(dateToDayMinutes(latestNightStart));
-      }
     }
     if (loaded.naps.length) {
       const latestNap = loaded.naps.slice().sort((a, b) => new Date(b.end) - new Date(a.end))[0];
@@ -7127,6 +7147,20 @@ function dedupeFeedings(feedings) {
   });
 
   return Array.from(bySignature.values());
+}
+
+function feedingCollectionSignature(feedings = []) {
+  return dedupeFeedings(feedings)
+    .map((feeding) => [
+      feeding.id || feedingIdentity(feeding),
+      feeding.at || "",
+      feeding.type || "",
+      feeding.side || "",
+      feeding.note || "",
+      feeding.synced ? "1" : "0"
+    ].join("|"))
+    .sort()
+    .join(";");
 }
 
 function diaperTypeKey(value) {
