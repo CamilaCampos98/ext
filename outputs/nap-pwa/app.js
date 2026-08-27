@@ -2356,6 +2356,15 @@ function renderRingDayLabels(night) {
 }
 
 function plannedNapMarkers(prediction, today, night) {
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  if (rescueNap && !state.activeNapStart) {
+    return [{
+      start: rescueNap.start,
+      end: rescueNap.end,
+      target: Math.round((rescueNap.start + rescueNap.end) / 2)
+    }];
+  }
+
   const done = today.length + (state.activeNapStart ? 1 : 0);
   const total = Math.max(plannedNapCount(), done + (shouldSuggestNapBeforeNight(prediction, today) ? 1 : 0));
   const remaining = Math.max(0, total - done);
@@ -2448,14 +2457,54 @@ function calculateNightSuggestion(prediction) {
 
 function shouldSkipNextNapForNight(prediction, night, today = napsToday()) {
   if (!prediction || !night) return false;
+  if (lateRescueNapPlan(prediction, night, today)) return false;
   const napWouldEndTooClose = prediction.end >= night.start - 45;
   const napWouldStartTooClose = prediction.start >= night.start - 90;
   return napWouldEndTooClose || napWouldStartTooClose;
 }
 
+function lateRescueNapPlan(prediction, night, today = napsToday()) {
+  if (!prediction || !night || state.activeNapStart || state.activeNightStart) return null;
+
+  const age = currentBabyAgeMonths();
+  if (age > 12) return null;
+
+  const now = nowMinutes();
+  const windowStart = Math.max(now, prediction.start);
+  if (windowStart > prediction.end || windowStart < 15 * 60) return null;
+
+  const daySleep = today.reduce((sum, nap) => sum + safeDuration(nap), 0);
+  const dayTarget = sleepGoalsForAge(age).day;
+  const daySleepDeficit = Math.max(0, dayTarget - daySleep);
+  const lastNap = today[0];
+  const hasPlannedSlot = hasPlannedNapSlot(today);
+  const lastNapWasShort = Boolean(lastNap && safeDuration(lastNap) < 40);
+
+  if (!hasPlannedSlot && daySleepDeficit < 45 && !lastNapWasShort) return null;
+
+  const duration = clamp(Math.min(25, daySleepDeficit || 20), 15, 25);
+  const end = windowStart + duration;
+  const ageWindow = wakeWindowForAge(age);
+  const minimumFinalWindow = clamp(ageWindow.min - 20, 75, 210);
+  const desiredSleep = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
+  const latestAcceptableSleep = desiredSleep + 45;
+  const recommendedSleep = Math.max(desiredSleep, end + minimumFinalWindow);
+
+  if (recommendedSleep > latestAcceptableSleep) return null;
+
+  return {
+    start: windowStart,
+    end,
+    duration,
+    recommendedSleep,
+    daySleepDeficit
+  };
+}
+
 function shouldSuggestNapBeforeNight(prediction, today = napsToday()) {
   if (!prediction || state.activeNightStart) return false;
   const night = calculateNightSuggestion(prediction);
+  if (lateRescueNapPlan(prediction, night, today)) return true;
   if (shouldSkipNextNapForNight(prediction, night)) return false;
   if (hasPlannedNapSlot(today)) return true;
   const now = nowMinutes();
@@ -5998,6 +6047,12 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
     return awakeMinutes
       ? `Sono noturno em curso. Ela j\u00e1 ficou acordada ${formatRingDuration(awakeMinutes)} nesta noite. Sem c\u00e1lculo de soneca at\u00e9 encerrar a noite.`
       : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
+  }
+
+  const night = calculateNightSuggestion(prediction);
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  if (rescueNap) {
+    return `Ainda cabe uma soneca curta por volta de ${minutesToTime(rescueNap.start)}. Limite a cerca de ${formatDuration(rescueNap.duration)} e tente encerrar até ${minutesToTime(rescueNap.end)} para preservar o sono noturno perto de ${minutesToTime(rescueNap.recommendedSleep)}.`;
   }
 
   const recoveryInsight = nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, today);
