@@ -146,6 +146,7 @@ const els = {
   ringCaptions: document.querySelector("#ringCaptions"),
   appLoadingTitle: document.querySelector("#appLoadingTitle"),
   appLoadingText: document.querySelector("#appLoadingText"),
+  syncSheetData: document.querySelector("#syncSheetData"),
   lastFeedingDock: document.querySelector("#lastFeedingDock"),
   lastFeedingSummary: document.querySelector("#lastFeedingSummary"),
   breastLeft: document.querySelector("#breastLeft"),
@@ -328,6 +329,7 @@ let sharedRecordsPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
 let pendingLocalActiveSession = null;
 let isInitialLoading = true;
+let manualSheetSyncInFlight = false;
 const recentlyClosedActiveSessions = new Map();
 
 init();
@@ -461,6 +463,9 @@ function repairDayStartIfItHidesTodayNaps() {
 }
 
 function bindEvents() {
+  if (els.syncSheetData) {
+    els.syncSheetData.addEventListener("click", syncSheetDataManually);
+  }
   ["input", "change"].forEach((eventName) => {
     els.babyName.addEventListener(eventName, updateProfile);
     els.babyBirthDate.addEventListener(eventName, updateProfile);
@@ -4399,6 +4404,40 @@ function clearLocalActiveSessionIfCompleted() {
 async function syncFromSheetThenPending() {
   await loadFromSheet();
   await syncPendingAfterInitialLoad();
+}
+
+async function syncSheetDataManually() {
+  if (manualSheetSyncInFlight || isInitialLoading) return;
+
+  manualSheetSyncInFlight = true;
+  els.syncSheetData.disabled = true;
+  els.syncSheetData.classList.add("is-syncing");
+  showActionLoading("Sincronizando dados", "Buscando os registros mais recentes da planilha...");
+
+  try {
+    const [sheetResult] = await Promise.all([
+      loadFromSheet(),
+      loadActiveSessionFromSheet()
+    ]);
+    await syncPendingAfterInitialLoad();
+    clearLocalActiveSessionIfCompleted();
+    saveState();
+    render();
+
+    if (sheetResult.errors.length) {
+      setHint(`Sincronização parcial. ${sheetResult.errors.join(" ")}`);
+    } else {
+      setHint(`Sincronização concluída: ${sheetResult.loadedCount} registro(s) conferido(s).`);
+    }
+  } catch (error) {
+    console.error("Erro ao sincronizar dados manualmente:", error);
+    setHint("Não foi possível sincronizar agora. Confira a internet e tente novamente.");
+  } finally {
+    hideActionLoading();
+    els.syncSheetData.classList.remove("is-syncing");
+    els.syncSheetData.disabled = false;
+    manualSheetSyncInFlight = false;
+  }
 }
 
 async function syncPendingAfterInitialLoad() {
