@@ -5,7 +5,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxCUHHCne5J-n4_NydbPivRtx-tJle5faiFJu6MT-iXROQ6fE8pGLOfnbEipmxp6aBCHg/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyBGklre4CcWaRRfGMEpeJaY8kCfxM2rt6ZJRzpNuKth9od6NBwLCMiM-VW4PVFIbl4ZQ/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -331,6 +331,7 @@ let activeSessionPollPromise = null;
 let sharedRecordsPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
 let pendingLocalActiveSession = null;
+let activeSessionWriteGeneration = 0;
 let isInitialLoading = true;
 let manualSheetSyncInFlight = false;
 const recentlyClosedActiveSessions = new Map();
@@ -4187,6 +4188,7 @@ async function syncActiveSessionToSheet() {
   if (!SHEETS_WEB_APP_URL) return;
   const session = activeSessionPayload();
   if (!session) return;
+  const writeGeneration = activeSessionWriteGeneration;
   lastActiveSessionWriteAt = Date.now();
   pendingLocalActiveSession = { ...session, writtenAt: lastActiveSessionWriteAt };
   saveState();
@@ -4203,15 +4205,31 @@ async function syncActiveSessionToSheet() {
     });
     const result = await response.json();
     activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+    if (writeGeneration !== activeSessionWriteGeneration || wasRecentlyClosedActiveSession(session.id)) {
+      await clearActiveSessionFromSheet(session.id);
+      return;
+    }
+    if (result.rejectedCompleted && String(result.id || "") === String(session.id)) {
+      rememberClosedActiveSession(session.id);
+      if ((state.activeNapStart && String(state.activeNapResumeId || "") === String(session.id))
+        || (state.activeNightStart && String(state.activeNightId || "") === String(session.id))) {
+        clearLocalActiveSession("Este timer já foi encerrado e não será reaberto automaticamente.");
+      }
+    }
   } catch {
     activeSessionSheetSupport = false;
   }
 }
 
 function scheduleActiveSessionWriteRetry(delaysMs = [2500, 6500]) {
+  const scheduledGeneration = activeSessionWriteGeneration;
+  const scheduledId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
   delaysMs.forEach((delayMs) => {
     window.setTimeout(() => {
-      if (state.activeNapStart || state.activeNightStart) {
+      const currentId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
+      if (scheduledGeneration === activeSessionWriteGeneration
+        && scheduledId
+        && String(currentId || "") === String(scheduledId)) {
         syncActiveSessionToSheet();
       }
     }, delayMs);
@@ -4220,6 +4238,7 @@ function scheduleActiveSessionWriteRetry(delaysMs = [2500, 6500]) {
 
 async function clearActiveSessionFromSheet(id = "") {
   if (!SHEETS_WEB_APP_URL) return;
+  activeSessionWriteGeneration += 1;
   lastActiveSessionWriteAt = Date.now();
   pendingLocalActiveSession = null;
 

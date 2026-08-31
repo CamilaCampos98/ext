@@ -522,6 +522,22 @@ function setActiveSession(sheet, payload) {
     return { ok: false, activeSessionSupported: true, error: 'Sessão ativa incompleta.' };
   }
 
+  if (completedRecordExists(payload.id)) {
+    const currentId = sheet.getLastRow() >= 2
+      ? String(sheet.getRange(2, 2).getValue() || '')
+      : '';
+    if (currentId === String(payload.id)) {
+      sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+    }
+    return {
+      ok: true,
+      activeSessionSupported: true,
+      session: null,
+      rejectedCompleted: true,
+      id: String(payload.id)
+    };
+  }
+
   const currentRow = sheet.getLastRow() >= 2
     ? sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).getValues()[0]
     : null;
