@@ -536,9 +536,9 @@ function bindEvents() {
     }
     openNightTimeSheet("endAwake");
   });
-  els.resumeNight.addEventListener("click", () => {
+  els.resumeNight.addEventListener("click", async () => {
     toggleStartSheet(false);
-    resumeClosedNightSleep();
+    await resumeClosedNightSleep();
   });
   els.openManualNap.addEventListener("click", () => {
     toggleStartSheet(false);
@@ -1170,7 +1170,7 @@ function saveManualNap() {
   render();
 }
 
-function resumeClosedNightSleep() {
+async function resumeClosedNightSleep() {
   if (state.activeNapStart || state.activeNightStart) return;
   const night = lastClosedNightForResume();
   if (!night) {
@@ -1195,8 +1195,8 @@ function resumeClosedNightSleep() {
   state.activeNightAwakenings = normalizeAwakenings(awakenings);
   forgetClosedActiveSession(nightId);
   saveState();
-  deleteNapFromSheet(nightId, { silent: true });
-  syncActiveSessionToSheet();
+  await deleteNapFromSheet(nightId, { silent: true });
+  await syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
   setHint("Sono noturno reaberto. A contagem continuou sem descontar tempo acordada.");
   render();
@@ -2205,11 +2205,11 @@ async function continueNapFromRecord(napKey) {
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = resumedId;
   state.activeNapAwakeMinutes = (Number(nap.awakeDuration) || 0) + awakeGapMinutes;
-  if (nap.id) deleteNapFromSheet(nap.id, { silent: true });
+  if (nap.id) await deleteNapFromSheet(nap.id, { silent: true });
   clearNotificationTimers();
   hideNapDetailCard();
   saveState();
-  syncActiveSessionToSheet();
+  await syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
   scheduleActiveNapNotifications();
   setHint(`Timer retomado na mesma soneca. Vou descontar ${formatDuration(state.activeNapAwakeMinutes)} acordada entre os ciclos.`);
@@ -4295,19 +4295,34 @@ async function loadActiveSessionFromSheetOnce() {
         return;
       }
       applyRemoteActiveSession(result.session);
-      return;
+      return { supported: true, session: result.session, applied: true };
     }
 
     if (state.activeNapStart || state.activeNightStart) {
-      syncActiveSessionToSheet();
+      await repairAndRepublishLocalActiveSession();
       scheduleActiveSessionWriteRetry();
     }
-  } catch {
+    return {
+      supported: true,
+      session: null,
+      clearedCompleted: Boolean(result.clearedCompleted),
+      clearedStale: Boolean(result.clearedStale)
+    };
+  } catch (error) {
     if (activeSessionSheetSupport === null) activeSessionSheetSupport = false;
+    return { supported: activeSessionSheetSupport === true, session: null, error };
   } finally {
     clearTimeout(timeoutId);
     activeSessionPollInFlight = false;
   }
+}
+
+async function repairAndRepublishLocalActiveSession() {
+  const activeId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
+  if (activeId && !completedSessionExists(activeId)) {
+    await deleteNapFromSheet(activeId, { silent: true });
+  }
+  await syncActiveSessionToSheet();
 }
 
 function applyRemoteActiveSession(session) {
@@ -4338,6 +4353,7 @@ function applyRemoteActiveSession(session) {
   if (sameNap) return;
 
   if (type === "nap") {
+    state.naps = state.naps.filter((nap) => String(nap.id || napIdentity(nap)) !== String(session.id));
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
     state.activeNapAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
@@ -4506,17 +4522,20 @@ async function syncSheetDataManually() {
   showActionLoading("Sincronizando dados", "Buscando os registros mais recentes da planilha...");
 
   try {
-    const [sheetResult] = await Promise.all([
-      loadFromSheet(),
-      loadActiveSessionFromSheet()
-    ]);
+    const sheetResult = await loadFromSheet();
+    const activeResult = await loadActiveSessionFromSheet();
     await syncPendingAfterInitialLoad();
     clearLocalActiveSessionIfCompleted();
     saveState();
     render();
 
-    if (sheetResult.errors.length) {
+    if (activeResult?.error) {
+      setHint("Sincronização parcial: os registros chegaram, mas não consegui consultar o timer ativo.");
+    } else if (sheetResult.errors.length) {
       setHint(`Sincronização parcial. ${sheetResult.errors.join(" ")}`);
+    } else if (activeResult?.session) {
+      const sessionLabel = activeResult.session.type === "night" ? "sono noturno" : "soneca";
+      setHint(`Sincronização concluída: ${sessionLabel} em andamento carregado de outro aparelho.`);
     } else {
       setHint(`Sincronização concluída: ${sheetResult.loadedCount} registro(s) conferido(s).`);
     }

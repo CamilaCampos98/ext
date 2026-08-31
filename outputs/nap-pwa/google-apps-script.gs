@@ -569,7 +569,11 @@ function getActiveSession(sheet) {
   }
 
   const session = activeSessionRowToObject(row);
-  if (completedRecordExists(session.id)) {
+  const completedAt = completedRecordTimestamp(session.id);
+  const activeUpdatedAt = new Date(session.updatedAt || '');
+  const completedAfterActive = completedAt
+    && (Number.isNaN(activeUpdatedAt.getTime()) || completedAt >= activeUpdatedAt);
+  if (completedAfterActive) {
     sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
     return { ok: true, activeSessionSupported: true, session: null, clearedCompleted: true };
   }
@@ -684,15 +688,23 @@ function isStaleActiveSession(session) {
 }
 
 function completedRecordExists(id) {
+  return Boolean(completedRecordTimestamp(id));
+}
+
+function completedRecordTimestamp(id) {
   if (!id) return false;
   const sheet = getSheet();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return false;
 
-  const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-  return values.some(function(row) {
-    return String(row[0] || '') === String(id);
+  const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  let latest = null;
+  values.forEach(function(row) {
+    if (String(row[1] || '') !== String(id)) return;
+    const receivedAt = new Date(row[0]);
+    if (!Number.isNaN(receivedAt.getTime()) && (!latest || receivedAt > latest)) latest = receivedAt;
   });
+  return latest;
 }
 
 function getExistingIds(sheet) {
