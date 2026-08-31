@@ -4315,9 +4315,9 @@ async function loadActiveSessionFromSheetOnce() {
       return { supported: true, session: result.session, applied: true };
     }
 
-    if (state.activeNapStart || state.activeNightStart) {
-      await repairAndRepublishLocalActiveSession();
-      scheduleActiveSessionWriteRetry();
+    if ((state.activeNapStart || state.activeNightStart)
+      && !shouldKeepPendingLocalActiveSession(null)) {
+      clearLocalActiveSession("Timer encerrado ou removido em outro aparelho.");
     }
     return {
       supported: true,
@@ -4332,14 +4332,6 @@ async function loadActiveSessionFromSheetOnce() {
     clearTimeout(timeoutId);
     activeSessionPollInFlight = false;
   }
-}
-
-async function repairAndRepublishLocalActiveSession() {
-  const activeId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
-  if (activeId && !completedSessionExists(activeId)) {
-    await deleteNapFromSheet(activeId, { silent: true });
-  }
-  await syncActiveSessionToSheet();
 }
 
 function applyRemoteActiveSession(session) {
@@ -4367,7 +4359,20 @@ function applyRemoteActiveSession(session) {
   }
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
   const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
-  if (sameNap) return;
+  if (sameNap) {
+    const remoteAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
+    const remoteGoalDuration = activeSessionNapGoalDuration(session) || state.activeNapGoalDuration;
+    const napMetadataChanged = state.activeNapAwakeMinutes !== remoteAwakeMinutes
+      || state.activeNapGoalDuration !== remoteGoalDuration;
+    if (napMetadataChanged) {
+      state.activeNapAwakeMinutes = remoteAwakeMinutes;
+      state.activeNapGoalDuration = remoteGoalDuration;
+      saveState();
+      scheduleActiveNapNotifications();
+      render();
+    }
+    return;
+  }
 
   if (type === "nap") {
     state.naps = state.naps.filter((nap) => String(nap.id || napIdentity(nap)) !== String(session.id));
