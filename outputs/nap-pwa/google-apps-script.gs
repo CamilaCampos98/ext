@@ -196,6 +196,14 @@ function doPost(e) {
       return jsonResponse(setActiveSession(getActiveSessionSheet(), payload));
     }
 
+    if (payload.action === 'completeActiveSession') {
+      const result = appendMissingRows(sheet, [payload]);
+      if (result.ok) {
+        result.activeSession = clearActiveSession(getActiveSessionSheet(), payload.id);
+      }
+      return jsonResponse(result);
+    }
+
     if (payload.action === 'clearActiveSession') {
       return jsonResponse(clearActiveSession(getActiveSessionSheet(), payload.id));
     }
@@ -527,13 +535,29 @@ function setActiveSession(sheet, payload) {
       ? String(sheet.getRange(2, 2).getValue() || '')
       : '';
     if (currentId === String(payload.id)) {
-      sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+      clearActiveSession(sheet, payload.id);
     }
     return {
       ok: true,
       activeSessionSupported: true,
       session: null,
       rejectedCompleted: true,
+      id: String(payload.id)
+    };
+  }
+
+  const storedKey = sheet.getLastRow() >= 2
+    ? String(sheet.getRange(2, 1).getValue() || '')
+    : '';
+  const storedId = sheet.getLastRow() >= 2
+    ? String(sheet.getRange(2, 2).getValue() || '')
+    : '';
+  if (storedKey === 'closed' && storedId === String(payload.id) && !payload.allowReopen) {
+    return {
+      ok: true,
+      activeSessionSupported: true,
+      session: null,
+      rejectedClosed: true,
       id: String(payload.id)
     };
   }
@@ -592,12 +616,12 @@ function getActiveSession(sheet) {
   const completedAfterActive = completedAt
     && (Number.isNaN(activeUpdatedAt.getTime()) || completedAt >= activeUpdatedAt);
   if (completedAfterActive) {
-    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+    clearActiveSession(sheet, session.id);
     return { ok: true, activeSessionSupported: true, session: null, clearedCompleted: true };
   }
 
   if (isStaleActiveSession(session)) {
-    sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+    clearActiveSession(sheet, session.id);
     return { ok: true, activeSessionSupported: true, session: null, clearedStale: true };
   }
 
@@ -614,7 +638,12 @@ function clearActiveSession(sheet, id) {
     return { ok: true, activeSessionSupported: true, cleared: false, currentId: currentId };
   }
 
-  sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).clearContent();
+  const closedId = String(id || currentId || '');
+  const row = new Array(ACTIVE_SESSION_HEADERS.length).fill('');
+  row[0] = 'closed';
+  row[1] = closedId;
+  row[10] = new Date();
+  sheet.getRange(2, 1, 1, ACTIVE_SESSION_HEADERS.length).setValues([row]);
   return { ok: true, activeSessionSupported: true, cleared: true };
 }
 

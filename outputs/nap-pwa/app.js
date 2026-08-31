@@ -5,7 +5,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyBGklre4CcWaRRfGMEpeJaY8kCfxM2rt6ZJRzpNuKth9od6NBwLCMiM-VW4PVFIbl4ZQ/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyqIBKRgC7ZyUXfYHavHdtGw0hvZWRGLKZx9a7vwfh1eNcRlSoc_PGdqvyqQSa6PPA9MQ/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -1130,8 +1130,8 @@ async function completeNap(mood) {
   state.activeNapGoalDuration = 0;
   clearNotificationTimers();
   saveState();
-  addNapRecord(nap);
-  clearActiveSessionFromSheet(activeNapId);
+  addNapRecord(nap, { sync: false });
+  await completeActiveSessionInSheet(nap);
   toggleMoodSheet(false);
   scheduleUpcomingNotifications();
   render();
@@ -1207,7 +1207,7 @@ async function resumeClosedNightSleep() {
   forgetClosedActiveSession(nightId);
   saveState();
   await deleteNapFromSheet(nightId, { silent: true });
-  await syncActiveSessionToSheet();
+  await syncActiveSessionToSheet({ allowReopen: true });
   scheduleActiveSessionWriteRetry();
   setHint("Sono noturno reaberto. A contagem continuou sem descontar tempo acordada.");
   render();
@@ -1469,7 +1469,8 @@ function napGoalNote(nap) {
   return `Meta da soneca: ${formatDuration(goal)} (${percent}% atingido)`;
 }
 
-function addNapRecord(nap) {
+function addNapRecord(nap, options = {}) {
+  const { sync = true } = options;
   state.naps.unshift(nap);
   state.naps.sort((a, b) => new Date(b.end) - new Date(a.end));
   state.naps = state.naps.slice(0, 80);
@@ -1480,7 +1481,7 @@ function addNapRecord(nap) {
   nap.bedtime = state.bedtime;
   nap.lastWake = state.lastWake;
   saveState();
-  syncNapToSheet(nap);
+  if (sync) syncNapToSheet(nap);
 }
 
 function addNightRecord(night) {
@@ -2222,7 +2223,7 @@ async function continueNapFromRecord(napKey) {
   clearNotificationTimers();
   hideNapDetailCard();
   saveState();
-  await syncActiveSessionToSheet();
+  await syncActiveSessionToSheet({ allowReopen: true });
   scheduleActiveSessionWriteRetry();
   scheduleActiveNapNotifications();
   setHint(`Timer retomado na mesma soneca. Vou descontar ${formatDuration(state.activeNapAwakeMinutes)} acordada entre os ciclos.`);
@@ -4184,7 +4185,8 @@ function activeSessionSignature(session) {
   ].join("::");
 }
 
-async function syncActiveSessionToSheet() {
+async function syncActiveSessionToSheet(options = {}) {
+  const { allowReopen = false } = options;
   if (!SHEETS_WEB_APP_URL) return;
   const session = activeSessionPayload();
   if (!session) return;
@@ -4200,6 +4202,7 @@ async function syncActiveSessionToSheet() {
       body: JSON.stringify({
         token: SHEETS_SHARED_TOKEN,
         action: "setActiveSession",
+        allowReopen,
         ...session
       })
     });
@@ -4209,7 +4212,8 @@ async function syncActiveSessionToSheet() {
       await clearActiveSessionFromSheet(session.id);
       return;
     }
-    if (result.rejectedCompleted && String(result.id || "") === String(session.id)) {
+    if ((result.rejectedCompleted || result.rejectedClosed)
+      && String(result.id || "") === String(session.id)) {
       rememberClosedActiveSession(session.id);
       if ((state.activeNapStart && String(state.activeNapResumeId || "") === String(session.id))
         || (state.activeNightStart && String(state.activeNightId || "") === String(session.id))) {
@@ -4314,6 +4318,13 @@ async function loadActiveSessionFromSheetOnce() {
     activeSessionSheetSupport = true;
 
     if (result.session) {
+      const locallyCompleted = completedSessionRecord(result.session.id);
+      if (locallyCompleted) {
+        await syncNapsToSheet([locallyCompleted], "Confirmando a soneca concluída no Google Sheets...");
+        rememberClosedActiveSession(result.session.id);
+        await clearActiveSessionFromSheet(result.session.id);
+        return { supported: true, session: null, reconciledCompleted: true };
+      }
       if (isStaleActiveSession(result.session)) {
         clearActiveSessionFromSheet(result.session.id);
         if (state.activeNapResumeId === result.session.id || state.activeNightId === result.session.id) {
@@ -4350,6 +4361,41 @@ async function loadActiveSessionFromSheetOnce() {
   } finally {
     clearTimeout(timeoutId);
     activeSessionPollInFlight = false;
+  }
+}
+
+async function completeActiveSessionInSheet(nap) {
+  if (!SHEETS_WEB_APP_URL || !nap) return { ok: false };
+  const record = sheetPayloadForNap(nap);
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "completeActiveSession",
+        ...record
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao concluir a soneca.");
+
+    const completedId = String(record.id);
+    state.naps = state.naps.map((item) => (
+      String(item.id || napIdentity(item)) === completedId ? { ...item, synced: true } : item
+    ));
+    saveState();
+    await clearActiveSessionFromSheet(completedId);
+    setHint("Soneca concluída e sincronizada com o Google Sheets.");
+    return { ok: true };
+  } catch (error) {
+    const syncResult = await syncNapsToSheet([nap], "Concluindo a soneca no Google Sheets...");
+    await clearActiveSessionFromSheet(record.id);
+    if (!syncResult?.ok) {
+      setHint(`Soneca salva no aparelho; a sincronização será repetida: ${error.message}`);
+    }
+    return syncResult || { ok: false };
   }
 }
 
@@ -4486,10 +4532,15 @@ function activeSessionStartWasCorrected(session, resolvedStart) {
 }
 
 function completedSessionExists(id) {
-  if (!id) return false;
+  return Boolean(completedSessionRecord(id));
+}
+
+function completedSessionRecord(id) {
+  if (!id) return null;
   const key = String(id);
-  return state.naps.some((nap) => String(nap.id || napIdentity(nap)) === key)
-    || state.nights.some((night) => String(night.id || napIdentity(night)) === key);
+  return state.naps.find((nap) => String(nap.id || napIdentity(nap)) === key)
+    || state.nights.find((night) => String(night.id || napIdentity(night)) === key)
+    || null;
 }
 
 function clearLocalActiveSession(message = "") {
@@ -5085,8 +5136,10 @@ async function syncNapsToSheet(naps, statusMessage) {
       ? `Google Sheets sincronizado: ${inserted} nova(s), ${skipped} já existia(m).`
       : "Registro salvo no aparelho e sincronizado com o Google Sheets."
     );
+    return { ok: true, result };
   } catch (error) {
     setHint(`Registro salvo no aparelho, mas não foi enviado ao Google Sheets: ${error.message}`);
+    return { ok: false, error };
   }
 }
 
@@ -5100,7 +5153,7 @@ function sheetPayloadForNap(nap) {
   const babyAge = Number(nap.babyAge || currentBabyAgeMonths() || 0);
   const dayStart = normalizeTimeField(nap.dayStart || state.dayStart || state.lastWake);
   const bedtime = recordType === "night" ? minutesToTime(dateToDayMinutes(startedAt)) : normalizeTimeField(nap.bedtime || state.bedtime);
-  const lastWake = recordType === "night" ? minutesToTime(dateToDayMinutes(endedAt)) : normalizeTimeField(state.lastWake || nap.lastWake);
+  const lastWake = recordType === "night" ? minutesToTime(dateToDayMinutes(endedAt)) : normalizeTimeField(nap.lastWake || state.lastWake);
   const payload = {
     id: nap.id || napIdentity(nap),
     type: recordType,
