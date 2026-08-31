@@ -4,6 +4,7 @@ const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
+const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
 const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxD-QdDtPKB0l8_1VC07q882TZ9N5_FcTzofx1nV0o6fEfcxqpfA817UB73rWl4cg2b6g/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
@@ -17,6 +18,7 @@ const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const NIGHT_PRE_START_FEEDING_GRACE_MINUTES = 90;
 const EVENING_ROUTINE_MINUTES = 55;
+const NIGHT_SLEEP_ALERT_GRACE_MINUTES = 45;
 
 const wakeWindows = [
   { minAge: 0, maxAge: 1, min: 45, target: 60, max: 75, naps: "muitas" },
@@ -360,6 +362,7 @@ async function startInitialDataLoad() {
   isInitialLoading = false;
   document.body.classList.remove("is-loading");
   render();
+  scheduleCurrentNotifications();
   scheduleActiveSessionReadRetry();
   loadFromSheet()
     .then(() => loadActiveSessionFromSheet())
@@ -789,6 +792,7 @@ async function startNightSleep(startedAt = new Date()) {
   saveState();
   syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
+  scheduleActiveNightNotifications();
   if (canNotify()) {
     notify("Sono noturno iniciado \ud83c\udf19", `${babyDisplayName()} dormiu! Hora de descansar \ud83d\udc9e`, "soneca-noite-iniciada");
   }
@@ -961,6 +965,7 @@ async function startNightAwake(startedAt = new Date()) {
   saveState();
   syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
+  scheduleActiveNightNotifications();
   render();
 }
 
@@ -999,6 +1004,7 @@ function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
   saveState();
   syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
+  scheduleActiveNightNotifications();
   render();
 }
 
@@ -1646,6 +1652,8 @@ async function requestNotificationPermission() {
     updateNotificationHelp(pushResult.message);
     if (state.activeNapStart) {
       scheduleActiveNapNotifications();
+    } else if (state.activeNightStart) {
+      scheduleActiveNightNotifications();
     } else {
       scheduleUpcomingNotifications();
     }
@@ -1995,9 +2003,12 @@ function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
 
   const awake = totalAwakeMinutes(awakenings);
   const slept = activeNightSleepMinutesUntil(startedAt, now, awakenings);
+  const assessment = activeNightSleepAssessment(slept);
   els.dayCenterLabel.textContent = "dormindo h\u00e1";
   els.dayCenterTime.textContent = formatRingDuration(slept);
-  els.dayCenterHint.textContent = awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
+  els.dayCenterHint.textContent = assessment.exceeded
+    ? `meta noturna excedida em ${formatDuration(assessment.excess)} · veja o assistente`
+    : awake ? `acordada na noite: ${formatRingDuration(awake)}` : `iniciou ${timeLabel(startedAt)}`;
 }
 
 function renderNightRingLabels(startedAt, now) {
@@ -2444,13 +2455,30 @@ function calculateNightSuggestion(prediction) {
     sleepTime = plannedBedtime;
   }
 
-  const routineStart = normalizeDayMinutes(sleepTime - EVENING_ROUTINE_MINUTES);
+  const currentMinutes = nowMinutes();
+  const originalSleepTime = sleepTime;
+  let routineStart = normalizeDayMinutes(sleepTime - EVENING_ROUTINE_MINUTES);
+  let recalculatedAfterDelay = false;
+
+  if (currentMinutes >= 16 * 60) {
+    if (sleepTime <= currentMinutes) {
+      sleepTime = normalizeDayMinutes(currentMinutes + 30);
+      routineStart = currentMinutes;
+      recalculatedAfterDelay = true;
+    } else if (routineStart < currentMinutes) {
+      routineStart = currentMinutes;
+      recalculatedAfterDelay = true;
+    }
+  }
   const desiredLabel = minutesToTime(plannedBedtime);
   const sleepLabel = minutesToTime(sleepTime);
 
-  const reason = lastNap
+  const baseReason = lastNap
     ? `Rotina calculada pelo último despertar (${minutesToTime(lastWake)}), ${today.length} soneca${today.length === 1 ? "" : "s"} e ${formatDuration(napSleepToday)} de sono diurno. Alvo cadastrado para dormir: ${desiredLabel}; melhor tentativa hoje: perto de ${sleepLabel}.`
     : `Rotina calculada pelo início do dia (${state.dayStart || state.lastWake}). Alvo cadastrado para dormir: ${desiredLabel}; melhor tentativa hoje: perto de ${sleepLabel}.`;
+  const reason = recalculatedAfterDelay
+    ? `A sugestão anterior (${minutesToTime(originalSleepTime)}) já ficou para trás. Recalculei a partir de agora e do último despertar: inicie a rotina agora e tente dormir perto de ${sleepLabel}. ${baseReason}`
+    : baseReason;
 
   return { start: routineStart, sleepTime, desiredSleepTime: plannedBedtime, reason };
 }
@@ -2660,10 +2688,20 @@ function assistantInsightParts(message, prediction) {
     };
   }
   if (state.activeNightStart) {
+    const startedAt = new Date(state.activeNightStart);
+    const current = new Date();
+    const slept = Number.isNaN(startedAt.getTime())
+      ? 0
+      : activeNightSleepMinutesUntil(startedAt, current, activeNightAwakeningsUntil(current));
+    const assessment = activeNightSleepAssessment(slept);
     return {
       now: text,
       why: "Durante o sono noturno, o app pausa cálculo de sonecas.",
-      attention: state.activeNightAwakeStart ? "Registre mamada e toque em Voltou a dormir quando ela pegar no sono." : ""
+      attention: state.activeNightAwakeStart
+        ? "Registre mamada e toque em Voltou a dormir quando ela pegar no sono."
+        : assessment.exceeded
+          ? "A duração sozinha não obriga acordar: considere ganho de peso, mamadas e a orientação do pediatra."
+          : ""
     };
   }
   const night = prediction ? calculateNightSuggestion(prediction) : null;
@@ -4312,10 +4350,13 @@ function applyRemoteActiveSession(session) {
   } else {
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
+      const previousNightScheduleState = `${state.activeNightAwakeStart || ""}:${totalAwakeMinutes(state.activeNightAwakenings || [])}`;
       state.activeNightAwakenings = mergeAwakenings(state.activeNightAwakenings || [], session.awakenings || []);
       const validRemoteAwakeStart = validNightAwakeStart(remoteAwakeStart, state.activeNightAwakenings);
       state.activeNightAwakeStart = validRemoteAwakeStart ? validRemoteAwakeStart.toISOString() : null;
       saveState();
+      const currentNightScheduleState = `${state.activeNightAwakeStart || ""}:${totalAwakeMinutes(state.activeNightAwakenings || [])}`;
+      if (currentNightScheduleState !== previousNightScheduleState) scheduleActiveNightNotifications();
       if (startWasCorrected) syncActiveSessionToSheet();
       render();
       return;
@@ -4336,6 +4377,7 @@ function applyRemoteActiveSession(session) {
 
   if (session.babyName && !state.babyName) state.babyName = session.babyName;
   saveState();
+  if (type === "night") scheduleActiveNightNotifications();
   if (startWasCorrected) syncActiveSessionToSheet();
   hydrateForm();
   render();
@@ -5528,6 +5570,91 @@ function scheduleUpcomingNotifications() {
   );
 }
 
+function scheduleCurrentNotifications() {
+  if (state.activeNapStart) {
+    scheduleActiveNapNotifications();
+    return;
+  }
+  if (state.activeNightStart) {
+    scheduleActiveNightNotifications();
+    return;
+  }
+  scheduleUpcomingNotifications();
+}
+
+function scheduleActiveNightNotifications() {
+  if (!canNotify() || !state.activeNightStart) return;
+  clearNotificationTimers();
+
+  if (state.activeNightAwakeStart) {
+    syncRemoteNotificationScheduleAbsolute([]);
+    updateNotificationHelp("Avisos ligados. O alerta de duração será recalculado quando ela voltar a dormir.");
+    return;
+  }
+
+  const plan = activeNightSleepAlertPlan();
+  if (!plan) return;
+  const reminder = {
+    at: plan.at.toISOString(),
+    title: "Sono noturno longo 🌙",
+    body: activeNightSleepAlertBody(plan),
+    tag: "soneca-noite-duracao"
+  };
+  const delay = plan.at.getTime() - Date.now();
+
+  if (delay > 0) {
+    notificationTimers.push(setTimeout(() => {
+      const currentPlan = activeNightSleepAlertPlan();
+      if (!currentPlan || state.activeNightAwakeStart) return;
+      if (currentPlan.slept < currentPlan.threshold) {
+        scheduleActiveNightNotifications();
+        return;
+      }
+      markActiveNightNoticeSent(reminder.tag);
+      notify(reminder.title, activeNightSleepAlertBody(currentPlan), reminder.tag);
+    }, delay));
+    syncRemoteNotificationScheduleAbsolute([reminder]);
+    updateNotificationHelp(`Avisos ligados para esta noite. Alerta de duração em ${formatDuration(delay / 60000)}.`);
+    return;
+  }
+
+  syncRemoteNotificationScheduleAbsolute([]);
+  if (plan.slept >= plan.threshold && !wasActiveNightNoticeSent(reminder.tag)) {
+    markActiveNightNoticeSent(reminder.tag);
+    notify(reminder.title, reminder.body, reminder.tag);
+  }
+  updateNotificationHelp("Avisos ligados. O marco de duração da noite já foi atingido.");
+}
+
+function activeNightSleepAlertPlan() {
+  const startedAt = new Date(state.activeNightStart || "");
+  if (Number.isNaN(startedAt.getTime())) return null;
+  const goal = sleepGoalsForAge(currentBabyAgeMonths()).night;
+  const threshold = goal + NIGHT_SLEEP_ALERT_GRACE_MINUTES;
+  const now = new Date();
+  const awakenings = activeNightAwakeningsUntil(now);
+  const completedAwake = totalAwakeMinutes(awakenings);
+  const slept = activeNightSleepMinutesUntil(startedAt, now, awakenings);
+  const at = new Date(startedAt.getTime() + (threshold + completedAwake) * 60000);
+  return { startedAt, goal, threshold, slept, at };
+}
+
+function activeNightSleepAssessment(sleptMinutes) {
+  const goal = sleepGoalsForAge(currentBabyAgeMonths()).night;
+  const threshold = goal + NIGHT_SLEEP_ALERT_GRACE_MINUTES;
+  return {
+    goal,
+    threshold,
+    exceeded: sleptMinutes >= threshold,
+    excess: Math.max(0, sleptMinutes - goal)
+  };
+}
+
+function activeNightSleepAlertBody(plan) {
+  const notifiedSleep = Math.max(plan.slept, plan.threshold);
+  return `${babyDisplayName()} já está há ${formatRingDuration(notifiedSleep)} dormindo. Passou ${formatDuration(Math.max(0, notifiedSleep - plan.goal))} da meta. Se está saudável, ganha peso e não há orientação para acordar para mamar, em geral pode acordar sozinha; siga o pediatra se houver orientação diferente.`;
+}
+
 function scheduleActiveNapNotifications() {
   if (!canNotify() || !state.activeNapStart) return;
   clearNotificationTimers();
@@ -5719,6 +5846,28 @@ function markActiveNapNoticeSent(tag) {
   const notices = loadActiveNapNotices();
   notices[activeNapNoticeKey(tag)] = new Date().toISOString();
   localStorage.setItem(ACTIVE_NAP_NOTICE_KEY, JSON.stringify(notices));
+}
+
+function activeNightNoticeKey(tag) {
+  return `${state.activeNightId || state.activeNightStart || "sem-noite"}:${tag}`;
+}
+
+function loadActiveNightNotices() {
+  try {
+    return JSON.parse(localStorage.getItem(ACTIVE_NIGHT_NOTICE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function wasActiveNightNoticeSent(tag) {
+  return Boolean(loadActiveNightNotices()[activeNightNoticeKey(tag)]);
+}
+
+function markActiveNightNoticeSent(tag) {
+  const notices = loadActiveNightNotices();
+  notices[activeNightNoticeKey(tag)] = new Date().toISOString();
+  localStorage.setItem(ACTIVE_NIGHT_NOTICE_KEY, JSON.stringify(notices));
 }
 
 function notify(title, body, tag = "soneca-alerta") {
@@ -6044,6 +6193,15 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
 
   if (state.activeNightStart) {
     const awakeMinutes = totalAwakeMinutes(state.activeNightAwakenings || []);
+    const startedAt = new Date(state.activeNightStart);
+    const current = new Date();
+    const slept = Number.isNaN(startedAt.getTime())
+      ? 0
+      : activeNightSleepMinutesUntil(startedAt, current, activeNightAwakeningsUntil(current));
+    const assessment = activeNightSleepAssessment(slept);
+    if (assessment.exceeded) {
+      return `${babyDisplayName()} já está há ${formatRingDuration(slept)} dormindo e passou ${formatDuration(assessment.excess)} da meta noturna de ${formatDuration(assessment.goal)}. Se está saudável, ganha peso e não há orientação para acordar para mamar, em geral pode deixá-la acordar sozinha. Acorde ou procure orientação se o pediatra recomendou, houver dificuldade de ganho de peso, alimentação insuficiente ou algo diferente do habitual.`;
+    }
     return awakeMinutes
       ? `Sono noturno em curso. Ela j\u00e1 ficou acordada ${formatRingDuration(awakeMinutes)} nesta noite. Sem c\u00e1lculo de soneca at\u00e9 encerrar a noite.`
       : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
