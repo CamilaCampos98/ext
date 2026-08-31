@@ -5,7 +5,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzneAPfGtQrkyRZIsNHbMhNVdaXs91MlL2nGxoOykU89GKijHLOwwZx4kgN21FczGN3qA/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxCUHHCne5J-n4_NydbPivRtx-tJle5faiFJu6MT-iXROQ6fE8pGLOfnbEipmxp6aBCHg/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -110,6 +110,7 @@ const defaultState = {
   activeNapStart: null,
   activeNapResumeId: null,
   activeNapAwakeMinutes: 0,
+  activeNapGoalDuration: 0,
   activeNightStart: null,
   activeNightId: null,
   activeNightAwakeStart: null,
@@ -772,6 +773,8 @@ async function startNap() {
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = sessionId;
   state.activeNapAwakeMinutes = 0;
+  state.activeNapGoalDuration = 0;
+  state.activeNapGoalDuration = activeNapGoalMinutes();
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -1041,6 +1044,8 @@ function convertNightAwakeToDayStartNap(dayStartedAt, napStartedAt) {
   state.activeNapStart = napStartedAt.toISOString();
   state.activeNapResumeId = newNapId(napStartedAt);
   state.activeNapAwakeMinutes = 0;
+  state.activeNapGoalDuration = 0;
+  state.activeNapGoalDuration = activeNapGoalMinutes();
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -1112,11 +1117,16 @@ async function completeNap(mood) {
   const endedAt = new Date();
   const activeNapId = state.activeNapResumeId || newNapId(startedAt);
   state.activeNapResumeId = activeNapId;
-  const nap = createNapRecord(startedAt, endedAt, mood, { id: activeNapId, awakeDuration: activeNapAwakeMinutes() });
+  const nap = createNapRecord(startedAt, endedAt, mood, {
+    id: activeNapId,
+    awakeDuration: activeNapAwakeMinutes(),
+    goalDuration: state.activeNapGoalDuration
+  });
   rememberClosedActiveSession(activeNapId);
   state.activeNapStart = null;
   state.activeNapResumeId = null;
   state.activeNapAwakeMinutes = 0;
+  state.activeNapGoalDuration = 0;
   clearNotificationTimers();
   saveState();
   addNapRecord(nap);
@@ -1264,7 +1274,7 @@ function hasDayRecordAfter(date) {
 function createNapRecord(startedAt, endedAt, mood, options = {}) {
   const napIndex = napIndexForStart(startedAt);
   const nightPlan = activeNapNightProtectionPlan(startedAt);
-  const goalDuration = nightPlan?.goal || napGoalMinutesForIndex(napIndex);
+  const goalDuration = Number(options.goalDuration) || nightPlan?.goal || napGoalMinutesForIndex(napIndex);
   const grossDuration = Math.max(1, Math.round((endedAt - startedAt) / 60000));
   const awakeDuration = Math.max(0, Math.round(Number(options.awakeDuration) || 0));
   const duration = Math.max(1, grossDuration - awakeDuration);
@@ -2205,6 +2215,8 @@ async function continueNapFromRecord(napKey) {
   state.activeNapStart = startedAt.toISOString();
   state.activeNapResumeId = resumedId;
   state.activeNapAwakeMinutes = (Number(nap.awakeDuration) || 0) + awakeGapMinutes;
+  state.activeNapGoalDuration = Number(nap.goalDuration) || 0;
+  if (!state.activeNapGoalDuration) state.activeNapGoalDuration = activeNapGoalMinutes();
   if (nap.id) await deleteNapFromSheet(nap.id, { silent: true });
   clearNotificationTimers();
   hideNapDetailCard();
@@ -4067,13 +4079,16 @@ function activeSessionPayload() {
   if (state.activeNapStart) {
     const startedAt = new Date(state.activeNapStart);
     if (!state.activeNapResumeId) state.activeNapResumeId = newNapId(startedAt);
+    const napGoalDuration = activeNapGoalMinutes();
     return {
       id: state.activeNapResumeId,
       type: "nap",
       start: toLocalDateTimeValue(startedAt),
       babyName: state.babyName || "",
       babyAge: currentBabyAgeMonths(),
-      napAwakeMinutes: activeNapAwakeMinutes()
+      napAwakeMinutes: activeNapAwakeMinutes(),
+      napGoalDuration,
+      awakenings: [{ napGoalDuration }]
     };
   }
 
@@ -4129,7 +4144,8 @@ function shouldKeepPendingLocalActiveSession(remoteSession, remoteType = "") {
     start: remoteSession.start,
     nightAwakeStart: remoteSession.nightAwakeStart || "",
     awakenings: remoteSession.awakenings || [],
-    napAwakeMinutes: remoteSession.napAwakeMinutes
+    napAwakeMinutes: remoteSession.napAwakeMinutes,
+    napGoalDuration: activeSessionNapGoalDuration(remoteSession)
   });
 
   return localSignature !== remoteSignature;
@@ -4162,7 +4178,8 @@ function activeSessionSignature(session) {
     start,
     awakeStart,
     awakenings,
-    type === "nap" ? normalizeNapAwakeMinutes(session?.napAwakeMinutes) : 0
+    type === "nap" ? normalizeNapAwakeMinutes(session?.napAwakeMinutes) : 0,
+    type === "nap" ? activeSessionNapGoalDuration(session) : 0
   ].join("::");
 }
 
@@ -4357,6 +4374,8 @@ function applyRemoteActiveSession(session) {
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
     state.activeNapAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
+    state.activeNapGoalDuration = activeSessionNapGoalDuration(session);
+    if (!state.activeNapGoalDuration) state.activeNapGoalDuration = activeNapGoalMinutes();
     state.activeNightStart = null;
     state.activeNightId = null;
     state.activeNightAwakeStart = null;
@@ -4386,6 +4405,7 @@ function applyRemoteActiveSession(session) {
       state.activeNapStart = null;
       state.activeNapResumeId = null;
       state.activeNapAwakeMinutes = 0;
+      state.activeNapGoalDuration = 0;
       clearNotificationTimers();
       syncRemoteNotificationScheduleAbsolute([]);
     }
@@ -4452,6 +4472,7 @@ function clearLocalActiveSession(message = "") {
   state.activeNapStart = null;
   state.activeNapResumeId = null;
   state.activeNapAwakeMinutes = 0;
+  state.activeNapGoalDuration = 0;
   state.activeNightStart = null;
   state.activeNightId = null;
   state.activeNightAwakeStart = null;
@@ -6836,6 +6857,7 @@ function loadState() {
     loaded.dayStartOverride = Boolean(loaded.dayStartOverride);
     loaded.activeNapResumeId = loaded.activeNapResumeId ? String(loaded.activeNapResumeId) : null;
     loaded.activeNapAwakeMinutes = normalizeNapAwakeMinutes(loaded.activeNapAwakeMinutes);
+    loaded.activeNapGoalDuration = normalizeNapGoalDuration(loaded.activeNapGoalDuration);
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
@@ -7589,9 +7611,24 @@ function minutesSinceDate(value) {
 }
 
 function activeNapGoalMinutes() {
+  const sharedGoal = normalizeNapGoalDuration(state.activeNapGoalDuration);
+  if (sharedGoal) return sharedGoal;
   const activeStart = state.activeNapStart ? new Date(state.activeNapStart) : null;
   const nightPlan = activeStart ? activeNapNightProtectionPlan(activeStart) : null;
   return nightPlan?.goal || napGoalMinutesForIndex(napsToday().length + 1);
+}
+
+function normalizeNapGoalDuration(value) {
+  const minutes = Math.round(Number(value) || 0);
+  return minutes > 0 ? clamp(minutes, 10, 240) : 0;
+}
+
+function activeSessionNapGoalDuration(session) {
+  const direct = normalizeNapGoalDuration(session?.napGoalDuration);
+  if (direct) return direct;
+  const metadata = (Array.isArray(session?.awakenings) ? session.awakenings : [])
+    .find((item) => normalizeNapGoalDuration(item?.napGoalDuration));
+  return normalizeNapGoalDuration(metadata?.napGoalDuration);
 }
 
 function activeNapNightProtectionPlan(startedAt) {

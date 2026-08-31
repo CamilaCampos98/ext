@@ -93,6 +93,7 @@ const ACTIVE_SESSION_HEADERS = [
   'Acordou em',
   'Despertares',
   'Pausa soneca (min)',
+  'Meta soneca (min)',
   'Atualizado em'
 ];
 
@@ -546,6 +547,7 @@ function setActiveSession(sheet, payload) {
     nightAwakeStart,
     JSON.stringify(awakenings),
     payload.type === 'nap' ? activeNapAwakeMinutes(payload.napAwakeMinutes) : '',
+    payload.type === 'nap' ? activeNapGoalDuration(payload.napGoalDuration) : '',
     new Date()
   ];
 
@@ -610,7 +612,8 @@ function activeSessionRowToObject(row) {
     nightAwakeStart: toDateTimeString(row[6]),
     awakenings: parseAwakenings(row[7]),
     napAwakeMinutes: activeNapAwakeMinutes(row[8]),
-    updatedAt: toIsoString(row[9] || row[8])
+    napGoalDuration: activeNapGoalDuration(row[9]),
+    updatedAt: toIsoString(row[10] || row[9] || row[8])
   };
 }
 
@@ -689,6 +692,12 @@ function isStaleActiveSession(session) {
 
 function completedRecordExists(id) {
   return Boolean(completedRecordTimestamp(id));
+}
+
+function activeNapGoalDuration(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') return 0;
+  const minutes = Math.round(Number(value) || 0);
+  return minutes > 0 ? Math.min(Math.max(minutes, 10), 240) : 0;
 }
 
 function completedRecordTimestamp(id) {
