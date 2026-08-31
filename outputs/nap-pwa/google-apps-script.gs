@@ -5,6 +5,7 @@ const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
+const SCRIPT_VERSION = 'active-tombstone-v1';
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 
@@ -1152,7 +1153,8 @@ function toTimeString(value) {
 }
 
 function jsonResponse(data) {
+  const response = Object.assign({}, data, { scriptVersion: SCRIPT_VERSION });
   return ContentService
-    .createTextOutput(JSON.stringify(data))
+    .createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
 }
