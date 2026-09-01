@@ -214,20 +214,21 @@ main {
 }
 
 .app-version-badge {
-  position: fixed;
-  top: max(62px, calc(env(safe-area-inset-top) + 62px));
-  right: max(10px, calc((100vw - 760px) / 2 + 10px));
-  z-index: 8;
   padding: 3px 7px;
-  border: 1px solid rgba(168, 216, 240, 0.16);
-  border-radius: 999px;
-  background: rgba(17, 26, 61, 0.72);
-  color: rgba(225, 235, 255, 0.7);
+  color: rgba(225, 235, 255, 0.5);
   font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
-  pointer-events: none;
+}
+
+.app-version-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  width: 100%;
+  margin: 7px auto 1px;
+  text-align: center;
 }
 
 @keyframes sheet-sync-spin {
