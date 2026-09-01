@@ -1,4 +1,5 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
+const APP_VERSION = "20260901.v207";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -344,6 +345,8 @@ const recentlyClosedActiveSessions = new Map();
 init();
 
 function init() {
+  const versionLabel = document.querySelector("#appVersion");
+  if (versionLabel) versionLabel.textContent = APP_VERSION;
   document.body.classList.add("is-loading");
   mountProfilePanel();
   hydrateForm();
