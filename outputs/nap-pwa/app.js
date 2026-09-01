@@ -18,6 +18,8 @@ const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const NIGHT_PRE_START_FEEDING_GRACE_MINUTES = 90;
 const EVENING_ROUTINE_MINUTES = 55;
+const NIGHT_ROUTINE_NAP_CUTOFF_MINUTES = 60;
+const NIGHT_ROUTINE_TRANSITION_MINUTES = 30;
 const NIGHT_SLEEP_ALERT_GRACE_MINUTES = 45;
 
 const wakeWindows = [
@@ -115,6 +117,7 @@ const defaultState = {
   activeNightId: null,
   activeNightAwakeStart: null,
   activeNightAwakenings: [],
+  nightRoutineStartedAt: null,
   cycleStartAt: null,
   dayStartOverride: false,
   naps: [],
@@ -188,6 +191,8 @@ const els = {
   startNap: document.querySelector("#startNap"),
   endNap: document.querySelector("#endNap"),
   startNight: document.querySelector("#startNight"),
+  toggleNightRoutine: document.querySelector("#toggleNightRoutine"),
+  nightRoutineActionLabel: document.querySelector("#nightRoutineActionLabel"),
   endNight: document.querySelector("#endNight"),
   startNightAwake: document.querySelector("#startNightAwake"),
   endNightAwake: document.querySelector("#endNightAwake"),
@@ -510,6 +515,7 @@ function bindEvents() {
     toggleStartSheet(false);
     openNightTimeSheet("startNight");
   });
+  els.toggleNightRoutine?.addEventListener("click", toggleNightRoutine);
   els.endNight.addEventListener("click", () => {
     toggleStartSheet(false);
     openNightTimeSheet("endNight");
@@ -776,6 +782,7 @@ async function startNap() {
   state.activeNapAwakeMinutes = 0;
   state.activeNapGoalDuration = 0;
   state.activeNapGoalDuration = activeNapGoalMinutes();
+  state.nightRoutineStartedAt = null;
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -791,6 +798,7 @@ async function startNightSleep(startedAt = new Date()) {
   state.activeNightId = newNightId(startedAt);
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
+  state.nightRoutineStartedAt = null;
   clearNotificationTimers();
   syncRemoteNotificationScheduleAbsolute([]);
   saveState();
@@ -800,6 +808,33 @@ async function startNightSleep(startedAt = new Date()) {
   if (canNotify()) {
     notify("Sono noturno iniciado \ud83c\udf19", `${babyDisplayName()} dormiu! Hora de descansar \ud83d\udc9e`, "soneca-noite-iniciada");
   }
+  render();
+}
+
+function nightRoutineIsActive() {
+  if (!state.nightRoutineStartedAt || state.activeNightStart) return false;
+  const startedAt = new Date(state.nightRoutineStartedAt);
+  if (Number.isNaN(startedAt.getTime())) return false;
+  const age = Date.now() - startedAt.getTime();
+  return age >= -5 * 60000 && age <= 8 * 60 * 60000;
+}
+
+function toggleNightRoutine() {
+  toggleStartSheet(false);
+  if (state.activeNapStart || state.activeNightStart) {
+    setHint("Encerre o sono em andamento antes de alterar a rotina noturna.");
+    return;
+  }
+
+  if (nightRoutineIsActive()) {
+    state.nightRoutineStartedAt = null;
+    setHint("Rotina noturna cancelada. As sugestões de soneca voltaram a ser calculadas.");
+  } else {
+    state.nightRoutineStartedAt = new Date().toISOString();
+    setHint("Rotina noturna iniciada. Não vou sugerir novas sonecas até a hora de dormir.");
+  }
+  saveState();
+  scheduleUpcomingNotifications();
   render();
 }
 
@@ -1866,6 +1901,13 @@ function renderPrediction(prediction) {
     return;
   }
 
+  if (nightRoutineIsActive()) {
+    const night = calculateNightSuggestion(prediction);
+    if (els.nextWindow) els.nextWindow.textContent = "Rotina noturna em andamento";
+    if (els.nextHint) els.nextHint.textContent = `Sem novas sonecas. Tente dormir perto de ${minutesToTime(night.sleepTime)}.`;
+    return;
+  }
+
   if (!shouldSuggestNapBeforeNight(prediction)) {
     const night = calculateNightSuggestion(prediction);
     const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
@@ -2323,6 +2365,14 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
+  if (nightRoutineIsActive()) {
+    const night = calculateNightSuggestion(prediction);
+    els.dayCenterLabel.textContent = "rotina noturna";
+    els.dayCenterTime.textContent = "em andamento";
+    els.dayCenterHint.textContent = `iniciada ${timeLabel(new Date(state.nightRoutineStartedAt))} · dormir perto de ${minutesToTime(night.sleepTime)}`;
+    return;
+  }
+
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
     const night = calculateNightSuggestion(prediction);
     const delay = minutesUntilTodayOrNow(night.start, now);
@@ -2381,6 +2431,10 @@ function renderRingDayLabels(night) {
 }
 
 function plannedNapMarkers(prediction, today, night) {
+  if (nightRoutineIsActive()
+    || minutesBetweenClock(nowMinutes(), night.start) <= NIGHT_ROUTINE_NAP_CUTOFF_MINUTES) {
+    return [];
+  }
   const rescueNap = lateRescueNapPlan(prediction, night, today);
   if (rescueNap && !state.activeNapStart) {
     return [{
@@ -2499,6 +2553,10 @@ function calculateNightSuggestion(prediction) {
 
 function shouldSkipNextNapForNight(prediction, night, today = napsToday()) {
   if (!prediction || !night) return false;
+  if (nightRoutineIsActive()
+    || minutesBetweenClock(nowMinutes(), night.start) <= NIGHT_ROUTINE_NAP_CUTOFF_MINUTES) {
+    return true;
+  }
   if (lateRescueNapPlan(prediction, night, today)) return false;
   const napWouldEndTooClose = prediction.end >= night.start - 45;
   const napWouldStartTooClose = prediction.start >= night.start - 90;
@@ -2506,12 +2564,13 @@ function shouldSkipNextNapForNight(prediction, night, today = napsToday()) {
 }
 
 function lateRescueNapPlan(prediction, night, today = napsToday()) {
-  if (!prediction || !night || state.activeNapStart || state.activeNightStart) return null;
+  if (!prediction || !night || state.activeNapStart || state.activeNightStart || nightRoutineIsActive()) return null;
 
   const age = currentBabyAgeMonths();
   if (age > 12) return null;
 
   const now = nowMinutes();
+  if (minutesBetweenClock(now, night.start) <= NIGHT_ROUTINE_NAP_CUTOFF_MINUTES) return null;
   const windowStart = Math.max(now, prediction.start);
   if (windowStart > prediction.end || windowStart < 15 * 60) return null;
 
@@ -2526,6 +2585,7 @@ function lateRescueNapPlan(prediction, night, today = napsToday()) {
 
   const duration = clamp(Math.min(25, daySleepDeficit || 20), 15, 25);
   const end = windowStart + duration;
+  if (minutesBetweenClock(end, night.start) < NIGHT_ROUTINE_TRANSITION_MINUTES) return null;
   const ageWindow = wakeWindowForAge(age);
   const minimumFinalWindow = clamp(ageWindow.min - 20, 75, 210);
   const desiredSleep = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
@@ -2544,13 +2604,15 @@ function lateRescueNapPlan(prediction, night, today = napsToday()) {
 }
 
 function shouldSuggestNapBeforeNight(prediction, today = napsToday()) {
-  if (!prediction || state.activeNightStart) return false;
+  if (!prediction || state.activeNightStart || nightRoutineIsActive()) return false;
   const night = calculateNightSuggestion(prediction);
+  const now = nowMinutes();
+  if (minutesBetweenClock(now, night.start) <= NIGHT_ROUTINE_NAP_CUTOFF_MINUTES) return false;
   if (lateRescueNapPlan(prediction, night, today)) return true;
   if (shouldSkipNextNapForNight(prediction, night)) return false;
-  if (hasPlannedNapSlot(today)) return true;
-  const now = nowMinutes();
   const windowStillUseful = prediction.end >= now - 10;
+  if (!windowStillUseful) return false;
+  if (hasPlannedNapSlot(today)) return true;
   const enoughGapAfterNap = minutesBetweenClock(prediction.end, night.start) >= 45;
   const notTooLate = minutesBetweenClock(now, night.start) >= 80;
   return windowStillUseful && enoughGapAfterNap && notTooLate;
@@ -2576,6 +2638,12 @@ function renderTimer() {
   els.startNap.disabled = active || nightActive;
   els.endNap.disabled = !active;
   els.startNight.disabled = active || nightActive;
+  if (els.toggleNightRoutine) {
+    els.toggleNightRoutine.disabled = active || nightActive;
+  }
+  if (els.nightRoutineActionLabel) {
+    els.nightRoutineActionLabel.textContent = nightRoutineIsActive() ? "Cancelar rotina noturna" : "Iniciar rotina noturna";
+  }
   els.endNight.disabled = !nightActive;
   els.startNightAwake.disabled = !nightActive || nightAwake;
   els.endNightAwake.disabled = !nightActive || !nightAwake;
@@ -2622,6 +2690,7 @@ function updateStartActionContext() {
     els.openDiaper,
     els.openTummyTime,
     els.startNight,
+    els.toggleNightRoutine,
     els.endNight,
     els.startNightAwake,
     els.endNightAwake,
@@ -2638,7 +2707,9 @@ function updateStartActionContext() {
     ? [els.endNap, els.openFeeding, els.openDiaper, els.openTummyTime, els.startNap]
     : state.activeNightStart
       ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, els.openFeeding, els.openDiaper, els.endNight, els.resumeNight]
-      : [els.startNap, els.openFeeding, els.openDiaper, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
+      : nightRoutineIsActive()
+        ? [els.startNight, els.toggleNightRoutine, els.openFeeding, els.openDiaper, els.startNap, els.openTummyTime, els.openManualNap, els.openManualNight]
+        : [els.startNap, els.openFeeding, els.openDiaper, els.toggleNightRoutine, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
 
   priority.filter(Boolean).forEach((button, index) => {
     button.style.order = String(index + 1);
@@ -4440,6 +4511,7 @@ function applyRemoteActiveSession(session) {
   }
 
   if (type === "nap") {
+    state.nightRoutineStartedAt = null;
     state.naps = state.naps.filter((nap) => String(nap.id || napIdentity(nap)) !== String(session.id));
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
@@ -4453,6 +4525,7 @@ function applyRemoteActiveSession(session) {
     clearNotificationTimers();
     scheduleActiveNapNotifications();
   } else {
+    state.nightRoutineStartedAt = null;
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
       const previousNightScheduleState = `${state.activeNightAwakeStart || ""}:${totalAwakeMinutes(state.activeNightAwakenings || [])}`;
@@ -6324,10 +6397,22 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
       : "Sono noturno em curso. Acompanhe apenas a noite at\u00e9 ela acordar de manh\u00e3.";
   }
 
+  if (nightRoutineIsActive()) {
+    const night = calculateNightSuggestion(prediction);
+    return `Rotina noturna iniciada às ${timeLabel(new Date(state.nightRoutineStartedAt))}. Não vou sugerir novas sonecas. Mantenha luz baixa e atividades calmas para tentar dormir perto de ${minutesToTime(night.sleepTime)}.`;
+  }
+
   const night = calculateNightSuggestion(prediction);
   const rescueNap = lateRescueNapPlan(prediction, night, today);
   if (rescueNap) {
     return `Ainda cabe uma soneca curta por volta de ${minutesToTime(rescueNap.start)}. Limite a cerca de ${formatDuration(rescueNap.duration)} e tente encerrar até ${minutesToTime(rescueNap.end)} para preservar o sono noturno perto de ${minutesToTime(rescueNap.recommendedSleep)}.`;
+  }
+
+  if (!shouldSuggestNapBeforeNight(prediction, today)) {
+    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    return delay > 0
+      ? `Não cabe outra soneca com transição segura antes da noite. Comece a rotina por volta de ${minutesToTime(night.start)} e tente dormir perto de ${minutesToTime(night.sleepTime)}.`
+      : `Não sugiro outra soneca agora. Inicie ou mantenha a rotina noturna e tente dormir perto de ${minutesToTime(night.sleepTime)}.`;
   }
 
   const recoveryInsight = nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, today);
@@ -6936,6 +7021,9 @@ function loadState() {
     loaded.activeNapAwakeMinutes = normalizeNapAwakeMinutes(loaded.activeNapAwakeMinutes);
     loaded.activeNapGoalDuration = normalizeNapGoalDuration(loaded.activeNapGoalDuration);
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
+    loaded.nightRoutineStartedAt = loaded.nightRoutineStartedAt && !Number.isNaN(new Date(loaded.nightRoutineStartedAt).getTime())
+      ? new Date(loaded.nightRoutineStartedAt).toISOString()
+      : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
     loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);
