@@ -5,9 +5,10 @@ const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
-const SCRIPT_VERSION = 'active-tombstone-v1';
+const SCRIPT_VERSION = 'active-routine-v2';
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
+const ACTIVE_ROUTINE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 const HEADERS = [
   'Recebido em',
@@ -531,7 +532,9 @@ function setActiveSession(sheet, payload) {
     return { ok: false, activeSessionSupported: true, error: 'Sessão ativa incompleta.' };
   }
 
-  if (completedRecordExists(payload.id)) {
+  const sessionType = payload.type === 'night' ? 'night' : payload.type === 'routine' ? 'routine' : 'nap';
+
+  if (sessionType !== 'routine' && completedRecordExists(payload.id)) {
     const currentId = sheet.getLastRow() >= 2
       ? String(sheet.getRange(2, 2).getValue() || '')
       : '';
@@ -581,14 +584,14 @@ function setActiveSession(sheet, payload) {
   const row = [
     'active',
     String(payload.id),
-    payload.type === 'night' ? 'night' : 'nap',
+    sessionType,
     payload.babyName || '',
     payload.babyAge || '',
     toDateTimeString(payload.start),
     nightAwakeStart,
     JSON.stringify(awakenings),
-    payload.type === 'nap' ? activeNapAwakeMinutes(payload.napAwakeMinutes) : '',
-    payload.type === 'nap' ? activeNapGoalDuration(payload.napGoalDuration) : '',
+    sessionType === 'nap' ? activeNapAwakeMinutes(payload.napAwakeMinutes) : '',
+    sessionType === 'nap' ? activeNapGoalDuration(payload.napGoalDuration) : '',
     new Date()
   ];
 
@@ -612,7 +615,7 @@ function getActiveSession(sheet) {
   }
 
   const session = activeSessionRowToObject(row);
-  const completedAt = completedRecordTimestamp(session.id);
+  const completedAt = session.type === 'routine' ? null : completedRecordTimestamp(session.id);
   const activeUpdatedAt = new Date(session.updatedAt || '');
   const completedAfterActive = completedAt
     && (Number.isNaN(activeUpdatedAt.getTime()) || completedAt >= activeUpdatedAt);
@@ -651,7 +654,7 @@ function clearActiveSession(sheet, id) {
 function activeSessionRowToObject(row) {
   return {
     id: String(row[1] || ''),
-    type: row[2] === 'night' ? 'night' : 'nap',
+    type: row[2] === 'night' ? 'night' : row[2] === 'routine' ? 'routine' : 'nap',
     babyName: row[3] || '',
     babyAge: row[4] || '',
     start: toDateTimeString(row[5]),
@@ -733,7 +736,9 @@ function isStaleActiveSession(session) {
   const startedAt = new Date(session && session.start);
   if (Number.isNaN(startedAt.getTime())) return true;
   const age = Date.now() - startedAt.getTime();
-  return session.type === 'night' ? age > ACTIVE_NIGHT_MAX_AGE_MS : age > ACTIVE_NAP_MAX_AGE_MS;
+  if (session.type === 'night') return age > ACTIVE_NIGHT_MAX_AGE_MS;
+  if (session.type === 'routine') return age > ACTIVE_ROUTINE_MAX_AGE_MS;
+  return age > ACTIVE_NAP_MAX_AGE_MS;
 }
 
 function completedRecordExists(id) {

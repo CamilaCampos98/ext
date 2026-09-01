@@ -1,5 +1,5 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
-const APP_VERSION = "20260901.v207";
+const APP_VERSION = "20260901.v209";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -17,6 +17,7 @@ const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 const ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS = 15000;
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
+const ACTIVE_ROUTINE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const NIGHT_PRE_START_FEEDING_GRACE_MINUTES = 90;
 const EVENING_ROUTINE_MINUTES = 55;
 const NIGHT_ROUTINE_NAP_CUTOFF_MINUTES = 60;
@@ -119,6 +120,7 @@ const defaultState = {
   activeNightAwakeStart: null,
   activeNightAwakenings: [],
   nightRoutineStartedAt: null,
+  nightRoutineId: null,
   cycleStartAt: null,
   dayStartOverride: false,
   naps: [],
@@ -786,6 +788,7 @@ async function startNap() {
   state.activeNapGoalDuration = 0;
   state.activeNapGoalDuration = activeNapGoalMinutes();
   state.nightRoutineStartedAt = null;
+  state.nightRoutineId = null;
   clearNotificationTimers();
   saveState();
   syncActiveSessionToSheet();
@@ -802,6 +805,7 @@ async function startNightSleep(startedAt = new Date()) {
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
   state.nightRoutineStartedAt = null;
+  state.nightRoutineId = null;
   clearNotificationTimers();
   syncRemoteNotificationScheduleAbsolute([]);
   saveState();
@@ -822,7 +826,7 @@ function nightRoutineIsActive() {
   return age >= -5 * 60000 && age <= 8 * 60 * 60000;
 }
 
-function toggleNightRoutine() {
+async function toggleNightRoutine() {
   toggleStartSheet(false);
   if (state.activeNapStart || state.activeNightStart) {
     setHint("Encerre o sono em andamento antes de alterar a rotina noturna.");
@@ -830,20 +834,41 @@ function toggleNightRoutine() {
   }
 
   if (nightRoutineIsActive()) {
+    const routineId = state.nightRoutineId;
+    rememberClosedActiveSession(routineId);
     state.nightRoutineStartedAt = null;
+    state.nightRoutineId = null;
     setHint("Rotina noturna cancelada. As sugestões de soneca voltaram a ser calculadas.");
+    saveState();
+    scheduleUpcomingNotifications();
+    render();
+    if (routineId) await clearActiveSessionFromSheet(routineId);
   } else {
-    state.nightRoutineStartedAt = new Date().toISOString();
-    setHint("Rotina noturna iniciada. Não vou sugerir novas sonecas até a hora de dormir.");
+    openNightTimeSheet("startRoutine");
   }
+}
+
+function startNightRoutine(startedAt = new Date()) {
+  const age = Date.now() - startedAt.getTime();
+  if (Number.isNaN(startedAt.getTime()) || age < 0 || age > 8 * 60 * 60000) {
+    els.nightTimeError.textContent = "Informe um horário válido das últimas 8 horas.";
+    return false;
+  }
+  state.nightRoutineStartedAt = startedAt.toISOString();
+  state.nightRoutineId = newRoutineId(startedAt);
+  setHint(`Rotina noturna iniciada às ${timeLabel(startedAt)}. Não vou sugerir novas sonecas até a hora de dormir.`);
   saveState();
+  syncActiveSessionToSheet();
+  scheduleActiveSessionWriteRetry();
   scheduleUpcomingNotifications();
   render();
+  return true;
 }
 
 function openNightTimeSheet(mode) {
   nightEventMode = mode;
   const titles = {
+    startRoutine: "Início da rotina noturna",
     startNight: "Hora de dormir",
     endNight: "Acordou",
     startAwake: "Acordou na madrugada",
@@ -869,6 +894,9 @@ function setNightEventEndVisible(visible) {
 }
 
 function nightTimeHint(mode) {
+  if (mode === "startRoutine") {
+    return "Informe quando a rotina começou. Se ficar vazio, uso o horário atual.";
+  }
   if (mode === "endNight") {
     return "Informe somente a hora que ela acordou. Se ficar vazio, uso o horario atual.";
   }
@@ -880,6 +908,7 @@ function nightTimeHint(mode) {
 
 function updateNightTimeFieldLabels(mode) {
   const labels = {
+    startRoutine: "Hora que a rotina começou",
     startNight: "Hora que dormiu",
     endNight: "Hora que acordou",
     startAwake: "Acordou em",
@@ -906,7 +935,9 @@ async function confirmNightTime() {
   const awakeRange = periodMode ? nightAwakeRangeValue() : null;
   if (!eventAt && !awakeRange) return;
 
-  if (nightEventMode === "startNight") {
+  if (nightEventMode === "startRoutine") {
+    if (!startNightRoutine(eventAt)) return;
+  } else if (nightEventMode === "startNight") {
     await startNightSleep(eventAt);
   } else if (nightEventMode === "endNight") {
     await completeNightSleep(eventAt);
@@ -4126,6 +4157,11 @@ function newNightId(startedAt = new Date()) {
   return `night-${time}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function newRoutineId(startedAt = new Date()) {
+  const time = Number.isNaN(new Date(startedAt).getTime()) ? Date.now() : new Date(startedAt).getTime();
+  return `routine-${time}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function hashString(value) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -4183,6 +4219,18 @@ function activeSessionPayload() {
     };
   }
 
+  if (nightRoutineIsActive()) {
+    const startedAt = new Date(state.nightRoutineStartedAt);
+    if (!state.nightRoutineId) state.nightRoutineId = newRoutineId(startedAt);
+    return {
+      id: state.nightRoutineId,
+      type: "routine",
+      start: toLocalDateTimeValue(startedAt),
+      babyName: state.babyName || "",
+      babyAge: currentBabyAgeMonths()
+    };
+  }
+
   return null;
 }
 
@@ -4237,11 +4285,15 @@ function pendingLocalSessionMatchesCurrentState() {
     return Boolean(state.activeNightStart)
       && String(state.activeNightId || "") === String(pendingLocalActiveSession.id);
   }
+  if (pendingLocalActiveSession.type === "routine") {
+    return nightRoutineIsActive()
+      && String(state.nightRoutineId || "") === String(pendingLocalActiveSession.id);
+  }
   return false;
 }
 
 function activeSessionSignature(session) {
-  const type = session?.type === "night" ? "night" : "nap";
+  const type = session?.type === "night" ? "night" : session?.type === "routine" ? "routine" : "nap";
   const startedAt = activeSessionStartDate(session);
   const start = Number.isNaN(startedAt.getTime()) ? String(session?.start || "") : toLocalDateTimeValue(startedAt);
   const awakeStart = session?.nightAwakeStart ? toLocalDateTimeValue(new Date(session.nightAwakeStart)) : "";
@@ -4282,6 +4334,10 @@ async function syncActiveSessionToSheet(options = {}) {
     });
     const result = await response.json();
     activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+    if (result.ok && result.session
+      && activeSessionSignature(result.session) === activeSessionSignature(session)) {
+      pendingLocalActiveSession = null;
+    }
     if (writeGeneration !== activeSessionWriteGeneration || wasRecentlyClosedActiveSession(session.id)) {
       await clearActiveSessionFromSheet(session.id);
       return;
@@ -4290,7 +4346,8 @@ async function syncActiveSessionToSheet(options = {}) {
       && String(result.id || "") === String(session.id)) {
       rememberClosedActiveSession(session.id);
       if ((state.activeNapStart && String(state.activeNapResumeId || "") === String(session.id))
-        || (state.activeNightStart && String(state.activeNightId || "") === String(session.id))) {
+        || (state.activeNightStart && String(state.activeNightId || "") === String(session.id))
+        || (nightRoutineIsActive() && String(state.nightRoutineId || "") === String(session.id))) {
         clearLocalActiveSession("Este timer já foi encerrado e não será reaberto automaticamente.");
       }
     }
@@ -4301,10 +4358,18 @@ async function syncActiveSessionToSheet(options = {}) {
 
 function scheduleActiveSessionWriteRetry(delaysMs = [2500, 6500]) {
   const scheduledGeneration = activeSessionWriteGeneration;
-  const scheduledId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
+  const scheduledId = state.activeNapStart
+    ? state.activeNapResumeId
+    : state.activeNightStart
+      ? state.activeNightId
+      : state.nightRoutineId;
   delaysMs.forEach((delayMs) => {
     window.setTimeout(() => {
-      const currentId = state.activeNapStart ? state.activeNapResumeId : state.activeNightId;
+      const currentId = state.activeNapStart
+        ? state.activeNapResumeId
+        : state.activeNightStart
+          ? state.activeNightId
+          : state.nightRoutineId;
       if (scheduledGeneration === activeSessionWriteGeneration
         && scheduledId
         && String(currentId || "") === String(scheduledId)) {
@@ -4401,7 +4466,9 @@ async function loadActiveSessionFromSheetOnce() {
       }
       if (isStaleActiveSession(result.session)) {
         clearActiveSessionFromSheet(result.session.id);
-        if (state.activeNapResumeId === result.session.id || state.activeNightId === result.session.id) {
+        if (state.activeNapResumeId === result.session.id
+          || state.activeNightId === result.session.id
+          || state.nightRoutineId === result.session.id) {
           clearLocalActiveSession("Timer antigo removido da aba Ativo.");
         }
         return;
@@ -4419,7 +4486,7 @@ async function loadActiveSessionFromSheetOnce() {
       return { supported: true, session: result.session, applied: true };
     }
 
-    if ((state.activeNapStart || state.activeNightStart)
+    if ((state.activeNapStart || state.activeNightStart || nightRoutineIsActive())
       && !shouldKeepPendingLocalActiveSession(null)) {
       clearLocalActiveSession("Timer encerrado ou removido em outro aparelho.");
     }
@@ -4491,13 +4558,15 @@ function applyRemoteActiveSession(session) {
     return;
   }
 
-  const type = session.type === "night" ? "night" : "nap";
+  const type = session.type === "night" ? "night" : session.type === "routine" ? "routine" : "nap";
   if (shouldKeepPendingLocalActiveSession(session, type)) {
     syncActiveSessionToSheet();
     return;
   }
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
   const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
+  const sameRoutine = type === "routine" && nightRoutineIsActive() && state.nightRoutineId === session.id;
+  if (sameRoutine) return;
   if (sameNap) {
     const remoteAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
     const remoteGoalDuration = activeSessionNapGoalDuration(session) || state.activeNapGoalDuration;
@@ -4513,8 +4582,22 @@ function applyRemoteActiveSession(session) {
     return;
   }
 
-  if (type === "nap") {
+  if (type === "routine") {
+    state.nightRoutineStartedAt = startedAt.toISOString();
+    state.nightRoutineId = String(session.id);
+    state.activeNapStart = null;
+    state.activeNapResumeId = null;
+    state.activeNapAwakeMinutes = 0;
+    state.activeNapGoalDuration = 0;
+    state.activeNightStart = null;
+    state.activeNightId = null;
+    state.activeNightAwakeStart = null;
+    state.activeNightAwakenings = [];
+    clearNotificationTimers();
+    scheduleUpcomingNotifications();
+  } else if (type === "nap") {
     state.nightRoutineStartedAt = null;
+    state.nightRoutineId = null;
     state.naps = state.naps.filter((nap) => String(nap.id || napIdentity(nap)) !== String(session.id));
     state.activeNapStart = startedAt.toISOString();
     state.activeNapResumeId = String(session.id);
@@ -4529,6 +4612,7 @@ function applyRemoteActiveSession(session) {
     scheduleActiveNapNotifications();
   } else {
     state.nightRoutineStartedAt = null;
+    state.nightRoutineId = null;
     const remoteAwakeStart = session.nightAwakeStart ? new Date(session.nightAwakeStart) : null;
     if (sameNight) {
       const previousNightScheduleState = `${state.activeNightAwakeStart || ""}:${totalAwakeMinutes(state.activeNightAwakenings || [])}`;
@@ -4570,6 +4654,7 @@ function isStaleActiveSession(session) {
   if (Number.isNaN(startedAt.getTime())) return true;
   const age = Date.now() - startedAt.getTime();
   if (session.type === "night") return age > ACTIVE_NIGHT_MAX_AGE_MS;
+  if (session.type === "routine") return age > ACTIVE_ROUTINE_MAX_AGE_MS;
   return age > ACTIVE_NAP_MAX_AGE_MS;
 }
 
@@ -4594,7 +4679,7 @@ function activeSessionStartDate(session) {
 }
 
 function activeSessionStartDateFromId(id) {
-  const match = String(id || "").match(/^(?:night-)?(\d{12,})-/);
+  const match = String(id || "").match(/^(?:(?:night|routine)-)?(\d{12,})-/);
   if (!match) return new Date("");
   const date = new Date(Number(match[1]));
   return Number.isNaN(date.getTime()) ? new Date("") : date;
@@ -4628,6 +4713,8 @@ function clearLocalActiveSession(message = "") {
   state.activeNightId = null;
   state.activeNightAwakeStart = null;
   state.activeNightAwakenings = [];
+  state.nightRoutineStartedAt = null;
+  state.nightRoutineId = null;
   clearNotificationTimers();
   saveState();
   scheduleUpcomingNotifications();
@@ -7024,6 +7111,7 @@ function loadState() {
     loaded.activeNapAwakeMinutes = normalizeNapAwakeMinutes(loaded.activeNapAwakeMinutes);
     loaded.activeNapGoalDuration = normalizeNapGoalDuration(loaded.activeNapGoalDuration);
     loaded.activeNightId = loaded.activeNightId ? String(loaded.activeNightId) : null;
+    loaded.nightRoutineId = loaded.nightRoutineId ? String(loaded.nightRoutineId) : null;
     loaded.nightRoutineStartedAt = loaded.nightRoutineStartedAt && !Number.isNaN(new Date(loaded.nightRoutineStartedAt).getTime())
       ? new Date(loaded.nightRoutineStartedAt).toISOString()
       : null;
