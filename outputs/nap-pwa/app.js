@@ -1,5 +1,5 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
-const APP_VERSION = "20260901.v3";
+const APP_VERSION = "20260901.v4";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -2538,6 +2538,19 @@ function calculateNightSuggestion(prediction) {
   const lastNap = today[0];
   const lastWake = effectiveLastWakeMinutes(today);
   const plannedBedtime = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
+
+  if (nightRoutineIsActive()) {
+    const routineStartedAt = new Date(state.nightRoutineStartedAt);
+    const routineStart = dateToDayMinutes(routineStartedAt);
+    const sleepTime = normalizeDayMinutes(routineStart + EVENING_ROUTINE_MINUTES);
+    return {
+      start: routineStart,
+      sleepTime,
+      desiredSleepTime: plannedBedtime,
+      reason: `Rotina iniciada às ${minutesToTime(routineStart)}; alvo de dormir após cerca de ${formatDuration(EVENING_ROUTINE_MINUTES)}, perto de ${minutesToTime(sleepTime)}.`
+    };
+  }
+
   const finalWakeWindow = clamp(profile.target + 35, profile.min + 20, profile.max + 35);
   const napSleepToday = today.reduce((sum, nap) => sum + safeDuration(nap), 0);
   const expectedNaps = plannedNapCount();

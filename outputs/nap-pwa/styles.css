@@ -215,7 +215,7 @@ main {
 
 .app-version-badge {
   padding: 3px 7px;
-  color: rgba(225, 235, 255, 0.5);
+  color: rgba(225, 235, 255, 0.72);
   font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -223,11 +223,14 @@ main {
 }
 
 .app-version-footer {
+  position: sticky;
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 86px);
+  z-index: 9998;
   display: flex;
   flex: 0 0 auto;
   justify-content: center;
   width: 100%;
-  margin: 7px auto 1px;
+  margin: 7px auto 3px;
   text-align: center;
 }
 
