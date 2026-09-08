@@ -1,5 +1,5 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
-const APP_VERSION = "20260901.v4";
+const APP_VERSION = "20260908.v1";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -1872,6 +1872,7 @@ function calculatePrediction() {
   const expectedSleep = expectedDailySleep(age);
   if (sleep24 < expectedSleep.min * 60) adjustment -= 15;
   if (sleep24 > expectedSleep.max * 60) adjustment += 10;
+  if (!today.length && latestNightAwakeMinutes() >= 60) adjustment -= 15;
 
   const minWindow = clamp(profile.min + adjustment, 35, 430);
   const targetWindow = clamp(profile.target + adjustment, minWindow, 450);
@@ -3622,7 +3623,7 @@ function hasNightAwakeInfo(night) {
 
 function awakeDurationFromNightNote(note) {
   const text = String(note || "");
-  const duration = text.match(/Acordada na noite:\s*(?:(\d+)h)?\s*(?:(\d+)min)?/i);
+  const duration = text.match(/Acordada na noite:\s*(?:(\d+)h)?\s*(?:(\d+)\s*(?:min)?)?/i);
   if (!duration) return 0;
   const hours = Number(duration[1] || 0);
   const minutes = Number(duration[2] || 0);
