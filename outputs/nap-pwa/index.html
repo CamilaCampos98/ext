@@ -38,6 +38,10 @@
           <div class="home-assistant-card">
             <span>Assistente</span>
             <p id="assistantInsight">Registre as sonecas para receber uma sugestão da rotina.</p>
+            <button class="assistant-details-toggle" id="toggleAssistantDetails" type="button" aria-expanded="false" aria-controls="assistantDetails">
+              <span>Como calculei</span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            </button>
+            <div class="assistant-details" id="assistantDetails" hidden></div>
           </div>
           <div class="day-ring-wrap">
             <svg class="day-ring" viewBox="0 0 240 240" aria-label="Linha do tempo circular das sonecas do dia" role="img">
@@ -213,7 +217,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260911.v1</span>
+        <span class="app-version-badge" id="appVersion">20260911.v2</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">

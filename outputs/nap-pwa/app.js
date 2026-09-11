@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260911.v1";
+const APP_VERSION = "20260911.v2";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -245,6 +245,8 @@ const els = {
   daySleepGoal: document.querySelector("#daySleepGoal"),
   nightSleepGoal: document.querySelector("#nightSleepGoal"),
   assistantInsight: document.querySelector("#assistantInsight"),
+  toggleAssistantDetails: document.querySelector("#toggleAssistantDetails"),
+  assistantDetails: document.querySelector("#assistantDetails"),
   notificationHelpText: document.querySelector("#notificationHelpText"),
   history: document.querySelector("#history"),
   historyDate: document.querySelector("#historyDate"),
@@ -521,6 +523,7 @@ function bindEvents() {
   }
   els.closeSyncCenter?.addEventListener("click", () => toggleSyncCenter(false));
   els.syncNowButton?.addEventListener("click", syncSheetDataManually);
+  els.toggleAssistantDetails?.addEventListener("click", toggleAssistantCalculationDetails);
   ["input", "change"].forEach((eventName) => {
     els.babyName.addEventListener(eventName, updateProfile);
     els.babyBirthDate.addEventListener(eventName, updateProfile);
@@ -1904,18 +1907,38 @@ function calculatePrediction() {
   const profile = customWakeWindowProfile(ageProfile, today);
 
   let adjustment = 0;
-  if (lastNap && lastNap.duration < 35) adjustment -= 20;
-  if (lastNap && lastNap.duration > 100) adjustment += 15;
+  const adjustmentReasons = [];
+  if (lastNap && lastNap.duration < 35) {
+    adjustment -= 20;
+    adjustmentReasons.push(`Última soneca curta: janela reduzida em 20min.`);
+  }
+  if (lastNap && lastNap.duration > 100) {
+    adjustment += 15;
+    adjustmentReasons.push(`Última soneca longa: janela ampliada em 15min.`);
+  }
 
   const averageWindow = averageRecentWakeWindow(recent);
   if (averageWindow && !profile.custom) {
-    adjustment += clamp(Math.round((averageWindow - profile.target) * 0.35), -25, 25);
+    const historyAdjustment = clamp(Math.round((averageWindow - profile.target) * 0.35), -25, 25);
+    adjustment += historyAdjustment;
+    if (historyAdjustment) {
+      adjustmentReasons.push(`Histórico recente: ${historyAdjustment > 0 ? "+" : ""}${historyAdjustment}min na janela.`);
+    }
   }
 
   const expectedSleep = expectedDailySleep(age);
-  if (sleep24 < expectedSleep.min * 60) adjustment -= 15;
-  if (sleep24 > expectedSleep.max * 60) adjustment += 10;
-  if (latestNightAwakeMinutes() >= 60) adjustment -= 15;
+  if (sleep24 < expectedSleep.min * 60) {
+    adjustment -= 15;
+    adjustmentReasons.push("Sono das últimas 24h abaixo da faixa: janela reduzida em 15min.");
+  }
+  if (sleep24 > expectedSleep.max * 60) {
+    adjustment += 10;
+    adjustmentReasons.push("Sono das últimas 24h acima da faixa: janela ampliada em 10min.");
+  }
+  if (latestNightAwakeMinutes() >= 60) {
+    adjustment -= 15;
+    adjustmentReasons.push("Noite fragmentada: janela reduzida em 15min.");
+  }
 
   const minWindow = clamp(profile.min + adjustment, 35, 430);
   const targetWindow = clamp(profile.target + adjustment, minWindow, 450);
@@ -1941,7 +1964,10 @@ function calculatePrediction() {
     end,
     pressure,
     sleep24,
-    expectedSleep
+    expectedSleep,
+    lastWakeMinutes,
+    adjustment,
+    adjustmentReasons
   };
 }
 
@@ -2841,6 +2867,7 @@ function renderInsights(prediction) {
   }
   if (els.assistantInsight) {
     renderAssistantInsight(assistantSuggestion(prediction, daySleep, nightSleep, goals), prediction);
+    renderAssistantCalculationDetails(prediction, daySleep, nightSleep, goals);
   }
 }
 
@@ -2890,6 +2917,119 @@ function assistantInsightParts(message, prediction) {
     attention: /perto da rotina|muito perto|sem forçar|alerta/i.test(text)
       ? "Evite forçar sono se ela ainda estiver ativa; mantenha estímulo baixo."
       : ""
+  };
+}
+
+function toggleAssistantCalculationDetails() {
+  if (!els.assistantDetails || !els.toggleAssistantDetails) return;
+  const open = els.assistantDetails.hidden;
+  els.assistantDetails.hidden = !open;
+  els.toggleAssistantDetails.setAttribute("aria-expanded", String(open));
+  els.toggleAssistantDetails.classList.toggle("is-open", open);
+}
+
+function renderAssistantCalculationDetails(prediction, daySleep, nightSleep, goals) {
+  if (!els.assistantDetails || !els.toggleAssistantDetails) return;
+  const details = assistantCalculationDetails(prediction, daySleep, nightSleep, goals);
+  els.assistantDetails.innerHTML = `
+    <div class="assistant-calculation-grid">
+      ${details.items.map((item) => `<div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong></div>`).join("")}
+    </div>
+    <div class="assistant-adjustments">
+      <span>O que alterou a previsão</span>
+      ${details.reasons.map((reason) => `<p><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>${escapeHtml(reason)}</p>`).join("")}
+    </div>
+  `;
+}
+
+function assistantCalculationDetails(prediction, daySleep, nightSleep, goals) {
+  if (state.activeNapStart) {
+    const startedAt = new Date(state.activeNapStart);
+    const elapsed = Number.isNaN(startedAt.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 60000));
+    return {
+      items: [
+        { label: "Início", value: Number.isNaN(startedAt.getTime()) ? "Não informado" : timeLabel(startedAt) },
+        { label: "Dormindo há", value: formatRingDuration(elapsed) },
+        { label: "Meta atual", value: formatDuration(activeNapGoalMinutes()) },
+        { label: "Próximo cálculo", value: "Ao encerrar a soneca" }
+      ],
+      reasons: ["Durante uma soneca ativa, a próxima janela fica pausada para não usar um despertar ainda desconhecido."]
+    };
+  }
+
+  if (state.activeNightStart) {
+    const startedAt = new Date(state.activeNightStart);
+    const current = new Date();
+    const slept = Number.isNaN(startedAt.getTime()) ? 0 : activeNightSleepMinutesUntil(startedAt, current, activeNightAwakeningsUntil(current));
+    return {
+      items: [
+        { label: "Início da noite", value: Number.isNaN(startedAt.getTime()) ? "Não informado" : timeLabel(startedAt) },
+        { label: "Sono líquido", value: formatDuration(slept) },
+        { label: "Meta noturna", value: formatDuration(goals.night) },
+        { label: "Despertares", value: formatDuration(totalAwakeMinutes(state.activeNightAwakenings || [])) }
+      ],
+      reasons: ["Durante o sono noturno, as previsões de soneca ficam pausadas até o despertar da manhã."]
+    };
+  }
+
+  if (nightRoutineIsActive()) {
+    const startedAt = new Date(state.nightRoutineStartedAt);
+    const night = calculateNightSuggestion(prediction);
+    return {
+      items: [
+        { label: "Rotina iniciada", value: Number.isNaN(startedAt.getTime()) ? "Não informado" : timeLabel(startedAt) },
+        { label: "Alvo de dormir", value: minutesToTime(night.sleepTime) },
+        { label: "Duração da rotina", value: formatDuration(EVENING_ROUTINE_MINUTES) },
+        { label: "Sonecas agora", value: "Pausadas" }
+      ],
+      reasons: ["O horário de dormir foi recalculado a partir do início real da rotina noturna."]
+    };
+  }
+
+  const today = napsToday();
+  const lastWake = Number.isFinite(prediction?.lastWakeMinutes) ? prediction.lastWakeMinutes : effectiveLastWakeMinutes(today);
+  const awakeNow = Math.max(0, nowMinutes() - lastWake);
+  const profile = prediction?.profile || wakeWindowForAge(currentBabyAgeMonths());
+  const baseLabel = profile.custom
+    ? `Histórico (${profile.samples} registros)`
+    : `Faixa para ${currentBabyAgeMonths()} meses`;
+  let reasons = prediction?.adjustmentReasons?.length
+    ? prediction.adjustmentReasons
+    : [profile.custom ? "O histórico recente já foi suficiente para personalizar a janela." : "Nenhum ajuste extra aplicado à faixa esperada para a idade."];
+  const night = calculateNightSuggestion(prediction);
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  let decisionItems = [
+    { label: "Janela calculada", value: `${minutesToTime(prediction.start)}–${minutesToTime(prediction.end)}` }
+  ];
+
+  if (rescueNap) {
+    decisionItems = [
+      { label: "Soneca sugerida", value: `${minutesToTime(rescueNap.start)}–${minutesToTime(rescueNap.end)}` },
+      { label: "Sono noturno", value: `Perto de ${minutesToTime(rescueNap.recommendedSleep)}` }
+    ];
+    reasons = [
+      `A janela-base (${minutesToTime(prediction.start)}–${minutesToTime(prediction.end)}) ficou próxima da noite.`,
+      `A soneca foi limitada a ${formatDuration(rescueNap.duration)} para preservar a pressão de sono noturna.`,
+      ...reasons
+    ];
+  } else if (!shouldSuggestNapBeforeNight(prediction, today)) {
+    decisionItems = [
+      { label: "Próxima ação", value: `Rotina às ${minutesToTime(night.start)}` },
+      { label: "Sono noturno", value: `Perto de ${minutesToTime(night.sleepTime)}` }
+    ];
+    reasons = ["Não há transição segura para outra soneca antes do sono noturno.", ...reasons];
+  }
+
+  return {
+    items: [
+      { label: "Último despertar", value: minutesToTime(lastWake) },
+      { label: "Vigília agora", value: formatDuration(awakeNow) },
+      ...decisionItems,
+      { label: "Base usada", value: baseLabel },
+      { label: "Sono diurno", value: `${formatDuration(daySleep)} de ${formatDuration(goals.day)}` },
+      { label: "Noite anterior", value: `${formatDuration(nightSleep)} de ${formatDuration(goals.night)}` }
+    ],
+    reasons
   };
 }
 

@@ -562,6 +562,100 @@ h2 {
   color: #ffd071;
 }
 
+.assistant-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 62px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.assistant-details-toggle i {
+  font-size: 0.58rem;
+  transition: transform 0.18s ease;
+}
+
+.assistant-details-toggle.is-open i {
+  transform: rotate(180deg);
+}
+
+.assistant-details {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(168, 216, 240, 0.14);
+}
+
+.assistant-calculation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.assistant-calculation-grid > div {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(168, 216, 240, 0.12);
+  border-radius: 8px;
+  background: rgba(7, 14, 38, 0.34);
+}
+
+.assistant-calculation-grid span,
+.assistant-calculation-grid strong {
+  display: block;
+}
+
+.assistant-calculation-grid span,
+.assistant-adjustments > span {
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.assistant-calculation-grid strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-adjustments {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.assistant-adjustments p {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 5px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.assistant-adjustments p i {
+  margin-top: 2px;
+  color: var(--lavender);
+  font-size: 0.58rem;
+}
+
+@media (max-width: 420px) {
+  .assistant-calculation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .day-ring-wrap {
   order: 1;
   position: relative;
