@@ -217,7 +217,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260911.v3</span>
+        <span class="app-version-badge" id="appVersion">20260911.v4</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -359,6 +359,17 @@
           <button class="secondary compact-button" id="currentWeek" type="button" data-report-current="true">Atual</button>
           <button class="secondary compact-button" id="nextWeek" type="button" data-report-shift="1">Próxima</button>
         </div>
+        <section class="report-reading" id="reportReading" aria-live="polite">
+          <div class="report-reading-head">
+            <div>
+              <p class="label">Leitura da rotina</p>
+              <h3 id="reportReadingTitle">Ainda sem dados suficientes</h3>
+            </div>
+            <span class="report-reading-period" id="reportComparisonLabel">Comparação com a semana anterior</span>
+          </div>
+          <p class="report-reading-copy" id="reportReadingCopy">Registre pelo menos dois dias para identificar mudanças na rotina.</p>
+          <div class="report-trend-grid" id="reportTrendGrid"></div>
+        </section>
         <div class="report-grid">
           <div>
             <span>Média sonecas/dia</span>
@@ -385,28 +396,8 @@
             <strong id="avgNightAwake">0min</strong>
           </div>
           <div>
-            <span>Acordada no dia</span>
-            <strong id="avgDayAwake">0h</strong>
-          </div>
-          <div>
             <span>Janela real</span>
             <strong id="avgWakeWindowReal">0min</strong>
-          </div>
-          <div>
-            <span>Tempo p/ adormecer</span>
-            <strong id="avgSleepLatencyReport">-</strong>
-          </div>
-          <div>
-            <span>Humor ao acordar</span>
-            <strong id="wakeMoodReport">-</strong>
-          </div>
-          <div>
-            <span>Ultima janela noite</span>
-            <strong id="avgLastWindowBeforeNight">-</strong>
-          </div>
-          <div>
-            <span>Despertares/noite</span>
-            <strong id="avgNightWakeCount">0</strong>
           </div>
           <div>
             <span>Meta das sonecas</span>
@@ -415,22 +406,6 @@
           <div>
             <span>Trocas/dia</span>
             <strong id="avgDiaperCount">0</strong>
-          </div>
-          <div>
-            <span>Com cocô/dia</span>
-            <strong id="avgPoopCount">0</strong>
-          </div>
-          <div>
-            <span>Só xixi/dia</span>
-            <strong id="avgPeeOnlyCount">0</strong>
-          </div>
-          <div>
-            <span>Só cocô/dia</span>
-            <strong id="avgPoopOnlyCount">0</strong>
-          </div>
-          <div>
-            <span>Xixi+cocô/dia</span>
-            <strong id="avgBothDiaperCount">0</strong>
           </div>
         </div>
         <div class="report-chart-wrap report-chart-grid" id="reportCharts">

@@ -1979,6 +1979,108 @@ select {
   margin-top: 16px;
 }
 
+.report-reading {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(120, 229, 208, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(27, 52, 83, 0.9), rgba(19, 29, 64, 0.92));
+}
+
+.report-reading-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-reading-head .label,
+.report-reading-head h3,
+.report-reading-copy {
+  margin: 0;
+}
+
+.report-reading-head h3 {
+  margin-top: 4px;
+  font-size: 1.08rem;
+}
+
+.report-reading-period {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(168, 216, 240, 0.1);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.report-reading-copy {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.report-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.report-trend-card {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(168, 216, 240, 0.12);
+  border-radius: 10px;
+  background: rgba(8, 15, 38, 0.42);
+}
+
+.report-trend-card span,
+.report-trend-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.report-trend-card strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 3px;
+  font-size: 1rem;
+}
+
+.report-trend-card strong i {
+  color: var(--lavender);
+  font-style: normal;
+}
+
+.report-trend-card.up strong i {
+  color: #76e2cf;
+}
+
+.report-trend-card.down strong i {
+  color: #ffb477;
+}
+
+@media (max-width: 560px) {
+  .report-reading-head {
+    display: block;
+  }
+
+  .report-reading-period {
+    display: inline-block;
+    margin-top: 10px;
+  }
+
+  .report-trend-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .report-filter {
   display: grid;
   grid-template-columns: 96px minmax(180px, 220px) minmax(160px, 200px) 82px 96px;
@@ -2467,7 +2569,15 @@ select {
 }
 
 .chart-bar.total-day {
-  fill: var(--nap-color);
+  fill: #76e2cf;
+}
+
+.chart-bar.total-effective {
+  fill: var(--night-color);
+}
+
+.legend-dot-svg.day {
+  fill: #76e2cf;
 }
 
 .legend-dot-svg.nap {

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260911.v3";
+const APP_VERSION = "20260911.v4";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -295,6 +295,11 @@ const els = {
   avgPeeOnlyCount: document.querySelector("#avgPeeOnlyCount"),
   avgPoopOnlyCount: document.querySelector("#avgPoopOnlyCount"),
   avgBothDiaperCount: document.querySelector("#avgBothDiaperCount"),
+  reportReading: document.querySelector("#reportReading"),
+  reportReadingTitle: document.querySelector("#reportReadingTitle"),
+  reportReadingCopy: document.querySelector("#reportReadingCopy"),
+  reportComparisonLabel: document.querySelector("#reportComparisonLabel"),
+  reportTrendGrid: document.querySelector("#reportTrendGrid"),
   reportCharts: document.querySelector("#reportCharts"),
   sleepReportChart: document.querySelector("#sleepReportChart"),
   reportSummary: document.querySelector("#reportSummary"),
@@ -3694,6 +3699,9 @@ function tummyTimeSuggestionMinutes() {
 function renderReport() {
   const days = reportWeekDays(reportWeekStart);
   const activeDays = days.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.diaperCount || day.nightAwake);
+  const previousWeekStart = addDays(reportWeekStart, -7);
+  const previousDays = reportWeekDays(previousWeekStart);
+  const previousActiveDays = previousDays.filter((day) => day.napCount || day.daySleep || day.nightSleep || day.feedingCount || day.diaperCount || day.nightAwake);
   const divisor = activeDays.length || 1;
   const avgNapCount = activeDays.reduce((sum, day) => sum + day.napCount, 0) / divisor;
   const avgDaySleep = activeDays.reduce((sum, day) => sum + day.daySleep, 0) / divisor;
@@ -3738,11 +3746,95 @@ function renderReport() {
   if (els.avgLastWindowBeforeNight) els.avgLastWindowBeforeNight.textContent = lastWindowDays.length ? formatDuration(Math.round(avgLastWindowBeforeNight)) : "-";
   if (els.avgNightWakeCount) els.avgNightWakeCount.textContent = activeDays.length ? avgNightWakeCount.toFixed(1).replace(".", ",") : "0";
   if (els.avgNapGoal) els.avgNapGoal.textContent = goalDays.length ? `${Math.round(avgNapGoal)}%` : "0%";
+  renderReportReading(activeDays, previousActiveDays, previousWeekStart);
   els.reportSummary.textContent = activeDays.length
     ? reportSummaryText(activeDays)
     : "Sem registros suficientes para calcular a media.";
 
   renderSleepReportChart(days);
+}
+
+function renderReportReading(activeDays, previousActiveDays, previousWeekStart) {
+  if (!els.reportReadingTitle || !els.reportReadingCopy || !els.reportTrendGrid) return;
+
+  const previousWeekEnd = addDays(previousWeekStart, 6);
+  if (els.reportComparisonLabel) {
+    els.reportComparisonLabel.textContent = `Comparado a ${shortDateLabel(previousWeekStart)} - ${shortDateLabel(previousWeekEnd)}`;
+  }
+
+  if (activeDays.length < 2) {
+    els.reportReading.dataset.state = "limited";
+    els.reportReadingTitle.textContent = activeDays.length ? "Semana ainda incompleta" : "Ainda sem dados suficientes";
+    els.reportReadingCopy.textContent = activeDays.length
+      ? "Há somente um dia com registros. Com dois ou mais dias, as tendências começam a aparecer."
+      : "Registre pelo menos dois dias para identificar mudanças na rotina.";
+    els.reportTrendGrid.replaceChildren();
+    return;
+  }
+
+  if (previousActiveDays.length < 2) {
+    els.reportReading.dataset.state = "limited";
+    els.reportReadingTitle.textContent = "Primeira semana para comparação";
+    els.reportReadingCopy.textContent = "A rotina desta semana já está resumida abaixo. Faltam registros na semana anterior para mostrar o que mudou.";
+    renderReportTrendCards([
+      reportTrendCard("Sono total", reportAverage(activeDays, "totalSleep"), "Média por dia", "duration", "neutral"),
+      reportTrendCard("Sono diurno", reportAverage(activeDays, "daySleep"), "Média por dia", "duration", "neutral"),
+      reportTrendCard("Sonecas", reportAverage(activeDays, "napCount"), "Média por dia", "decimal", "neutral")
+    ]);
+    return;
+  }
+
+  const totalDelta = reportAverage(activeDays, "totalSleep") - reportAverage(previousActiveDays, "totalSleep");
+  const dayDelta = reportAverage(activeDays, "daySleep") - reportAverage(previousActiveDays, "daySleep");
+  const nightAwakeDelta = reportAverage(activeDays, "nightAwake") - reportAverage(previousActiveDays, "nightAwake");
+  const totalDirection = reportTrendDirection(totalDelta, 20);
+
+  els.reportReading.dataset.state = totalDirection;
+  els.reportReadingTitle.textContent = totalDirection === "up"
+    ? "Mais sono registrado nesta semana"
+    : totalDirection === "down"
+      ? "Menos sono registrado nesta semana"
+      : "Sono total parecido com a semana anterior";
+  els.reportReadingCopy.textContent = "Compare as médias por dia. As setas mostram apenas mudanças nos registros, sem indicar sozinhas se a rotina está melhor ou pior.";
+
+  renderReportTrendCards([
+    reportTrendCard("Sono total", totalDelta, "por dia", "delta-duration", totalDirection),
+    reportTrendCard("Sono diurno", dayDelta, "por dia", "delta-duration", reportTrendDirection(dayDelta, 15)),
+    reportTrendCard("Acordada à noite", nightAwakeDelta, "por noite", "delta-duration", reportTrendDirection(nightAwakeDelta, 10))
+  ]);
+}
+
+function reportAverage(days, property) {
+  return days.length ? days.reduce((sum, day) => sum + Number(day[property] || 0), 0) / days.length : 0;
+}
+
+function reportTrendDirection(delta, tolerance) {
+  if (delta > tolerance) return "up";
+  if (delta < -tolerance) return "down";
+  return "stable";
+}
+
+function reportTrendCard(label, value, detail, format, direction) {
+  return { label, value, detail, format, direction };
+}
+
+function renderReportTrendCards(cards) {
+  if (!els.reportTrendGrid) return;
+  els.reportTrendGrid.innerHTML = cards.map((card) => {
+    const isDelta = card.format === "delta-duration";
+    const rounded = Math.round(card.value);
+    const displayValue = card.format === "decimal"
+      ? card.value.toFixed(1).replace(".", ",")
+      : isDelta
+        ? `${rounded > 0 ? "+" : rounded < 0 ? "−" : ""}${formatDuration(Math.abs(rounded))}`
+        : formatDuration(rounded);
+    const symbol = card.direction === "up" ? "↑" : card.direction === "down" ? "↓" : "→";
+    return `<div class="report-trend-card ${card.direction}">
+      <span>${card.label}</span>
+      <strong><i aria-hidden="true">${symbol}</i>${displayValue}</strong>
+      <small>${card.detail}</small>
+    </div>`;
+  }).join("");
 }
 
 function reportWeekDays(startDate) {
@@ -3760,7 +3852,7 @@ function reportWeekDays(startDate) {
     const bothDiaperCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "both").length;
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + nightDuration(night), 0);
-    const nightAwake = nights.reduce((sum, night) => sum + Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])), 0);
+    const nightAwake = nights.reduce((sum, night) => sum + nightAwakeMinutes(night), 0);
     const napDurations = naps
       .slice()
       .sort((a, b) => new Date(a.start) - new Date(b.start))
@@ -3937,12 +4029,42 @@ function nightDuration(night) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
 
   const elapsed = Math.round((end - start) / 60000);
-  const awake = Number(night.awakeDuration || totalAwakeMinutes(night.awakenings || [])) || 0;
+  const recordedDuration = Number(night.duration);
+  if (Number.isFinite(recordedDuration) && recordedDuration > 0 && recordedDuration <= elapsed) {
+    return clamp(Math.round(recordedDuration), 0, 16 * 60);
+  }
+
+  const awake = nightAwakeMinutes(night, elapsed);
   return clamp(elapsed - awake, 0, 16 * 60);
 }
 
 function hasNightAwakeInfo(night) {
-  return Number(night.awakeDuration || 0) > 0 || normalizeAwakenings(night.awakenings || []).length > 0;
+  return nightAwakeMinutes(night) > 0;
+}
+
+function nightAwakeMinutes(night, elapsedMinutes = null) {
+  const explicit = Number(night.awakeDuration);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
+
+  const awakenings = totalAwakeMinutes(night.awakenings || []);
+  if (awakenings > 0) return awakenings;
+
+  const fromNote = awakeDurationFromNightNote(night.note);
+  if (fromNote > 0) return fromNote;
+
+  const start = new Date(night.start).getTime();
+  const end = new Date(night.end).getTime();
+  const elapsed = Number.isFinite(elapsedMinutes)
+    ? elapsedMinutes
+    : Number.isFinite(start) && Number.isFinite(end) && end > start
+      ? Math.round((end - start) / 60000)
+      : 0;
+  const recordedDuration = Number(night.duration);
+  if (elapsed > 0 && Number.isFinite(recordedDuration) && recordedDuration > 0 && recordedDuration < elapsed) {
+    return Math.max(0, elapsed - Math.round(recordedDuration));
+  }
+
+  return 0;
 }
 
 function awakeDurationFromNightNote(note) {
@@ -4079,59 +4201,37 @@ function reportTotalSleepChart(days) {
   const width = 640;
   const height = 260;
   const padding = { top: 62, right: 20, bottom: 44, left: 46 };
-  const maxValue = Math.max(12 * 60, ...days.flatMap((day) => [day.nightSleep, day.avgWakeWindowUsed]));
+  const maxValue = Math.max(12 * 60, ...days.map((day) => day.totalSleep));
   const roundedMax = Math.ceil(maxValue / 120) * 120;
-  const maxCount = Math.max(5, ...days.map((day) => day.napCount));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const groupWidth = plotWidth / days.length;
-  const nightBarWidth = Math.min(42, groupWidth * 0.44);
-  const napBarWidth = Math.min(18, groupWidth * 0.2);
+  const barWidth = Math.min(48, groupWidth * 0.58);
   const baseY = padding.top + plotHeight;
   const scaleHeight = (value) => (value / roundedMax) * plotHeight;
-  const scaleCountHeight = (value) => (value / maxCount) * Math.min(80, plotHeight * 0.45);
   const scaleX = (index) => padding.left + groupWidth * index + groupWidth / 2;
-  const scaleY = (value) => baseY - scaleHeight(value);
-  const windowPath = days.map((day, index) => {
-    const value = day.avgWakeWindowUsed || 0;
-    return `${index === 0 ? "M" : "L"} ${roundSvg(scaleX(index))} ${roundSvg(scaleY(value))}`;
-  }).join(" ");
   const ticks = [0, Math.round(roundedMax / 2), roundedMax];
 
   return `
-    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sonecas, sono noturno e janelas">
+    <svg id="sleepReportChart" class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sono efetivo por dia">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
-      <text class="chart-title" x="18" y="24">Sonecas, noite e janelas</text>
-      <text class="chart-subtitle" x="18" y="40">Barras: sono noturno e quantidade de sonecas. Linha: janela real media.</text>
-      <circle class="legend-dot-svg night" cx="350" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="362" y="28">Sono noturno</text>
-      <circle class="legend-dot-svg nap" cx="468" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="480" y="28">Sonecas</text>
-      <circle class="legend-dot-svg window" cx="548" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="560" y="28">Janela</text>
+      <text class="chart-title" x="18" y="24">Sono efetivo por dia</text>
+      <text class="chart-subtitle" x="18" y="41">Total dormido: noite líquida + sonecas.</text>
       ${ticks.map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(baseY - scaleHeight(value))}" x2="${width - padding.right}" y2="${roundSvg(baseY - scaleHeight(value))}"></line><text class="chart-label" x="8" y="${roundSvg(baseY - scaleHeight(value) + 4)}">${formatDuration(value)}</text></g>`).join("")}
       ${days.map((day, index) => {
         const center = scaleX(index);
-        const nightX = center - nightBarWidth - 2;
-        const napX = center + 4;
-        const nightHeight = scaleHeight(day.nightSleep);
-        const napHeight = scaleCountHeight(day.napCount);
+        const x = center - barWidth / 2;
+        const totalHeight = scaleHeight(day.totalSleep);
         return `
-          ${day.nightSleep ? `
-            <rect class="chart-bar total-night" x="${roundSvg(nightX)}" y="${roundSvg(baseY - nightHeight)}" width="${roundSvg(nightBarWidth)}" height="${roundSvg(nightHeight)}" rx="5"></rect>
-            <text class="chart-total-value" x="${roundSvg(nightX + nightBarWidth / 2)}" y="${roundSvg(Math.max(padding.top + 12, baseY - nightHeight - 8))}">${formatDuration(day.nightSleep)}</text>
+          ${day.totalSleep ? `
+            <rect class="chart-bar total-effective" x="${roundSvg(x)}" y="${roundSvg(baseY - totalHeight)}" width="${roundSvg(barWidth)}" height="${roundSvg(totalHeight)}" rx="5"></rect>
+            <text class="chart-total-value" x="${roundSvg(center)}" y="${roundSvg(Math.max(padding.top + 12, baseY - totalHeight - 8))}">${formatDuration(day.totalSleep)}</text>
           ` : `
-            <rect class="chart-empty-day" x="${roundSvg(nightX)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(nightBarWidth)}" height="4" rx="2"></rect>
+            <rect class="chart-empty-day" x="${roundSvg(x)}" y="${roundSvg(baseY - 4)}" width="${roundSvg(barWidth)}" height="4" rx="2"></rect>
           `}
-          ${day.napCount ? `
-            <rect class="chart-bar nap-count" x="${roundSvg(napX)}" y="${roundSvg(baseY - napHeight)}" width="${roundSvg(napBarWidth)}" height="${roundSvg(napHeight)}" rx="3"></rect>
-            <text class="chart-total-value" x="${roundSvg(napX + napBarWidth / 2)}" y="${roundSvg(baseY - napHeight - 6)}">${day.napCount}</text>
-          ` : ""}
           <text class="chart-label x" x="${roundSvg(center)}" y="${height - 14}">${day.label}</text>
         `;
       }).join("")}
-      <path class="chart-line window" d="${windowPath}"></path>
-      ${days.map((day, index) => day.avgWakeWindowUsed ? `<circle class="chart-point window" cx="${roundSvg(scaleX(index))}" cy="${roundSvg(scaleY(day.avgWakeWindowUsed))}" r="3"></circle>` : "").join("")}
     </svg>`;
 }
 
@@ -7576,19 +7676,23 @@ function loadState() {
         synced: Boolean(nap.synced)
       };
     });
-    loaded.nights = (loaded.nights || []).map((night) => ({
-      ...night,
-      type: "night",
-      id: night.id || stableNapId(night),
-      dayStart: normalizeTimeField(night.dayStart) || loaded.dayStart,
-      bedtime: normalizeTimeField(night.bedtime) || loaded.bedtime,
-      lastWake: normalizeTimeField(night.lastWake),
-      babyAge: Number.isFinite(Number(night.babyAge)) ? Number(night.babyAge) : loaded.babyAge,
-      awakenings: normalizeAwakenings(night.awakenings || []),
-      awakeDuration: totalAwakeMinutes(night.awakenings || []),
-      duration: safeDuration(night),
-      synced: Boolean(night.synced)
-    })).sort((a, b) => new Date(b.end) - new Date(a.end));
+    loaded.nights = (loaded.nights || []).map((night) => {
+      const awakenings = normalizeAwakenings(night.awakenings || []);
+      const duration = safeDuration(night);
+      return {
+        ...night,
+        type: "night",
+        id: night.id || stableNapId(night),
+        dayStart: normalizeTimeField(night.dayStart) || loaded.dayStart,
+        bedtime: normalizeTimeField(night.bedtime) || loaded.bedtime,
+        lastWake: normalizeTimeField(night.lastWake),
+        babyAge: Number.isFinite(Number(night.babyAge)) ? Number(night.babyAge) : loaded.babyAge,
+        awakenings,
+        awakeDuration: nightAwakeMinutes({ ...night, awakenings, duration }),
+        duration,
+        synced: Boolean(night.synced)
+      };
+    }).sort((a, b) => new Date(b.end) - new Date(a.end));
     if (!loaded.cycleStartAt && loaded.nights[0]) {
       loaded.cycleStartAt = loaded.nights[0].end;
     }
