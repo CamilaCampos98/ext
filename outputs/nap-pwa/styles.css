@@ -213,6 +213,206 @@ main {
   animation: sheet-sync-spin 0.8s linear infinite;
 }
 
+.sync-alert-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #111a3d;
+  border-radius: 50%;
+  background: #ffbf69;
+  box-shadow: 0 0 10px rgba(255, 191, 105, 0.75);
+}
+
+.sync-center-card {
+  display: grid;
+  gap: 16px;
+}
+
+.sync-center-card > h2 {
+  margin-bottom: 0;
+}
+
+.sync-status-banner {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(142, 197, 225, 0.22);
+  border-radius: 16px;
+  background: rgba(23, 42, 82, 0.72);
+}
+
+.sync-status-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: rgba(126, 240, 211, 0.12);
+  color: #8ff0d7;
+  font-size: 1.15rem;
+}
+
+.sync-status-banner strong,
+.sync-status-banner p {
+  display: block;
+  margin: 0;
+}
+
+.sync-status-banner p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.sync-status-banner[data-status="syncing"] .sync-status-icon i {
+  animation: sheet-sync-spin 0.8s linear infinite;
+}
+
+.sync-status-banner[data-status="warning"] {
+  border-color: rgba(255, 191, 105, 0.4);
+  background: rgba(89, 60, 35, 0.4);
+}
+
+.sync-status-banner[data-status="warning"] .sync-status-icon {
+  background: rgba(255, 191, 105, 0.14);
+  color: #ffcf87;
+}
+
+.sync-status-banner[data-status="error"] {
+  border-color: rgba(255, 130, 140, 0.42);
+  background: rgba(92, 35, 55, 0.4);
+}
+
+.sync-status-banner[data-status="error"] .sync-status-icon {
+  background: rgba(255, 130, 140, 0.14);
+  color: #ff9ea8;
+}
+
+.sync-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sync-overview-item {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(142, 197, 225, 0.16);
+  border-radius: 14px;
+  background: rgba(8, 18, 48, 0.48);
+}
+
+.sync-overview-item span,
+.sync-overview-item strong {
+  display: block;
+}
+
+.sync-overview-item span {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.sync-overview-item strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-changes-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.sync-changes-section h3 {
+  margin: 2px 0 0;
+  font-size: 1rem;
+}
+
+.sync-change-list {
+  display: grid;
+  gap: 8px;
+}
+
+.sync-change-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(142, 197, 225, 0.14);
+  border-radius: 12px;
+  background: rgba(8, 18, 48, 0.4);
+}
+
+.sync-change-item > i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(126, 240, 211, 0.1);
+  color: #8ff0d7;
+}
+
+.sync-change-item strong,
+.sync-change-item span,
+.sync-change-item small {
+  display: block;
+  min-width: 0;
+}
+
+.sync-change-item strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-change-item span,
+.sync-change-item small,
+.sync-empty {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.sync-empty {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed rgba(142, 197, 225, 0.2);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.sync-center-note {
+  margin: 0;
+}
+
+.sync-now-button {
+  min-height: 48px;
+}
+
+.sync-now-button.is-syncing i {
+  animation: sheet-sync-spin 0.8s linear infinite;
+}
+
+@media (max-width: 420px) {
+  .sync-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .app-version-badge {
   padding: 3px 7px;
   color: rgba(225, 235, 255, 0.72);
@@ -225,7 +425,7 @@ main {
 .app-version-footer {
   position: sticky;
   bottom: calc(max(10px, env(safe-area-inset-bottom)) + 86px);
-  z-index: 9998;
+  z-index: 9;
   display: flex;
   flex: 0 0 auto;
   justify-content: center;

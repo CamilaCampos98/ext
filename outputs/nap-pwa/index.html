@@ -22,8 +22,9 @@
       <span id="appLoadingText">Buscando sonecas, mamadas e timer ativo...</span>
     </div>
     <div class="app-shell">
-      <button class="sheet-sync-button" id="syncSheetData" type="button" aria-label="Sincronizar dados da planilha" title="Sincronizar dados da planilha">
+      <button class="sheet-sync-button" id="syncSheetData" type="button" aria-label="Abrir central de sincronização" title="Central de sincronização">
         <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+        <span class="sync-alert-dot" id="syncAlertDot" hidden></span>
       </button>
       <header class="topbar">
         <div>
@@ -212,7 +213,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260908.v2</span>
+        <span class="app-version-badge" id="appVersion">20260911.v1</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -238,6 +239,34 @@
           <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
       </nav>
+    </div>
+
+    <div class="sheet" id="syncCenterSheet" aria-hidden="true">
+      <div class="sheet-card sync-center-card">
+        <button class="icon-button close" id="closeSyncCenter" aria-label="Fechar">x</button>
+        <p class="label">Google Sheets</p>
+        <h2>Central de sincronização</h2>
+
+        <div class="sync-status-banner" id="syncStatusBanner" data-status="idle" role="status" aria-live="polite">
+          <span class="sync-status-icon" aria-hidden="true"><i class="fa-solid fa-cloud"></i></span>
+          <div><strong id="syncStatusTitle">Conferindo sincronização</strong><p id="syncStatusText">Aguarde enquanto verifico os dados deste aparelho.</p></div>
+        </div>
+
+        <div class="sync-overview-grid">
+          <div class="sync-overview-item"><span>Última sincronização</span><strong id="syncLastSuccess">Ainda não sincronizado</strong></div>
+          <div class="sync-overview-item"><span>Registros pendentes</span><strong id="syncPendingCount">0</strong></div>
+          <div class="sync-overview-item"><span>Conexão</span><strong id="syncConnection">Verificando</strong></div>
+          <div class="sync-overview-item"><span>Timer compartilhado</span><strong id="syncActiveTimer">Nenhum ativo</strong></div>
+        </div>
+
+        <section class="sync-changes-section" aria-labelledby="syncChangesTitle">
+          <div class="section-head compact-head"><div><p class="label">Outros aparelhos</p><h3 id="syncChangesTitle">Alterações recebidas</h3></div></div>
+          <div class="sync-change-list" id="syncChangesList"><p class="sync-empty">Nenhuma alteração nova recebida neste aparelho.</p></div>
+        </section>
+
+        <p class="fineprint sync-center-note">A sincronização combina os registros deste aparelho com a planilha. Itens ainda pendentes serão reenviados automaticamente.</p>
+        <button class="primary full-width sync-now-button" id="syncNowButton" type="button"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>Sincronizar agora</span></button>
+      </div>
     </div>
 
     <div class="sheet" id="installSheet" aria-hidden="true">

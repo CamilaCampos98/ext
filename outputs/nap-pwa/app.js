@@ -1,5 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
-const APP_VERSION = "20260908.v2";
+const SYNC_META_KEY = "soneca-sync-meta-v1";
+const APP_VERSION = "20260911.v1";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -137,6 +138,7 @@ const defaultState = {
 };
 
 let state = loadState();
+let syncMeta = loadSyncMeta();
 let notificationTimers = [];
 let currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
 let currentRingEndMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
@@ -156,6 +158,18 @@ const els = {
   appLoadingTitle: document.querySelector("#appLoadingTitle"),
   appLoadingText: document.querySelector("#appLoadingText"),
   syncSheetData: document.querySelector("#syncSheetData"),
+  syncAlertDot: document.querySelector("#syncAlertDot"),
+  syncCenterSheet: document.querySelector("#syncCenterSheet"),
+  closeSyncCenter: document.querySelector("#closeSyncCenter"),
+  syncNowButton: document.querySelector("#syncNowButton"),
+  syncStatusBanner: document.querySelector("#syncStatusBanner"),
+  syncStatusTitle: document.querySelector("#syncStatusTitle"),
+  syncStatusText: document.querySelector("#syncStatusText"),
+  syncLastSuccess: document.querySelector("#syncLastSuccess"),
+  syncPendingCount: document.querySelector("#syncPendingCount"),
+  syncConnection: document.querySelector("#syncConnection"),
+  syncActiveTimer: document.querySelector("#syncActiveTimer"),
+  syncChangesList: document.querySelector("#syncChangesList"),
   lastFeedingDock: document.querySelector("#lastFeedingDock"),
   lastFeedingSummary: document.querySelector("#lastFeedingSummary"),
   breastLeft: document.querySelector("#breastLeft"),
@@ -336,6 +350,9 @@ let selectedDiaperType = "pee";
 let activeSessionSheetSupport = null;
 let activeSessionPollInFlight = false;
 let activeSessionPollPromise = null;
+let confirmedSharedSession = null;
+let sharedSessionChecked = false;
+let sharedSessionCheckFailed = false;
 let sharedRecordsPollInFlight = false;
 let lastActiveSessionWriteAt = 0;
 let pendingLocalActiveSession = null;
@@ -356,6 +373,7 @@ function init() {
   registerServiceWorker();
   updateNotificationState();
   render();
+  renderSyncCenter();
   startInitialDataLoad();
   setInterval(renderLiveTick, 1000);
   setInterval(loadActiveSessionFromSheet, ACTIVE_SESSION_POLL_MS);
@@ -365,7 +383,11 @@ function init() {
   });
   window.addEventListener("focus", refreshActiveSessionNow);
   window.addEventListener("pageshow", refreshActiveSessionNow);
-  window.addEventListener("online", refreshActiveSessionNow);
+  window.addEventListener("online", () => {
+    renderSyncCenter();
+    refreshActiveSessionNow();
+  });
+  window.addEventListener("offline", renderSyncCenter);
 }
 
 async function startInitialDataLoad() {
@@ -377,9 +399,19 @@ async function startInitialDataLoad() {
   scheduleCurrentNotifications();
   scheduleActiveSessionReadRetry();
   loadFromSheet()
-    .then(() => loadActiveSessionFromSheet())
-    .then(() => syncPendingAfterInitialLoad())
-    .catch(() => syncPendingAfterInitialLoad());
+    .then(async (sheetResult) => {
+      const activeResult = await loadActiveSessionFromSheet();
+      await syncPendingAfterInitialLoad();
+      if (!sheetResult.errors.length && !activeResult?.error) {
+        markSyncSuccess("Dados conferidos automaticamente com a planilha.");
+      } else {
+        markSyncWarning("Alguns dados não puderam ser conferidos agora.");
+      }
+    })
+    .catch(async () => {
+      await syncPendingAfterInitialLoad();
+      markSyncError("Não foi possível concluir a sincronização inicial.");
+    });
 }
 
 function refreshActiveSessionNow() {
@@ -391,6 +423,7 @@ function refreshActiveSessionNow() {
 async function refreshSharedRecordsNow() {
   if (isInitialLoading || sharedRecordsPollInFlight) return;
   sharedRecordsPollInFlight = true;
+  const beforeRecords = sharedRecordSnapshot();
   try {
     const [feedingLoad, tummyLoad] = await Promise.allSettled([
       loadFeedingsFromSheet({ deferRender: true }),
@@ -401,6 +434,11 @@ async function refreshSharedRecordsNow() {
     if (loadedFeedings?.changed || loadedTummyTimes?.changed) {
       saveState();
       render();
+      const received = receivedSyncChanges(beforeRecords);
+      if (received.length) rememberSyncChanges(received);
+      markSyncSuccess(received.length
+        ? `${received.length} alteração(ões) recebida(s) automaticamente.`
+        : "Dados compartilhados conferidos automaticamente.");
     }
   } finally {
     sharedRecordsPollInFlight = false;
@@ -479,8 +517,10 @@ function repairDayStartIfItHidesTodayNaps() {
 
 function bindEvents() {
   if (els.syncSheetData) {
-    els.syncSheetData.addEventListener("click", syncSheetDataManually);
+    els.syncSheetData.addEventListener("click", () => toggleSyncCenter(true));
   }
+  els.closeSyncCenter?.addEventListener("click", () => toggleSyncCenter(false));
+  els.syncNowButton?.addEventListener("click", syncSheetDataManually);
   ["input", "change"].forEach((eventName) => {
     els.babyName.addEventListener(eventName, updateProfile);
     els.babyBirthDate.addEventListener(eventName, updateProfile);
@@ -629,6 +669,9 @@ function bindEvents() {
   els.feedingTypeGroup.addEventListener("click", handleFeedingTypeClick);
   els.installSheet.addEventListener("click", (event) => {
     if (event.target === els.installSheet) toggleInstallSheet(false);
+  });
+  els.syncCenterSheet?.addEventListener("click", (event) => {
+    if (event.target === els.syncCenterSheet) toggleSyncCenter(false);
   });
   els.profileSheet.addEventListener("click", (event) => {
     if (event.target === els.profileSheet) toggleProfileSheet(false);
@@ -4348,6 +4391,12 @@ async function syncActiveSessionToSheet(options = {}) {
     });
     const result = await response.json();
     activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+    if (activeSessionSheetSupport) {
+      sharedSessionChecked = true;
+      sharedSessionCheckFailed = false;
+      confirmedSharedSession = result.session ? { ...result.session } : null;
+      renderSyncCenter();
+    }
     if (result.ok && result.session
       && activeSessionSignature(result.session) === activeSessionSignature(session)) {
       pendingLocalActiveSession = null;
@@ -4367,6 +4416,8 @@ async function syncActiveSessionToSheet(options = {}) {
     }
   } catch {
     activeSessionSheetSupport = false;
+    sharedSessionCheckFailed = true;
+    renderSyncCenter();
   }
 }
 
@@ -4411,8 +4462,16 @@ async function clearActiveSessionFromSheet(id = "") {
     });
     const result = await response.json();
     activeSessionSheetSupport = Boolean(result.ok && result.activeSessionSupported);
+    if (activeSessionSheetSupport && result.cleared !== false) {
+      confirmedSharedSession = null;
+      sharedSessionChecked = true;
+      sharedSessionCheckFailed = false;
+      renderSyncCenter();
+    }
   } catch {
     activeSessionSheetSupport = false;
+    sharedSessionCheckFailed = true;
+    renderSyncCenter();
   }
 }
 
@@ -4469,16 +4528,20 @@ async function loadActiveSessionFromSheetOnce() {
     if (!result.ok) throw new Error(result.error || "Falha ao carregar timer ativo.");
     if (!result.activeSessionSupported) return;
     activeSessionSheetSupport = true;
+    sharedSessionChecked = true;
+    sharedSessionCheckFailed = false;
 
     if (result.session) {
       const locallyCompleted = completedSessionRecord(result.session.id);
       if (locallyCompleted) {
+        confirmedSharedSession = null;
         await syncNapsToSheet([locallyCompleted], "Confirmando a soneca concluída no Google Sheets...");
         rememberClosedActiveSession(result.session.id);
         await clearActiveSessionFromSheet(result.session.id);
         return { supported: true, session: null, reconciledCompleted: true };
       }
       if (isStaleActiveSession(result.session)) {
+        confirmedSharedSession = null;
         clearActiveSessionFromSheet(result.session.id);
         if (state.activeNapResumeId === result.session.id
           || state.activeNightId === result.session.id
@@ -4488,21 +4551,40 @@ async function loadActiveSessionFromSheetOnce() {
         return;
       }
       if (wasRecentlyClosedActiveSession(result.session.id)) {
+        confirmedSharedSession = null;
         clearActiveSessionFromSheet(result.session.id);
         return;
       }
       if (activeNightConflictsWithCurrentCycle(result.session)) {
+        confirmedSharedSession = null;
         rememberClosedActiveSession(result.session.id);
         clearActiveSessionFromSheet(result.session.id);
         return;
       }
+      confirmedSharedSession = { ...result.session };
       applyRemoteActiveSession(result.session);
       return { supported: true, session: result.session, applied: true };
     }
 
+    confirmedSharedSession = null;
     if ((state.activeNapStart || state.activeNightStart || nightRoutineIsActive())
       && !shouldKeepPendingLocalActiveSession(null)) {
+      const closedSessionId = state.activeNapStart
+        ? state.activeNapResumeId
+        : state.activeNightStart
+          ? state.activeNightId
+          : state.nightRoutineId;
+      const closedTimerLabel = closedLocalTimerDetail();
       clearLocalActiveSession("Timer encerrado ou removido em outro aparelho.");
+      rememberSyncChanges([{
+        id: `timer-closed:${closedSessionId || Date.now()}`,
+        sessionId: closedSessionId ? String(closedSessionId) : "",
+        supersedesId: closedSessionId ? `active:${closedSessionId}` : "",
+        type: "timer",
+        title: "Timer encerrado em outro aparelho",
+        detail: closedTimerLabel,
+        receivedAt: new Date().toISOString()
+      }]);
     }
     return {
       supported: true,
@@ -4512,10 +4594,12 @@ async function loadActiveSessionFromSheetOnce() {
     };
   } catch (error) {
     if (activeSessionSheetSupport === null) activeSessionSheetSupport = false;
+    sharedSessionCheckFailed = true;
     return { supported: activeSessionSheetSupport === true, session: null, error };
   } finally {
     clearTimeout(timeoutId);
     activeSessionPollInFlight = false;
+    renderSyncCenter();
   }
 }
 
@@ -4580,6 +4664,17 @@ function applyRemoteActiveSession(session) {
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
   const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
   const sameRoutine = type === "routine" && nightRoutineIsActive() && state.nightRoutineId === session.id;
+  if (!sameNap && !sameNight && !sameRoutine) {
+    const labels = { nap: "Soneca ativa", night: "Sono noturno ativo", routine: "Rotina noturna ativa" };
+    rememberSyncChanges([{
+      id: `active:${session.id}`,
+      sessionId: String(session.id),
+      type: "timer",
+      title: labels[type],
+      detail: `Iniciado em outro aparelho às ${timeLabel(startedAt)}`,
+      receivedAt: new Date().toISOString()
+    }]);
+  }
   if (sameRoutine) return;
   if (sameNap) {
     const remoteAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
@@ -4790,8 +4885,19 @@ async function syncSheetDataManually() {
   if (manualSheetSyncInFlight || isInitialLoading) return;
 
   manualSheetSyncInFlight = true;
+  const beforeRecords = sharedRecordSnapshot();
+  syncMeta.lastAttemptAt = new Date().toISOString();
+  syncMeta.status = "syncing";
+  syncMeta.message = "Buscando os dados mais recentes da planilha...";
+  saveSyncMeta();
+  renderSyncCenter();
   els.syncSheetData.disabled = true;
   els.syncSheetData.classList.add("is-syncing");
+  if (els.syncNowButton) {
+    els.syncNowButton.disabled = true;
+    els.syncNowButton.classList.add("is-syncing");
+    els.syncNowButton.querySelector("span").textContent = "Sincronizando...";
+  }
   showActionLoading("Sincronizando dados", "Buscando os registros mais recentes da planilha...");
 
   try {
@@ -4801,25 +4907,40 @@ async function syncSheetDataManually() {
     clearLocalActiveSessionIfCompleted();
     saveState();
     render();
+    const received = receivedSyncChanges(beforeRecords);
+    if (received.length) rememberSyncChanges(received);
 
     if (activeResult?.error) {
       setHint("Sincronização parcial: os registros chegaram, mas não consegui consultar o timer ativo.");
+      markSyncWarning("Registros conferidos, mas o timer compartilhado não respondeu.");
     } else if (sheetResult.errors.length) {
       setHint(`Sincronização parcial. ${sheetResult.errors.join(" ")}`);
+      markSyncWarning("Alguns tipos de registro não puderam ser conferidos.");
     } else if (activeResult?.session) {
-      const sessionLabel = activeResult.session.type === "night" ? "sono noturno" : "soneca";
+      const sessionLabel = activeResult.session.type === "night" ? "sono noturno" : activeResult.session.type === "routine" ? "rotina noturna" : "soneca";
       setHint(`Sincronização concluída: ${sessionLabel} em andamento carregado de outro aparelho.`);
+      markSyncSuccess(`${sessionLabel[0].toUpperCase()}${sessionLabel.slice(1)} em andamento conferido.`);
     } else {
       setHint(`Sincronização concluída: ${sheetResult.loadedCount} registro(s) conferido(s).`);
+      markSyncSuccess(received.length
+        ? `${received.length} alteração(ões) nova(s) recebida(s).`
+        : `${sheetResult.loadedCount} registro(s) conferido(s); nenhuma mudança nova.`);
     }
   } catch (error) {
     console.error("Erro ao sincronizar dados manualmente:", error);
     setHint("Não foi possível sincronizar agora. Confira a internet e tente novamente.");
+    markSyncError("Não foi possível acessar a planilha. Confira a internet e tente novamente.");
   } finally {
     hideActionLoading();
     els.syncSheetData.classList.remove("is-syncing");
     els.syncSheetData.disabled = false;
+    if (els.syncNowButton) {
+      els.syncNowButton.disabled = false;
+      els.syncNowButton.classList.remove("is-syncing");
+      els.syncNowButton.querySelector("span").textContent = "Sincronizar agora";
+    }
     manualSheetSyncInFlight = false;
+    renderSyncCenter();
   }
 }
 
@@ -7248,12 +7369,211 @@ function normalizeManualCycleDate(loaded) {
   }
 }
 
+function loadSyncMeta() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SYNC_META_KEY) || "null");
+    const savedStatus = saved?.status === "syncing" ? "warning" : saved?.status;
+    return {
+      lastSuccessAt: saved?.lastSuccessAt || null,
+      lastAttemptAt: saved?.lastAttemptAt || null,
+      status: savedStatus || "idle",
+      message: saved?.status === "syncing" ? "A última sincronização foi interrompida. Tente novamente." : saved?.message || "Toque em sincronizar para conferir a planilha.",
+      changes: Array.isArray(saved?.changes) ? saved.changes.slice(0, 8) : []
+    };
+  } catch {
+    return { lastSuccessAt: null, lastAttemptAt: null, status: "idle", message: "Toque em sincronizar para conferir a planilha.", changes: [] };
+  }
+}
+
+function saveSyncMeta() {
+  localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta));
+}
+
+function markSyncSuccess(message) {
+  syncMeta.lastSuccessAt = new Date().toISOString();
+  syncMeta.lastAttemptAt = syncMeta.lastSuccessAt;
+  syncMeta.status = "success";
+  syncMeta.message = message;
+  saveSyncMeta();
+  renderSyncCenter();
+}
+
+function markSyncWarning(message) {
+  syncMeta.lastAttemptAt = new Date().toISOString();
+  syncMeta.status = "warning";
+  syncMeta.message = message;
+  saveSyncMeta();
+  renderSyncCenter();
+}
+
+function markSyncError(message) {
+  syncMeta.lastAttemptAt = new Date().toISOString();
+  syncMeta.status = "error";
+  syncMeta.message = message;
+  saveSyncMeta();
+  renderSyncCenter();
+}
+
+function pendingSyncCount() {
+  const recordCount = [state.naps, state.nights, state.feedings, state.diapers, state.tummyTimes]
+    .reduce((total, records) => total + (records || []).filter((record) => record?.synced !== true).length, 0);
+  const diaryCount = Object.values(state.sleepDiary || {}).filter((entry) => entry?.synced === false).length;
+  return recordCount + diaryCount;
+}
+
+function currentSharedTimerLabel() {
+  if (sharedSessionCheckFailed) return "Não foi possível confirmar";
+  if (!sharedSessionChecked) return "Conferindo...";
+  if (confirmedSharedSession) {
+    const startedAt = activeSessionStartDate(confirmedSharedSession);
+    if (Number.isNaN(startedAt.getTime())) return "Ativo, horário indisponível";
+    if (confirmedSharedSession.type === "night") return `Sono noturno desde ${timeLabel(startedAt)}`;
+    if (confirmedSharedSession.type === "routine") return `Rotina desde ${timeLabel(startedAt)}`;
+    return `Soneca desde ${timeLabel(startedAt)}`;
+  }
+  return "Nenhum ativo";
+}
+
+function closedLocalTimerDetail() {
+  if (state.activeNapStart) return `Soneca iniciada às ${timeLabel(new Date(state.activeNapStart))}`;
+  if (state.activeNightStart) return `Sono noturno iniciado às ${timeLabel(new Date(state.activeNightStart))}`;
+  if (nightRoutineIsActive()) return `Rotina iniciada às ${timeLabel(new Date(state.nightRoutineStartedAt))}`;
+  return "Timer removido da planilha";
+}
+
+function formatSyncMoment(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "Ainda não sincronizado";
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay
+    ? `Hoje, ${date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+    : date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function renderSyncCenter() {
+  if (!els.syncStatusBanner) return;
+  const pending = pendingSyncCount();
+  const online = navigator.onLine;
+  const status = manualSheetSyncInFlight || syncMeta.status === "syncing"
+    ? "syncing"
+    : !online || syncMeta.status === "error"
+      ? "error"
+      : pending > 0 || syncMeta.status === "warning" || sharedSessionCheckFailed
+        ? "warning"
+        : syncMeta.lastSuccessAt
+          ? "success"
+          : "idle";
+  const statusContent = {
+    syncing: ["Sincronizando agora", "Buscando registros e timer ativo na planilha.", "fa-arrows-rotate"],
+    error: [online ? "Sincronização com erro" : "Sem conexão", online ? syncMeta.message : "Os dados ficam salvos neste aparelho e serão enviados quando a internet voltar.", "fa-cloud-xmark"],
+    warning: [
+      pending > 0 ? "Há dados para enviar" : "Sincronização parcial",
+      pending > 0
+        ? `${pending} registro(s) permanecem salvo(s) somente neste aparelho.`
+        : sharedSessionCheckFailed
+          ? "Os registros foram carregados, mas o timer compartilhado não pôde ser confirmado."
+          : syncMeta.message,
+      "fa-cloud-arrow-up"
+    ],
+    success: ["Tudo sincronizado", syncMeta.message, "fa-cloud-circle-check"],
+    idle: ["Pronto para sincronizar", syncMeta.message, "fa-cloud"]
+  }[status];
+
+  els.syncStatusBanner.dataset.status = status;
+  els.syncStatusBanner.querySelector(".sync-status-icon").innerHTML = `<i class="fa-solid ${statusContent[2]}"></i>`;
+  els.syncStatusTitle.textContent = statusContent[0];
+  els.syncStatusText.textContent = statusContent[1];
+  els.syncLastSuccess.textContent = formatSyncMoment(syncMeta.lastSuccessAt);
+  els.syncPendingCount.textContent = String(pending);
+  els.syncConnection.textContent = online ? "Online" : "Offline";
+  els.syncActiveTimer.textContent = currentSharedTimerLabel();
+  if (els.syncAlertDot) els.syncAlertDot.hidden = status !== "warning" && status !== "error";
+
+  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-bottle-water", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
+  const visibleChanges = visibleSyncChanges();
+  els.syncChangesList.innerHTML = visibleChanges.length
+    ? visibleChanges.map((change) => `
+      <div class="sync-change-item">
+        <i class="fa-solid ${iconByType[change.type] || "fa-arrows-rotate"}" aria-hidden="true"></i>
+        <div><strong>${escapeHtml(change.title || "Alteração recebida")}</strong><span>${escapeHtml(change.detail || "Dados atualizados")}</span></div>
+        <small>${escapeHtml(formatSyncMoment(change.receivedAt).replace("Hoje, ", ""))}</small>
+      </div>`).join("")
+    : '<p class="sync-empty">Nenhuma alteração nova recebida neste aparelho.</p>';
+}
+
+function visibleSyncChanges() {
+  const changes = Array.isArray(syncMeta.changes) ? syncMeta.changes : [];
+  const latestClosedAt = changes
+    .filter((change) => String(change.id || "").startsWith("timer-closed:") || change.title === "Timer encerrado em outro aparelho")
+    .reduce((latest, change) => Math.max(latest, new Date(change.receivedAt || 0).getTime() || 0), 0);
+  return changes.filter((change) => {
+    if (!String(change.id || "").startsWith("active:")) return true;
+    const receivedAt = new Date(change.receivedAt || 0).getTime() || 0;
+    return !latestClosedAt || receivedAt > latestClosedAt;
+  });
+}
+
+function sharedRecordSnapshot() {
+  const records = new Map();
+  const add = (type, id, title, detail, at) => {
+    if (!id) return;
+    records.set(`${type}:${id}`, { id: `${type}:${id}`, type, title, detail, at });
+  };
+  (state.naps || []).forEach((record) => add("nap", record.id || napIdentity(record), "Soneca recebida", syncRecordTimeDetail(record.start, record.end), record.start));
+  (state.nights || []).forEach((record) => add("night", record.id || napIdentity(record), "Sono noturno recebido", syncRecordTimeDetail(record.start, record.end), record.start));
+  (state.feedings || []).forEach((record) => add("feeding", record.id || feedingIdentity(record), "Mamada recebida", syncSingleTimeDetail(record.at), record.at));
+  (state.diapers || []).forEach((record) => add("diaper", record.id || diaperIdentity(record), "Troca de fralda recebida", syncSingleTimeDetail(record.at), record.at));
+  (state.tummyTimes || []).forEach((record) => add("tummy", record.id || tummyTimeIdentity(record), "Tummy time recebido", syncSingleTimeDetail(record.at), record.at));
+  Object.entries(state.sleepDiary || {}).forEach(([id, record]) => add("diary", id, "Diário do sono atualizado", "Detalhes da soneca recebidos", record?.updatedAt));
+  return records;
+}
+
+function syncRecordTimeDetail(startValue, endValue) {
+  const start = new Date(startValue || "");
+  const end = new Date(endValue || "");
+  if (Number.isNaN(start.getTime())) return "Horário atualizado";
+  return Number.isNaN(end.getTime()) ? `Início às ${timeLabel(start)}` : `${timeLabel(start)}–${timeLabel(end)}`;
+}
+
+function syncSingleTimeDetail(value) {
+  const date = new Date(value || "");
+  return Number.isNaN(date.getTime()) ? "Horário atualizado" : `Registrado às ${timeLabel(date)}`;
+}
+
+function receivedSyncChanges(beforeRecords) {
+  const afterRecords = sharedRecordSnapshot();
+  return Array.from(afterRecords.values())
+    .filter((record) => !beforeRecords.has(record.id))
+    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+    .slice(0, 8)
+    .map((record) => ({ ...record, receivedAt: new Date().toISOString() }));
+}
+
+function rememberSyncChanges(changes) {
+  if (!changes?.length) return;
+  const combined = [...changes, ...(syncMeta.changes || [])];
+  const supersededIds = new Set(changes.map((change) => String(change.supersedesId || "")).filter(Boolean));
+  const seen = new Set();
+  syncMeta.changes = combined.filter((change) => {
+    const key = String(change.id || `${change.title}:${change.detail}`);
+    if (supersededIds.has(key)) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
+  saveSyncMeta();
+  renderSyncCenter();
+}
+
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  renderSyncCenter();
 }
 
 function closeAllSheets(exceptSheet = null) {
   [
+    els.syncCenterSheet,
     els.installSheet,
     els.profileSheet,
     els.historySheet,
@@ -7285,6 +7605,7 @@ function setSheetOpen(sheet, open) {
 
 function updateSheetOpenState() {
   const hasOpenSheet = [
+    els.syncCenterSheet,
     els.installSheet,
     els.profileSheet,
     els.historySheet,
@@ -7301,6 +7622,11 @@ function updateSheetOpenState() {
     els.tummyTimeSheet
   ].some((sheet) => sheet && sheet.getAttribute("aria-hidden") === "false");
   document.body.classList.toggle("sheet-open", hasOpenSheet);
+}
+
+function toggleSyncCenter(open) {
+  setSheetOpen(els.syncCenterSheet, open);
+  if (open) renderSyncCenter();
 }
 
 function toggleInstallSheet(open) {
