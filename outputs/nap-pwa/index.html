@@ -217,7 +217,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260911.v2</span>
+        <span class="app-version-badge" id="appVersion">20260911.v3</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -243,6 +243,11 @@
           <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
       </nav>
+    </div>
+
+    <div class="undo-toast" id="undoToast" role="status" aria-live="polite" hidden>
+      <div><strong id="undoToastTitle">Registro excluído</strong><span id="undoToastText">Você pode desfazer esta ação.</span></div>
+      <button id="undoLastAction" type="button">Desfazer</button>
     </div>
 
     <div class="sheet" id="syncCenterSheet" aria-hidden="true">

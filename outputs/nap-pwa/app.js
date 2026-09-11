@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260911.v2";
+const APP_VERSION = "20260911.v3";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -170,6 +170,10 @@ const els = {
   syncConnection: document.querySelector("#syncConnection"),
   syncActiveTimer: document.querySelector("#syncActiveTimer"),
   syncChangesList: document.querySelector("#syncChangesList"),
+  undoToast: document.querySelector("#undoToast"),
+  undoToastTitle: document.querySelector("#undoToastTitle"),
+  undoToastText: document.querySelector("#undoToastText"),
+  undoLastAction: document.querySelector("#undoLastAction"),
   lastFeedingDock: document.querySelector("#lastFeedingDock"),
   lastFeedingSummary: document.querySelector("#lastFeedingSummary"),
   breastLeft: document.querySelector("#breastLeft"),
@@ -361,6 +365,8 @@ let pendingLocalActiveSession = null;
 let activeSessionWriteGeneration = 0;
 let isInitialLoading = true;
 let manualSheetSyncInFlight = false;
+let pendingUndoAction = null;
+let undoToastTimer = null;
 const recentlyClosedActiveSessions = new Map();
 
 init();
@@ -524,6 +530,7 @@ function bindEvents() {
   els.closeSyncCenter?.addEventListener("click", () => toggleSyncCenter(false));
   els.syncNowButton?.addEventListener("click", syncSheetDataManually);
   els.toggleAssistantDetails?.addEventListener("click", toggleAssistantCalculationDetails);
+  els.undoLastAction?.addEventListener("click", undoLastDeletedRecord);
   ["input", "change"].forEach((eventName) => {
     els.babyName.addEventListener(eventName, updateProfile);
     els.babyBirthDate.addEventListener(eventName, updateProfile);
@@ -724,6 +731,8 @@ function bindEvents() {
     if (feedingButton) removeFeedingRecord(feedingButton.dataset.deleteFeeding);
     const diaperButton = event.target.closest("[data-delete-diaper]");
     if (diaperButton) removeDiaperRecord(diaperButton.dataset.deleteDiaper);
+    const tummyButton = event.target.closest("[data-delete-tummy]");
+    if (tummyButton) removeTummyTimeRecord(tummyButton.dataset.deleteTummy);
   });
 }
 
@@ -1689,6 +1698,8 @@ function applyLastWakeFromLatestNap() {
 function removeNapRecord(napKey) {
   const nap = state.naps.find((item) => napIdentity(item) === napKey);
   const night = state.nights.find((item) => napIdentity(item) === napKey);
+  const record = nap || night;
+  if (!record) return;
   state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
   state.nights = state.nights.filter((item) => napIdentity(item) !== napKey);
 
@@ -1699,25 +1710,146 @@ function removeNapRecord(napKey) {
     els.lastWake.value = state.lastWake;
   }
   saveState();
-  if (nap && nap.id) deleteNapFromSheet(nap.id);
-  if (night && night.id) deleteNapFromSheet(night.id);
+  const deleteRequest = record.id ? deleteNapFromSheet(record.id) : Promise.resolve();
   render();
+  showUndoAction(night ? "Sono noturno excluído" : "Soneca excluída", async () => {
+    await deleteRequest;
+    await restoreNapRecord(record, Boolean(night));
+  });
 }
 
 function removeFeedingRecord(feedingKey) {
   const feeding = state.feedings.find((item) => feedingIdentity(item) === feedingKey);
+  if (!feeding) return;
   state.feedings = state.feedings.filter((item) => feedingIdentity(item) !== feedingKey);
   saveState();
-  if (feeding && feeding.id) deleteFeedingFromSheet(feeding.id);
+  const deleteRequest = feeding.id ? deleteFeedingFromSheet(feeding.id) : Promise.resolve();
   render();
+  showUndoAction("Mamada excluída", async () => {
+    await deleteRequest;
+    await restoreFeedingRecord(feeding);
+  });
 }
 
 function removeDiaperRecord(diaperKey) {
   const diaper = state.diapers.find((item) => diaperIdentity(item) === diaperKey);
+  if (!diaper) return;
   state.diapers = state.diapers.filter((item) => diaperIdentity(item) !== diaperKey);
   saveState();
-  if (diaper && diaper.id) deleteDiaperFromSheet(diaper.id);
+  const deleteRequest = diaper.id ? deleteDiaperFromSheet(diaper.id) : Promise.resolve();
   render();
+  showUndoAction("Troca de fralda excluída", async () => {
+    await deleteRequest;
+    await restoreDiaperRecord(diaper);
+  });
+}
+
+function removeTummyTimeRecord(tummyKey) {
+  const tummyTime = state.tummyTimes.find((item) => tummyTimeIdentity(item) === tummyKey);
+  if (!tummyTime) return;
+  state.tummyTimes = state.tummyTimes.filter((item) => tummyTimeIdentity(item) !== tummyKey);
+  saveState();
+  const deleteRequest = tummyTime.id ? deleteTummyTimeFromSheet(tummyTime.id) : Promise.resolve();
+  render();
+  showUndoAction("Tummy time excluído", async () => {
+    await deleteRequest;
+    await restoreTummyTimeRecord(tummyTime);
+  });
+}
+
+function showUndoAction(title, restore) {
+  if (!els.undoToast || typeof restore !== "function") return;
+  clearTimeout(undoToastTimer);
+  pendingUndoAction = restore;
+  els.undoToastTitle.textContent = title;
+  els.undoToastText.textContent = "Você pode restaurar este registro por alguns segundos.";
+  els.undoLastAction.disabled = false;
+  els.undoToast.hidden = false;
+  requestAnimationFrame(() => els.undoToast.classList.add("is-visible"));
+  undoToastTimer = setTimeout(dismissUndoAction, 9000);
+}
+
+function dismissUndoAction() {
+  clearTimeout(undoToastTimer);
+  undoToastTimer = null;
+  pendingUndoAction = null;
+  if (!els.undoToast) return;
+  els.undoToast.classList.remove("is-visible");
+  setTimeout(() => {
+    if (!els.undoToast.classList.contains("is-visible")) els.undoToast.hidden = true;
+  }, 180);
+}
+
+async function undoLastDeletedRecord() {
+  if (!pendingUndoAction || !els.undoLastAction) return;
+  const restore = pendingUndoAction;
+  pendingUndoAction = null;
+  clearTimeout(undoToastTimer);
+  els.undoLastAction.disabled = true;
+  els.undoToastText.textContent = "Restaurando no aparelho e na planilha...";
+  try {
+    await restore();
+    els.undoToastTitle.textContent = "Registro restaurado";
+    els.undoToastText.textContent = "A correção foi sincronizada com a planilha.";
+    setHint("Registro restaurado no aparelho e reenviado para o Google Sheets.");
+  } catch (error) {
+    els.undoToastTitle.textContent = "Restaurado no aparelho";
+    els.undoToastText.textContent = "A planilha será sincronizada novamente em breve.";
+    setHint(`Registro restaurado; sincronização pendente: ${error.message}`);
+  }
+  undoToastTimer = setTimeout(dismissUndoAction, 2600);
+}
+
+async function restoreNapRecord(record, isNight) {
+  const restored = { ...record, synced: false };
+  if (isNight) {
+    state.nights = [restored, ...state.nights.filter((item) => napIdentity(item) !== napIdentity(restored))]
+      .sort((a, b) => new Date(b.end) - new Date(a.end))
+      .slice(0, 80);
+  } else {
+    state.naps = [restored, ...state.naps.filter((item) => napIdentity(item) !== napIdentity(restored))]
+      .sort((a, b) => new Date(b.end) - new Date(a.end))
+      .slice(0, 80);
+    applyLastWakeFromLatestNap();
+  }
+  saveState();
+  render();
+  const result = await (isNight ? syncNightToSheet(restored) : syncNapToSheet(restored));
+  if (!result?.ok) throw result?.error || new Error("A planilha não confirmou a restauração.");
+  return result;
+}
+
+async function restoreFeedingRecord(record) {
+  const restored = { ...record, synced: false };
+  state.feedings = dedupeFeedings([restored, ...state.feedings]).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 160);
+  saveState();
+  render();
+  await syncFeedingToSheet(restored);
+  if (!state.feedings.find((item) => feedingIdentity(item) === feedingIdentity(restored))?.synced) {
+    throw new Error("A planilha não confirmou a restauração da mamada.");
+  }
+}
+
+async function restoreDiaperRecord(record) {
+  const restored = { ...record, synced: false };
+  state.diapers = dedupeDiapers([restored, ...state.diapers]).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
+  saveState();
+  render();
+  await syncDiaperToSheet(restored);
+  if (!state.diapers.find((item) => diaperIdentity(item) === diaperIdentity(restored))?.synced) {
+    throw new Error("A planilha não confirmou a restauração da troca.");
+  }
+}
+
+async function restoreTummyTimeRecord(record) {
+  const restored = { ...record, synced: false };
+  state.tummyTimes = dedupeTummyTimes([restored, ...state.tummyTimes]).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
+  saveState();
+  render();
+  await syncTummyTimeToSheet(restored);
+  if (!state.tummyTimes.find((item) => tummyTimeIdentity(item) === tummyTimeIdentity(restored))?.synced) {
+    throw new Error("A planilha não confirmou a restauração do tummy time.");
+  }
 }
 
 function clearHistory() {
@@ -3063,7 +3195,7 @@ function renderHistory() {
       return `<li><div><span>Troca de fralda · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${diaperTypeLabel(record.diaperType || record.kind || record.typeValue || record.type)}</b></div></div><div class="history-actions"><div class="history-mood">${diaperHasPoop(record) ? "Com cocô" : "Sem cocô"}</div><button class="delete-nap" data-delete-diaper="${diaperIdentity(record)}" aria-label="Excluir troca" title="Excluir troca">×</button></div></li>`;
     }
     if (record.type === "tummy") {
-      return `<li><div><span>Tummy time · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${formatDuration(record.duration || 0)}</b></div></div><div class="history-actions"><div class="history-mood">Atividade</div></div></li>`;
+      return `<li><div><span>Tummy time · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${formatDuration(record.duration || 0)}</b></div></div><div class="history-actions"><div class="history-mood">Atividade</div><button class="delete-nap" data-delete-tummy="${tummyTimeIdentity(record)}" aria-label="Excluir tummy time" title="Excluir tummy time">×</button></div></li>`;
     }
     const label = record.type === "night" ? "Sono noturno" : moodLabel(record.mood);
     const typeLabel = record.type === "night" ? "Noite" : `${napNumbers.get(napIdentity(record)) || ""}ª soneca`;
@@ -3077,8 +3209,17 @@ function historyCycleHeader(dateValue) {
   const night = state.nights
     .filter((item) => recordDateInputValue(item) === dateValue)
     .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
-  const endLabel = night ? timeLabel(new Date(night.end)) : "em andamento";
-  return `<li class="history-cycle-header"><div><span>Ciclo do dia</span><div class="history-times"><b>Início ${dayStart}</b><b>${dateLabel(date)} · noite ${endLabel}</b></div></div></li>`;
+  const activeNightStart = new Date(state.activeNightStart || "");
+  const activeNightOnDate = !Number.isNaN(activeNightStart.getTime()) && dateInputValue(activeNightStart) === dateValue;
+  const isToday = dateValue === dateInputValue(new Date());
+  const nightLabel = night
+    ? `noite encerrada às ${timeLabel(new Date(night.end))}`
+    : activeNightOnDate
+      ? `noite em andamento desde ${timeLabel(activeNightStart)}`
+      : isToday
+        ? "noite ainda não iniciada"
+        : "noite não registrada";
+  return `<li class="history-cycle-header"><div><span>Ciclo do dia</span><div class="history-times"><b>Início ${dayStart}</b><b>${dateLabel(date)} · ${nightLabel}</b></div></div></li>`;
 }
 
 function historyNapNumbers(records) {
@@ -6060,6 +6201,27 @@ async function deleteDiaperFromSheet(id) {
     setHint("Troca removida do aparelho e do Google Sheets.");
   } catch (error) {
     setHint(`Troca removida do aparelho, mas nao foi removida do Google Sheets: ${error.message}`);
+  }
+}
+
+async function deleteTummyTimeFromSheet(id) {
+  if (!SHEETS_WEB_APP_URL || !id) return;
+
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_SHARED_TOKEN,
+        action: "deleteTummyTime",
+        id
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao remover tummy time.");
+    setHint("Tummy time removido do aparelho e do Google Sheets.");
+  } catch (error) {
+    setHint(`Tummy time removido do aparelho, mas não foi removido do Google Sheets: ${error.message}`);
   }
 }
 
