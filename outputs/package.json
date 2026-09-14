@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Servidor local da PWA Soneca com suporte a Web Push.",
   "main": "serve-soneca.js",
+  "scripts": {
+    "test": "node --test tests/sleep-calculations.test.js"
+  },
   "dependencies": {
     "web-push": "^3.6.7"
   }

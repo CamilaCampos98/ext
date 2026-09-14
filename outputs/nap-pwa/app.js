@@ -1,6 +1,7 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260914.v2";
+const APP_VERSION = "20260914.v3";
+const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -3938,7 +3939,7 @@ function reportWeekDays(startDate) {
       daySleep,
       nightSleep,
       nightAwake,
-      totalSleep: daySleep + nightSleep
+      totalSleep: SleepCalculations.totalEffectiveSleep(daySleep, nightSleep)
     });
   }
 
@@ -4044,18 +4045,7 @@ function dominantWakeMoodLabel(days) {
 }
 
 function nightDuration(night) {
-  const start = new Date(night.start).getTime();
-  const end = new Date(night.end).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
-
-  const elapsed = Math.round((end - start) / 60000);
-  const recordedDuration = Number(night.duration);
-  if (Number.isFinite(recordedDuration) && recordedDuration > 0 && recordedDuration <= elapsed) {
-    return clamp(Math.round(recordedDuration), 0, 16 * 60);
-  }
-
-  const awake = nightAwakeMinutes(night, elapsed);
-  return clamp(elapsed - awake, 0, 16 * 60);
+  return SleepCalculations.effectiveNightMinutes(night);
 }
 
 function hasNightAwakeInfo(night) {
@@ -4063,37 +4053,11 @@ function hasNightAwakeInfo(night) {
 }
 
 function nightAwakeMinutes(night, elapsedMinutes = null) {
-  const explicit = Number(night.awakeDuration);
-  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
-
-  const awakenings = totalAwakeMinutes(night.awakenings || []);
-  if (awakenings > 0) return awakenings;
-
-  const fromNote = awakeDurationFromNightNote(night.note);
-  if (fromNote > 0) return fromNote;
-
-  const start = new Date(night.start).getTime();
-  const end = new Date(night.end).getTime();
-  const elapsed = Number.isFinite(elapsedMinutes)
-    ? elapsedMinutes
-    : Number.isFinite(start) && Number.isFinite(end) && end > start
-      ? Math.round((end - start) / 60000)
-      : 0;
-  const recordedDuration = Number(night.duration);
-  if (elapsed > 0 && Number.isFinite(recordedDuration) && recordedDuration > 0 && recordedDuration < elapsed) {
-    return Math.max(0, elapsed - Math.round(recordedDuration));
-  }
-
-  return 0;
+  return SleepCalculations.nightAwakeMinutes(night, elapsedMinutes);
 }
 
 function awakeDurationFromNightNote(note) {
-  const text = String(note || "");
-  const duration = text.match(/Acordada na noite:\s*(?:(\d+)h)?\s*(?:(\d+)\s*(?:min)?)?/i);
-  if (!duration) return 0;
-  const hours = Number(duration[1] || 0);
-  const minutes = Number(duration[2] || 0);
-  return (hours * 60) + minutes;
+  return SleepCalculations.awakeMinutesFromNote(note);
 }
 
 function averageFeedingInterval(feedings) {
@@ -7659,7 +7623,7 @@ function registerServiceWorker() {
     });
   }
 
-  return navigator.serviceWorker.register("sw.js").then((registration) => {
+  return navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((registration) => {
     appServiceWorkerRegistration = registration;
     watchServiceWorkerRegistration(registration);
     if (registration.waiting && navigator.serviceWorker.controller) {
@@ -7717,14 +7681,84 @@ async function checkForAppUpdate() {
   }
 }
 
-function applyAppUpdate() {
-  const worker = waitingServiceWorker || appServiceWorkerRegistration?.waiting;
-  if (!worker) {
-    checkForAppUpdate();
+async function applyAppUpdate() {
+  if (!("serviceWorker" in navigator)) {
+    setAppUpdateStatus("Atualização automática indisponível neste navegador.");
     return;
   }
-  setAppUpdateStatus("Aplicando atualização...");
-  worker.postMessage({ type: "SKIP_WAITING" });
+
+  setAppUpdateButtonsDisabled(true);
+  setAppUpdateStatus("Preparando atualização...");
+
+  try {
+    const registration = appServiceWorkerRegistration || await navigator.serviceWorker.getRegistration();
+    if (!registration) {
+      setAppUpdateStatus("Não encontrei o atualizador do app. Feche e abra o Soneca novamente.");
+      setAppUpdateButtonsDisabled(false);
+      return;
+    }
+
+    appServiceWorkerRegistration = registration;
+    let worker = waitingServiceWorker || registration.waiting;
+    if (!worker) {
+      await registration.update();
+      worker = await waitForPendingServiceWorker(registration);
+    }
+
+    if (!worker) {
+      setAppUpdateStatus("O app já está atualizado. Recarregando...");
+      window.location.reload();
+      return;
+    }
+
+    waitingServiceWorker = worker;
+    setAppUpdateStatus("Aplicando atualização...");
+    worker.postMessage({ type: "SKIP_WAITING" });
+
+    window.setTimeout(() => {
+      if (!serviceWorkerReloading) window.location.reload();
+    }, 2500);
+  } catch {
+    setAppUpdateStatus("Não foi possível atualizar agora. Confira a internet e tente novamente.");
+    setAppUpdateButtonsDisabled(false);
+  }
+}
+
+function waitForPendingServiceWorker(registration, timeoutMs = 15000) {
+  const current = registration.waiting || registration.installing;
+  if (current?.state === "installed") return Promise.resolve(current);
+
+  return new Promise((resolve) => {
+    let worker = current;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(value);
+    };
+    const watch = (candidate) => {
+      if (!candidate) return;
+      worker = candidate;
+      if (candidate.state === "installed") {
+        finish(candidate);
+        return;
+      }
+      candidate.addEventListener("statechange", () => {
+        if (candidate.state === "installed") finish(candidate);
+        if (candidate.state === "redundant") finish(null);
+      });
+    };
+    const timeout = window.setTimeout(() => finish(registration.waiting || null), timeoutMs);
+
+    watch(worker);
+    registration.addEventListener("updatefound", () => watch(registration.installing), { once: true });
+  });
+}
+
+function setAppUpdateButtonsDisabled(disabled) {
+  if (els.updateAppButton) els.updateAppButton.disabled = disabled;
+  if (els.updateAppToastButton) els.updateAppToastButton.disabled = disabled;
 }
 
 function setAppUpdateStatus(message) {
