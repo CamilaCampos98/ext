@@ -1091,8 +1091,10 @@ function feedingSideKey(value) {
 function diaperTypeKey(value) {
   const text = String(value || '').toLowerCase();
   const hasPee = text.indexOf('xixi') >= 0 || text.indexOf('pee') >= 0;
+  const hasBomb = text.indexOf('bomba') >= 0 || text.indexOf('bomb') >= 0;
   const hasPoop = text.indexOf('cocô') >= 0 || text.indexOf('coco') >= 0 || text.indexOf('poop') >= 0;
   if (text.indexOf('both') >= 0 || (hasPee && hasPoop)) return 'both';
+  if (hasBomb && hasPoop) return 'poop-bomb';
   if (hasPoop) return 'poop';
   return 'pee';
 }
@@ -1100,13 +1102,14 @@ function diaperTypeKey(value) {
 function diaperTypeLabel(value) {
   const type = diaperTypeKey(value);
   if (type === 'both') return 'Xixi e cocô';
+  if (type === 'poop-bomb') return 'Cocô bomba';
   if (type === 'poop') return 'Cocô';
   return 'Xixi';
 }
 
 function diaperHasPoop(value) {
   const type = diaperTypeKey(value);
-  return type === 'poop' || type === 'both';
+  return type === 'poop' || type === 'poop-bomb' || type === 'both';
 }
 
 function toIsoString(value) {

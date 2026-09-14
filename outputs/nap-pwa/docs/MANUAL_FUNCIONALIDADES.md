@@ -43,7 +43,7 @@ O botao central abre as principais acoes:
 - Soneca: inicia uma soneca.
 - Encerrar soneca: finaliza a soneca ativa e pede o humor ao acordar.
 - Mamada: registra horario, tipo e lado.
-- Troca de fraldas: registra xixi, coco ou xixi e coco.
+- Troca de fraldas: registra xixi, coco, coco bomba ou xixi e coco.
 - Tummy time: registra uma atividade acordada.
 - Hora de dormir: inicia o sono noturno.
 - Acordou: encerra o sono noturno e inicia um novo ciclo do dia.
@@ -175,7 +175,7 @@ Indicadores atuais:
 - Percentual da meta das sonecas.
 - Trocas de fralda por dia.
 - Fraldas com coco por dia.
-- So xixi, so coco e xixi+coco.
+- So xixi, so coco, coco bomba e xixi+coco.
 
 O grafico principal junta sono diurno, sono noturno, sono total, quantidade de sonecas, mamadas e despertares para facilitar comparacao por dia da semana.
 

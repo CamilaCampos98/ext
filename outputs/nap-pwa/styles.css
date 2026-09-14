@@ -1584,6 +1584,91 @@ body.sheet-open .bottom-nav {
   line-height: 1.45;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.app-update-card,
+.install-instructions {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(168, 216, 240, 0.16);
+  border-radius: 12px;
+  background: rgba(12, 18, 44, 0.72);
+}
+
+.app-update-card > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-update-card span,
+.install-instructions p {
+  color: var(--muted);
+}
+
+.app-update-card strong {
+  color: var(--lavender);
+}
+
+.app-update-card > p,
+.install-instructions p {
+  margin: 10px 0 0;
+  line-height: 1.45;
+}
+
+.app-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.app-update-toast {
+  position: fixed;
+  z-index: 120;
+  right: 18px;
+  bottom: 92px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(420px, calc(100% - 36px));
+  padding: 13px 14px;
+  border: 1px solid rgba(118, 226, 207, 0.42);
+  border-radius: 14px;
+  background: rgba(15, 25, 57, 0.98);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+}
+
+.app-update-toast div {
+  flex: 1;
+}
+
+.app-update-toast strong,
+.app-update-toast span {
+  display: block;
+}
+
+.app-update-toast span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+@media (max-width: 560px) {
+  .app-update-actions > button {
+    flex: 1 1 100%;
+  }
+
+  .app-update-toast {
+    right: 10px;
+    bottom: 86px;
+    width: calc(100% - 20px);
+  }
+}
+
 .manual-link {
   margin-top: 8px;
 }
@@ -2630,6 +2715,11 @@ select {
 .chart-bar.poop-count,
 .legend-dot-svg.poop {
   fill: #CBB7F7;
+}
+
+.chart-bar.poop-bomb-count,
+.legend-dot-svg.poop-bomb {
+  fill: #FF8F70;
 }
 
 .chart-bar.both-diaper-count,

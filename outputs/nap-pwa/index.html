@@ -217,7 +217,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260911.v4</span>
+        <span class="app-version-badge" id="appVersion">20260914.v1</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -239,7 +239,7 @@
         <button class="bottom-nav-button" id="reportMenu" type="button" aria-label="Relatório" title="Relatório">
           <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
         </button>
-        <button class="bottom-nav-button" id="installHelp" type="button" aria-label="Instalar no iPhone" title="Instalar">
+        <button class="bottom-nav-button" id="installHelp" type="button" aria-label="Instalar ou atualizar o app" title="App">
           <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
       </nav>
@@ -281,14 +281,38 @@
     <div class="sheet" id="installSheet" aria-hidden="true">
       <div class="sheet-card">
         <button class="icon-button close" id="closeInstall" aria-label="Fechar">x</button>
-        <h2>Instalar no iPhone</h2>
-        <p>No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início". Depois abra por esse ícone para usar como app.</p>
+        <p class="label">Aplicativo</p>
+        <h2>Instalação e atualização</h2>
+        <div class="app-update-card">
+          <div>
+            <span>Versão instalada</span>
+            <strong id="installedAppVersion">20260914.v1</strong>
+          </div>
+          <p id="appUpdateStatus">Verificando atualização...</p>
+          <div class="app-update-actions">
+            <button class="primary" id="installAppButton" type="button" hidden>Instalar app</button>
+            <button class="primary" id="updateAppButton" type="button" hidden>Atualizar agora</button>
+            <button class="secondary" id="checkAppUpdate" type="button">Verificar agora</button>
+          </div>
+        </div>
+        <div class="install-instructions" id="installInstructions">
+          <strong>No iPhone</strong>
+          <p>No Safari, toque em Compartilhar e depois em "Adicionar à Tela de Início". Abra pelo novo ícone para usar como app.</p>
+        </div>
         <p class="fineprint">No iOS, notificações web dependem do suporte do Safari e da permissão do usuário. Sem backend, os avisos são confiáveis enquanto o app está aberto ou em segundo plano recente.</p>
         <div class="install-note">
           <strong>Importante</strong>
           <p>As previsões são estimativas para organização da rotina. Sono seguro e situações como prematuridade, refluxo, doença, ganho de peso baixo ou despertares persistentes devem ser acompanhados pelo pediatra.</p>
         </div>
       </div>
+    </div>
+
+    <div class="app-update-toast" id="appUpdateToast" role="status" aria-live="polite" hidden>
+      <div>
+        <strong>Nova versão disponível</strong>
+        <span>Atualize para usar as correções mais recentes.</span>
+      </div>
+      <button class="primary compact-button" id="updateAppToastButton" type="button">Atualizar</button>
     </div>
 
     <div class="sheet" id="profileSheet" aria-hidden="true">
@@ -469,7 +493,7 @@
           <button class="manual-card-button diaper" id="openDiaper" type="button">
             <i class="fa-solid fa-baby" aria-hidden="true"></i>
             <strong>Troca de fraldas</strong>
-            <span class="action-info" title="Registra xixi, cocô ou xixi e cocô."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
+            <span class="action-info" title="Registra xixi, cocô, cocô bomba ou xixi e cocô."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
           <button class="manual-card-button tummy" id="openTummyTime" type="button">
             <i class="fa-solid fa-child-reaching" aria-hidden="true"></i>
@@ -635,6 +659,7 @@
         <div class="side-options diaper-options" id="diaperTypeGroup" role="group" aria-label="Tipo de fralda">
           <button class="side-option" type="button" data-diaper-type="pee">Xixi</button>
           <button class="side-option" type="button" data-diaper-type="poop">Cocô</button>
+          <button class="side-option" type="button" data-diaper-type="poop-bomb">Cocô bomba</button>
           <button class="side-option" type="button" data-diaper-type="both">Xixi e cocô</button>
         </div>
         <button class="primary full-width" id="saveDiaper" type="button">Salvar troca</button>
@@ -660,6 +685,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260908.2" defer></script>
+    <script src="app.js?v=20260914.1" defer></script>
   </body>
 </html>

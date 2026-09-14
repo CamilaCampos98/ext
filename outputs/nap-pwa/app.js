@@ -1,13 +1,13 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260911.v4";
+const APP_VERSION = "20260914.v1";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxXNs4sLE7Ue0V9o84M_yV854TQ1FZS7Ty2ouJzyEXjpKQxPXoXHCuzouC9CZricqeKhg/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwlMCwGggVlLp335FA4M7fuWDXt4jcwNjk7lraH7zpZYECYbsWXK4Hm-aDmcFw4VDk_yA/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -314,6 +314,13 @@ const els = {
   installHelp: document.querySelector("#installHelp"),
   installSheet: document.querySelector("#installSheet"),
   closeInstall: document.querySelector("#closeInstall"),
+  installedAppVersion: document.querySelector("#installedAppVersion"),
+  appUpdateStatus: document.querySelector("#appUpdateStatus"),
+  installAppButton: document.querySelector("#installAppButton"),
+  updateAppButton: document.querySelector("#updateAppButton"),
+  checkAppUpdate: document.querySelector("#checkAppUpdate"),
+  appUpdateToast: document.querySelector("#appUpdateToast"),
+  updateAppToastButton: document.querySelector("#updateAppToastButton"),
   moodSheet: document.querySelector("#moodSheet"),
   closeMood: document.querySelector("#closeMood"),
   skipMood: document.querySelector("#skipMood"),
@@ -372,6 +379,10 @@ let isInitialLoading = true;
 let manualSheetSyncInFlight = false;
 let pendingUndoAction = null;
 let undoToastTimer = null;
+let deferredInstallPrompt = null;
+let appServiceWorkerRegistration = null;
+let waitingServiceWorker = null;
+let serviceWorkerReloading = false;
 const recentlyClosedActiveSessions = new Map();
 
 init();
@@ -379,6 +390,7 @@ init();
 function init() {
   const versionLabel = document.querySelector("#appVersion");
   if (versionLabel) versionLabel.textContent = APP_VERSION;
+  if (els.installedAppVersion) els.installedAppVersion.textContent = APP_VERSION;
   document.body.classList.add("is-loading");
   mountProfilePanel();
   hydrateForm();
@@ -653,6 +665,12 @@ function bindEvents() {
   els.reportFilter.addEventListener("click", handleReportFilterClick);
   els.reportDate.addEventListener("change", handleReportDateChange);
   els.installHelp.addEventListener("click", () => toggleInstallSheet(true));
+  els.installAppButton?.addEventListener("click", installAppFromPrompt);
+  els.updateAppButton?.addEventListener("click", applyAppUpdate);
+  els.updateAppToastButton?.addEventListener("click", applyAppUpdate);
+  els.checkAppUpdate?.addEventListener("click", checkForAppUpdate);
+  window.addEventListener("beforeinstallprompt", handleInstallPromptAvailable);
+  window.addEventListener("appinstalled", handleAppInstalled);
   els.closeProfile.addEventListener("click", () => toggleProfileSheet(false));
   els.closeHistory.addEventListener("click", () => toggleHistorySheet(false));
   els.closeDiary.addEventListener("click", () => toggleDiarySheet(false));
@@ -3849,6 +3867,7 @@ function reportWeekDays(startDate) {
     const diapers = state.diapers.filter((diaper) => recordDateInputValue({ start: diaper.at }) === key);
     const peeOnlyCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "pee").length;
     const poopOnlyCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "poop").length;
+    const poopBombCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "poop-bomb").length;
     const bothDiaperCount = diapers.filter((diaper) => diaperTypeKey(diaper.type) === "both").length;
     const daySleep = naps.reduce((sum, nap) => sum + safeDuration(nap), 0);
     const nightSleep = nights.reduce((sum, night) => sum + nightDuration(night), 0);
@@ -3896,8 +3915,9 @@ function reportWeekDays(startDate) {
       diaperCount: diapers.length,
       peeOnlyCount,
       poopOnlyCount,
+      poopBombCount,
       bothDiaperCount,
-      poopCount: poopOnlyCount + bothDiaperCount,
+      poopCount: poopOnlyCount + poopBombCount + bothDiaperCount,
       feedingInterval: averageFeedingInterval(feedings),
       napGoalPercent: averageNapGoalPercent,
       napDurations,
@@ -4291,7 +4311,8 @@ function reportDiaperCountChart(days) {
   const padding = { top: 48, right: 18, bottom: 34, left: 38 };
   const maxValue = Math.max(1, ...days.flatMap((day) => [
     day.peeOnlyCount + day.bothDiaperCount,
-    day.poopOnlyCount + day.bothDiaperCount
+    day.poopOnlyCount + day.bothDiaperCount,
+    day.poopBombCount
   ]));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
@@ -4304,17 +4325,20 @@ function reportDiaperCountChart(days) {
     <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Xixi e coco por dia">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
       <text class="chart-title" x="18" y="24">Fraldas por dia</text>
-      <text class="chart-subtitle" x="18" y="40">Numeros por dia. Xixi+coco entra nas duas contagens.</text>
-      <circle class="legend-dot-svg pee" cx="430" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="442" y="28">Xixi</text>
-      <circle class="legend-dot-svg poop" cx="500" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="512" y="28">Coco</text>
+      <text class="chart-subtitle" x="18" y="40">Numeros por dia. Xixi+coco entra em xixi e coco; coco bomba fica separado.</text>
+      <circle class="legend-dot-svg pee" cx="372" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="384" y="28">Xixi</text>
+      <circle class="legend-dot-svg poop" cx="432" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="444" y="28">Coco</text>
+      <circle class="legend-dot-svg poop-bomb" cx="496" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="508" y="28">Bomba</text>
       ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
       ${days.map((day, index) => {
         const center = padding.left + groupWidth * index + groupWidth / 2;
         const bars = [
-          { value: day.peeOnlyCount + day.bothDiaperCount, className: "pee-count", offset: -barWidth / 2 - 3 },
-          { value: day.poopOnlyCount + day.bothDiaperCount, className: "poop-count", offset: barWidth / 2 + 3 }
+          { value: day.peeOnlyCount + day.bothDiaperCount, className: "pee-count", offset: -barWidth - 4 },
+          { value: day.poopOnlyCount + day.bothDiaperCount, className: "poop-count", offset: 0 },
+          { value: day.poopBombCount, className: "poop-bomb-count", offset: barWidth + 4 }
         ];
         return `
           ${bars.map((bar) => {
@@ -4337,12 +4361,14 @@ function reportDiaperChart(days) {
   const padding = { top: 48, right: 18, bottom: 34, left: 38 };
   const maxValue = Math.max(1, ...days.flatMap((day) => [
     day.peeOnlyCount + day.bothDiaperCount,
-    day.poopOnlyCount + day.bothDiaperCount
+    day.poopOnlyCount,
+    day.poopBombCount,
+    day.bothDiaperCount
   ]));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const groupWidth = plotWidth / days.length;
-  const barWidth = Math.min(18, groupWidth / 4);
+  const barWidth = Math.min(14, groupWidth / 5);
   const baseY = padding.top + plotHeight;
   const scaleY = (value) => padding.top + plotHeight - (value / maxValue) * plotHeight;
 
@@ -4350,20 +4376,23 @@ function reportDiaperChart(days) {
     <svg class="report-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Trocas de fralda na semana">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
       <text class="chart-title" x="18" y="24">Trocas de fralda</text>
-      <text class="chart-subtitle" x="18" y="40">Quantidade por tipo de troca: xixi, cocô e xixi+cocô.</text>
-      <circle class="legend-dot-svg pee" cx="330" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="342" y="28">Xixi</text>
-      <circle class="legend-dot-svg poop" cx="394" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="406" y="28">Cocô</text>
-      <circle class="legend-dot-svg both-diaper" cx="462" cy="24" r="5"></circle>
-      <text class="chart-legend-label" x="474" y="28">Xixi+cocô</text>
+      <text class="chart-subtitle" x="18" y="40">Quantidade por tipo de troca: xixi, cocô, cocô bomba e xixi+cocô.</text>
+      <circle class="legend-dot-svg pee" cx="276" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="288" y="28">Xixi</text>
+      <circle class="legend-dot-svg poop" cx="336" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="348" y="28">Cocô</text>
+      <circle class="legend-dot-svg poop-bomb" cx="410" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="422" y="28">Bomba</text>
+      <circle class="legend-dot-svg both-diaper" cx="488" cy="24" r="5"></circle>
+      <text class="chart-legend-label" x="500" y="28">Xixi+cocô</text>
       ${[0, Math.ceil(maxValue / 2), maxValue].map((value) => `<g><line class="chart-grid" x1="${padding.left}" y1="${roundSvg(scaleY(value))}" x2="${width - padding.right}" y2="${roundSvg(scaleY(value))}"></line><text class="chart-label" x="16" y="${roundSvg(scaleY(value) + 4)}">${value}</text></g>`).join("")}
       ${days.map((day, index) => {
         const center = padding.left + groupWidth * index + groupWidth / 2;
         const bars = [
-          { value: day.peeOnlyCount, className: "pee-count", offset: -barWidth - 3 },
-          { value: day.poopOnlyCount, className: "poop-count", offset: 0 },
-          { value: day.bothDiaperCount, className: "both-diaper-count", offset: barWidth + 3 }
+          { value: day.peeOnlyCount, className: "pee-count", offset: -barWidth * 1.5 - 5 },
+          { value: day.poopOnlyCount, className: "poop-count", offset: -barWidth / 2 - 2 },
+          { value: day.poopBombCount, className: "poop-bomb-count", offset: barWidth / 2 + 2 },
+          { value: day.bothDiaperCount, className: "both-diaper-count", offset: barWidth * 1.5 + 5 }
         ];
         return `
           ${bars.map((bar) => {
@@ -7617,23 +7646,113 @@ function canNotify() {
 }
 
 function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
+  if (!("serviceWorker" in navigator)) {
+    setAppUpdateStatus("Este navegador não oferece atualização automática.");
+    return;
+  }
   if (!window.__sonecaControllerChangeBound) {
     window.__sonecaControllerChangeBound = true;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (sessionStorage.getItem("soneca-sw-reloaded") === "1") return;
-      sessionStorage.setItem("soneca-sw-reloaded", "1");
+      if (serviceWorkerReloading) return;
+      serviceWorkerReloading = true;
       window.location.reload();
     });
   }
 
   return navigator.serviceWorker.register("sw.js").then((registration) => {
-    registration.update?.();
+    appServiceWorkerRegistration = registration;
+    watchServiceWorkerRegistration(registration);
+    if (registration.waiting && navigator.serviceWorker.controller) {
+      showAppUpdateAvailable(registration.waiting);
+    } else {
+      setAppUpdateStatus(isAppInstalled() ? "App instalado e atualizado." : "Você está usando a versão mais recente.");
+    }
+    registration.update?.().catch(() => {});
     return registration;
   }).catch(() => {
+    setAppUpdateStatus("Não foi possível verificar atualizações agora.");
     updateNotificationHelp("Não consegui registrar o Service Worker. Avisos e modo offline podem falhar.");
     return null;
   });
+}
+
+function watchServiceWorkerRegistration(registration) {
+  registration.addEventListener("updatefound", () => {
+    const installingWorker = registration.installing;
+    if (!installingWorker) return;
+    setAppUpdateStatus("Baixando nova versão...");
+    installingWorker.addEventListener("statechange", () => {
+      if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+        showAppUpdateAvailable(installingWorker);
+      }
+    });
+  });
+}
+
+function showAppUpdateAvailable(worker) {
+  waitingServiceWorker = worker;
+  setAppUpdateStatus("Nova versão pronta para instalar.");
+  if (els.updateAppButton) els.updateAppButton.hidden = false;
+  if (els.appUpdateToast) els.appUpdateToast.hidden = false;
+}
+
+async function checkForAppUpdate() {
+  if (!appServiceWorkerRegistration) {
+    setAppUpdateStatus("Atualização automática indisponível neste navegador.");
+    return;
+  }
+  if (els.checkAppUpdate) els.checkAppUpdate.disabled = true;
+  setAppUpdateStatus("Procurando atualização...");
+  try {
+    await appServiceWorkerRegistration.update();
+    if (appServiceWorkerRegistration.waiting) {
+      showAppUpdateAvailable(appServiceWorkerRegistration.waiting);
+    } else {
+      setAppUpdateStatus("Você está usando a versão mais recente.");
+    }
+  } catch {
+    setAppUpdateStatus("Não foi possível verificar agora. Tente novamente com internet.");
+  } finally {
+    if (els.checkAppUpdate) els.checkAppUpdate.disabled = false;
+  }
+}
+
+function applyAppUpdate() {
+  const worker = waitingServiceWorker || appServiceWorkerRegistration?.waiting;
+  if (!worker) {
+    checkForAppUpdate();
+    return;
+  }
+  setAppUpdateStatus("Aplicando atualização...");
+  worker.postMessage({ type: "SKIP_WAITING" });
+}
+
+function setAppUpdateStatus(message) {
+  if (els.appUpdateStatus) els.appUpdateStatus.textContent = message;
+}
+
+function handleInstallPromptAvailable(event) {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  if (els.installAppButton) els.installAppButton.hidden = false;
+}
+
+async function installAppFromPrompt() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  if (els.installAppButton) els.installAppButton.hidden = true;
+}
+
+function handleAppInstalled() {
+  deferredInstallPrompt = null;
+  if (els.installAppButton) els.installAppButton.hidden = true;
+  setAppUpdateStatus("App instalado e atualizado.");
+}
+
+function isAppInstalled() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
 function loadState() {
@@ -8037,6 +8156,14 @@ function toggleSyncCenter(open) {
 
 function toggleInstallSheet(open) {
   setSheetOpen(els.installSheet, open);
+  if (open) {
+    if (els.installedAppVersion) els.installedAppVersion.textContent = APP_VERSION;
+    if (waitingServiceWorker || appServiceWorkerRegistration?.waiting) {
+      showAppUpdateAvailable(waitingServiceWorker || appServiceWorkerRegistration.waiting);
+    } else if (appServiceWorkerRegistration) {
+      setAppUpdateStatus(isAppInstalled() ? "App instalado e atualizado." : "Você está usando a versão mais recente.");
+    }
+  }
 }
 
 function toggleProfileSheet(open) {
@@ -8461,8 +8588,10 @@ function feedingCollectionSignature(feedings = []) {
 function diaperTypeKey(value) {
   const text = String(value || "").toLowerCase();
   const hasPee = text.includes("pee") || text.includes("xixi");
+  const hasBomb = text.includes("bomba") || text.includes("bomb");
   const hasPoop = text.includes("poop") || text.includes("cocô") || text.includes("coco");
   if (text.includes("both") || (hasPee && hasPoop)) return "both";
+  if (hasBomb && hasPoop) return "poop-bomb";
   if (hasPoop) return "poop";
   return "pee";
 }
@@ -8470,12 +8599,13 @@ function diaperTypeKey(value) {
 function diaperTypeLabel(value) {
   const type = diaperTypeKey(value);
   if (type === "both") return "Xixi e cocô";
+  if (type === "poop-bomb") return "Cocô bomba";
   if (type === "poop") return "Cocô";
   return "Xixi";
 }
 
 function diaperHasPoop(diaper) {
-  return ["poop", "both"].includes(diaperTypeKey(diaper?.diaperType || diaper?.type || diaper));
+  return ["poop", "poop-bomb", "both"].includes(diaperTypeKey(diaper?.diaperType || diaper?.type || diaper));
 }
 
 function diaperIdentity(diaper) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-20260911-v4";
+const CACHE_NAME = "soneca-pwa-20260914-v1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,15 +11,14 @@ const ASSETS = [
   "./vendor/fontawesome/webfonts/fa-brands-400.ttf",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
-  "./styles.css?v=117",
-  "./app.js?v=20260908.2",
+  "./styles.css?v=118",
+  "./app.js?v=20260914.1",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -81,6 +80,10 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
   if (!event.data || event.data.type !== "notify") return;
   self.registration.showNotification(event.data.title, {
     body: event.data.body,
