@@ -1630,7 +1630,7 @@ body.sheet-open .bottom-nav {
   position: fixed;
   z-index: 120;
   right: 18px;
-  bottom: 92px;
+  bottom: 118px;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1664,8 +1664,14 @@ body.sheet-open .bottom-nav {
 
   .app-update-toast {
     right: 10px;
-    bottom: 86px;
+    bottom: calc(150px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: 1fr;
     width: calc(100% - 20px);
+  }
+
+  .app-update-toast .compact-button {
+    width: 100%;
   }
 }
 

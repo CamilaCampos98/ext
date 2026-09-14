@@ -8029,14 +8029,19 @@ function renderSyncCenter() {
 
 function visibleSyncChanges() {
   const changes = Array.isArray(syncMeta.changes) ? syncMeta.changes : [];
+  const todayKey = dateInputValue(new Date());
   const latestClosedAt = changes
     .filter((change) => String(change.id || "").startsWith("timer-closed:") || change.title === "Timer encerrado em outro aparelho")
     .reduce((latest, change) => Math.max(latest, new Date(change.receivedAt || 0).getTime() || 0), 0);
-  return changes.filter((change) => {
-    if (!String(change.id || "").startsWith("active:")) return true;
-    const receivedAt = new Date(change.receivedAt || 0).getTime() || 0;
-    return !latestClosedAt || receivedAt > latestClosedAt;
-  });
+  return changes
+    .filter((change) => {
+      const receivedAtDate = new Date(change.receivedAt || "");
+      if (Number.isNaN(receivedAtDate.getTime()) || dateInputValue(receivedAtDate) !== todayKey) return false;
+      if (!String(change.id || "").startsWith("active:")) return true;
+      return !latestClosedAt || receivedAtDate.getTime() > latestClosedAt;
+    })
+    .sort((a, b) => new Date(b.receivedAt || 0) - new Date(a.receivedAt || 0))
+    .slice(0, 5);
 }
 
 function sharedRecordSnapshot() {
