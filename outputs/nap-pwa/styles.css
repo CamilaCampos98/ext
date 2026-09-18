@@ -1657,6 +1657,32 @@ body.sheet-open .bottom-nav {
   font-size: 0.76rem;
 }
 
+.app-update-toast.is-updating {
+  border-color: rgba(168, 216, 240, 0.62);
+}
+
+.app-update-toast.is-complete {
+  border-color: rgba(118, 226, 207, 0.72);
+}
+
+.app-update-toast .is-loading::before,
+.app-update-actions .is-loading::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.12em;
+  animation: app-update-spin 0.75s linear infinite;
+}
+
+@keyframes app-update-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 560px) {
   .app-update-actions > button {
     flex: 1 1 100%;

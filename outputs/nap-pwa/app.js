@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260918.v1";
+const APP_VERSION = "20260918.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -7623,7 +7623,8 @@ function registerServiceWorker() {
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (serviceWorkerReloading) return;
       serviceWorkerReloading = true;
-      window.location.reload();
+      showAppUpdateCompleted();
+      window.setTimeout(() => window.location.reload(), 700);
     });
   }
 
@@ -7633,6 +7634,7 @@ function registerServiceWorker() {
     if (registration.waiting && navigator.serviceWorker.controller) {
       showAppUpdateAvailable(registration.waiting);
     } else {
+      hideAppUpdateAvailable();
       setAppUpdateStatus(isAppInstalled() ? "App instalado e atualizado." : "Você está usando a versão mais recente.");
     }
     registration.update?.().catch(() => {});
@@ -7659,9 +7661,33 @@ function watchServiceWorkerRegistration(registration) {
 
 function showAppUpdateAvailable(worker) {
   waitingServiceWorker = worker;
+  setAppUpdateBusy(false);
   setAppUpdateStatus("Nova versão pronta para instalar.");
   if (els.updateAppButton) els.updateAppButton.hidden = false;
   if (els.appUpdateToast) els.appUpdateToast.hidden = false;
+}
+
+function hideAppUpdateAvailable() {
+  waitingServiceWorker = null;
+  setAppUpdateBusy(false);
+  if (els.updateAppButton) els.updateAppButton.hidden = true;
+  if (els.appUpdateToast) els.appUpdateToast.hidden = true;
+}
+
+function showAppUpdateCompleted() {
+  waitingServiceWorker = null;
+  setAppUpdateStatus("Atualização concluída. Abrindo a nova versão...");
+  setAppUpdateBusy(false);
+  if (els.updateAppButton) els.updateAppButton.hidden = true;
+  if (els.updateAppToastButton) els.updateAppToastButton.hidden = true;
+  if (els.appUpdateToast) {
+    const title = els.appUpdateToast.querySelector("strong");
+    const message = els.appUpdateToast.querySelector("div > span");
+    if (title) title.textContent = "Atualização concluída";
+    if (message) message.textContent = "Abrindo a nova versão do Soneca...";
+    els.appUpdateToast.classList.add("is-complete");
+    els.appUpdateToast.hidden = false;
+  }
 }
 
 async function checkForAppUpdate() {
@@ -7675,7 +7701,15 @@ async function checkForAppUpdate() {
     await appServiceWorkerRegistration.update();
     if (appServiceWorkerRegistration.waiting) {
       showAppUpdateAvailable(appServiceWorkerRegistration.waiting);
+    } else if (appServiceWorkerRegistration.installing) {
+      const worker = await waitForPendingServiceWorker(appServiceWorkerRegistration);
+      if (worker) showAppUpdateAvailable(worker);
+      else {
+        hideAppUpdateAvailable();
+        setAppUpdateStatus("Você está usando a versão mais recente.");
+      }
     } else {
+      hideAppUpdateAvailable();
       setAppUpdateStatus("Você está usando a versão mais recente.");
     }
   } catch {
@@ -7691,14 +7725,14 @@ async function applyAppUpdate() {
     return;
   }
 
-  setAppUpdateButtonsDisabled(true);
+  setAppUpdateBusy(true);
   setAppUpdateStatus("Preparando atualização...");
 
   try {
     const registration = appServiceWorkerRegistration || await navigator.serviceWorker.getRegistration();
     if (!registration) {
       setAppUpdateStatus("Não encontrei o atualizador do app. Feche e abra o Soneca novamente.");
-      setAppUpdateButtonsDisabled(false);
+      setAppUpdateBusy(false);
       return;
     }
 
@@ -7710,8 +7744,9 @@ async function applyAppUpdate() {
     }
 
     if (!worker) {
-      setAppUpdateStatus("O app já está atualizado. Recarregando...");
-      window.location.reload();
+      serviceWorkerReloading = true;
+      showAppUpdateCompleted();
+      window.setTimeout(() => window.location.reload(), 700);
       return;
     }
 
@@ -7720,11 +7755,14 @@ async function applyAppUpdate() {
     worker.postMessage({ type: "SKIP_WAITING" });
 
     window.setTimeout(() => {
-      if (!serviceWorkerReloading) window.location.reload();
+      if (serviceWorkerReloading) return;
+      serviceWorkerReloading = true;
+      showAppUpdateCompleted();
+      window.setTimeout(() => window.location.reload(), 700);
     }, 2500);
   } catch {
     setAppUpdateStatus("Não foi possível atualizar agora. Confira a internet e tente novamente.");
-    setAppUpdateButtonsDisabled(false);
+    setAppUpdateBusy(false);
   }
 }
 
@@ -7760,9 +7798,30 @@ function waitForPendingServiceWorker(registration, timeoutMs = 15000) {
   });
 }
 
-function setAppUpdateButtonsDisabled(disabled) {
-  if (els.updateAppButton) els.updateAppButton.disabled = disabled;
-  if (els.updateAppToastButton) els.updateAppToastButton.disabled = disabled;
+function setAppUpdateBusy(busy) {
+  const buttons = [
+    { element: els.updateAppButton, label: "Atualizar agora" },
+    { element: els.updateAppToastButton, label: "Atualizar" }
+  ];
+
+  buttons.forEach(({ element, label }) => {
+    if (!element) return;
+    element.disabled = busy;
+    element.classList.toggle("is-loading", busy);
+    element.setAttribute("aria-busy", String(busy));
+    element.textContent = busy ? "Atualizando..." : label;
+    if (!busy) element.hidden = false;
+  });
+
+  if (!els.appUpdateToast) return;
+  const title = els.appUpdateToast.querySelector("strong");
+  const message = els.appUpdateToast.querySelector("div > span");
+  els.appUpdateToast.classList.toggle("is-updating", busy);
+  els.appUpdateToast.classList.remove("is-complete");
+  if (title) title.textContent = busy ? "Atualizando o Soneca" : "Nova versão disponível";
+  if (message) message.textContent = busy
+    ? "Aguarde enquanto a nova versão é instalada..."
+    : "Atualize para usar as correções mais recentes.";
 }
 
 function setAppUpdateStatus(message) {
