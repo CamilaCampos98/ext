@@ -89,10 +89,40 @@
     return day + night;
   }
 
+  function recoveryAdjustedDayTarget(dayTargetMinutes, nightTargetMinutes, nightSleepMinutes, nightAwakeMinutes = 0) {
+    const dayTarget = Math.max(0, Math.round(Number(dayTargetMinutes) || 0));
+    const nightTarget = Math.max(0, Math.round(Number(nightTargetMinutes) || 0));
+    const nightSleep = Math.max(0, Math.round(Number(nightSleepMinutes) || 0));
+    const nightAwake = Math.max(0, Math.round(Number(nightAwakeMinutes) || 0));
+    const nightDeficit = Math.max(0, nightTarget - nightSleep);
+
+    if (!nightDeficit || (nightDeficit < 45 && nightAwake < 30)) return dayTarget;
+
+    const recovery = clamp(Math.round((nightDeficit * 35) / 100), 20, 60);
+    return dayTarget + recovery;
+  }
+
+  function distributedNapGoal(options = {}) {
+    const historicalGoal = clamp(Math.round(Number(options.historicalGoal) || 60), 35, 140);
+    const completedNapCount = Math.max(0, Math.round(Number(options.completedNapCount) || 0));
+    if (!completedNapCount) return historicalGoal;
+
+    const adjustedDayTarget = Math.max(0, Math.round(Number(options.adjustedDayTarget) || 0));
+    const completedDaySleep = Math.max(0, Math.round(Number(options.completedDaySleep) || 0));
+    const remainingSlots = Math.max(1, Math.round(Number(options.remainingSlots) || 1));
+    const remainingDaySleep = Math.max(0, adjustedDayTarget - completedDaySleep);
+    const distributedGoal = remainingDaySleep / remainingSlots;
+    const blendedGoal = Math.round((distributedGoal * 0.75) + (historicalGoal * 0.25));
+
+    return clamp(blendedGoal, 35, 140);
+  }
+
   return {
     awakeMinutesFromNote,
+    distributedNapGoal,
     effectiveNightMinutes,
     nightAwakeMinutes,
+    recoveryAdjustedDayTarget,
     totalAwakeningMinutes,
     totalEffectiveSleep
   };

@@ -41,3 +41,31 @@ test("lê o tempo acordada da observação da planilha", () => {
 test("soma 9h57 de noite com 3h56 de dia", () => {
   assert.equal(sleep.totalEffectiveSleep(236, 597), 833);
 });
+
+test("acrescenta compensação parcial quando a noite fica 1h30 abaixo da meta", () => {
+  assert.equal(sleep.recoveryAdjustedDayTarget(210, 660, 570, 0), 242);
+});
+
+test("não compensa uma diferença noturna pequena sem fragmentação relevante", () => {
+  assert.equal(sleep.recoveryAdjustedDayTarget(210, 660, 630, 20), 210);
+});
+
+test("mantém a primeira meta baseada no histórico", () => {
+  assert.equal(sleep.distributedNapGoal({
+    historicalGoal: 40,
+    adjustedDayTarget: 242,
+    completedDaySleep: 0,
+    completedNapCount: 0,
+    remainingSlots: 5
+  }), 40);
+});
+
+test("redistribui a segunda meta depois de uma primeira soneca longa", () => {
+  assert.equal(sleep.distributedNapGoal({
+    historicalGoal: 58,
+    adjustedDayTarget: 242,
+    completedDaySleep: 85,
+    completedNapCount: 1,
+    remainingSlots: 4
+  }), 44);
+});

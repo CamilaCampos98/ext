@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260914.v3";
+const APP_VERSION = "20260918.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -7097,8 +7097,12 @@ function nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, 
   }
   if (nightDeficit < 45 && awakeAtNight < 30) return "";
 
-  const extraDaySleep = clamp(Math.round(nightDeficit * 0.35), 20, 60);
-  const dayTarget = clamp(goals.day + extraDaySleep, goals.day, goals.day + 60);
+  const dayTarget = SleepCalculations.recoveryAdjustedDayTarget(
+    goals.day,
+    goals.night,
+    nightSleep,
+    awakeAtNight
+  );
   const remainingDaySleep = Math.max(0, dayTarget - daySleep);
   const nextNapName = ordinalFeminine(today.length + 1);
   const awakePart = awakeAtNight >= 30 ? ` e ficou acordada ${formatDuration(awakeAtNight)} na madrugada` : "";
@@ -8870,6 +8874,29 @@ function activeLastNapAssistantText(plan, elapsed, remaining) {
 }
 
 function napGoalMinutesForIndex(napIndex) {
+  const historicalGoal = historicalNapGoalMinutesForIndex(napIndex);
+  const completedNaps = napsToday();
+  if (!completedNaps.length) return historicalGoal;
+
+  const goals = sleepGoalsForAge(currentBabyAgeMonths());
+  const adjustedDayTarget = SleepCalculations.recoveryAdjustedDayTarget(
+    goals.day,
+    goals.night,
+    latestNightSleepMinutes(),
+    latestNightAwakeMinutes()
+  );
+  const remainingSlots = Math.max(1, plannedNapCount() - completedNaps.length);
+
+  return SleepCalculations.distributedNapGoal({
+    historicalGoal,
+    adjustedDayTarget,
+    completedDaySleep: dayNapSleepMinutes(),
+    completedNapCount: completedNaps.length,
+    remainingSlots
+  });
+}
+
+function historicalNapGoalMinutesForIndex(napIndex) {
   const samples = napDurationSamplesByIndex(napIndex);
   if (samples.length) {
     const average = Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length);
