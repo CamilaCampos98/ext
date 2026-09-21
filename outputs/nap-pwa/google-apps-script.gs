@@ -1,5 +1,7 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
+const PUMPINGS_SHEET_NAME = 'Ordenhas';
+const PUMPING_PLAN_SHEET_NAME = 'PlanoOrdenha';
 const DIAPERS_SHEET_NAME = 'Fraldas';
 const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
@@ -41,6 +43,14 @@ const FEEDING_HEADERS = [
   'Peito',
   'Observação',
   'Inicio do dia'
+];
+
+const PUMPING_HEADERS = [
+  'Recebido em', 'ID', 'Bebê', 'Idade (meses)', 'Horário', 'Peito', 'Quantidade (ml)', 'Observação'
+];
+
+const PUMPING_PLAN_HEADERS = [
+  'Chave', 'Ativa', 'Usar em', 'Horas a cobrir', 'Ml por mamada', 'Estoque inicial (ml)', 'Peito preferido', 'Iniciada em', 'Atualizada em'
 ];
 
 const DIAPER_HEADERS = [
@@ -114,6 +124,12 @@ function doGet(e) {
     return jsonResponse(listFeedingRows(getFeedingSheet()));
   }
 
+  if (e && e.parameter && e.parameter.action === 'listPumpings') {
+    const response = listPumpingRows(getPumpingSheet());
+    response.plan = getPumpingPlan(getPumpingPlanSheet());
+    return jsonResponse(response);
+  }
+
   if (e && e.parameter && e.parameter.action === 'listDiapers') {
     return jsonResponse(listDiaperRows(getDiaperSheet()));
   }
@@ -154,6 +170,10 @@ function doPost(e) {
       return jsonResponse(deleteRowById(getFeedingSheet(), payload.id));
     }
 
+    if (payload.action === 'deletePumping') {
+      return jsonResponse(deleteRowById(getPumpingSheet(), payload.id));
+    }
+
     if (payload.action === 'deleteDiaper') {
       return jsonResponse(deleteRowById(getDiaperSheet(), payload.id));
     }
@@ -168,6 +188,18 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendFeedings') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendPumping') {
+      return jsonResponse(appendMissingPumpingRows(getPumpingSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendPumpings') {
+      return jsonResponse(appendMissingPumpingRows(getPumpingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'setPumpingPlan') {
+      return jsonResponse(setPumpingPlan(getPumpingPlanSheet(), payload));
     }
 
     if (payload.action === 'appendDiaper') {
@@ -263,6 +295,32 @@ function getFeedingSheet() {
     ensureSpecificHeaders(sheet, FEEDING_HEADERS);
   }
 
+  return sheet;
+}
+
+function getPumpingSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PUMPINGS_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(PUMPINGS_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PUMPING_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, PUMPING_HEADERS);
+  }
+  return sheet;
+}
+
+function getPumpingPlanSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PUMPING_PLAN_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(PUMPING_PLAN_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PUMPING_PLAN_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, PUMPING_PLAN_HEADERS);
+  }
   return sheet;
 }
 
@@ -651,6 +709,43 @@ function clearActiveSession(sheet, id) {
   return { ok: true, activeSessionSupported: true, cleared: true };
 }
 
+function appendMissingPumpingRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+  records.forEach(function(record) {
+    const id = String(record.id || '');
+    if (!id || existingIds.has(id)) { skipped.push(id); return; }
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push(toPumpingSheetRow(record));
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, PUMPING_HEADERS.length).setValues(rows);
+  return { ok: true, inserted: inserted, skipped: skipped };
+}
+
+function setPumpingPlan(sheet, payload) {
+  const row = [
+    'current', payload.active ? 'Sim' : 'Não', toDateTimeString(payload.targetAt), Number(payload.coverageHours || 8),
+    Number(payload.mlPerFeeding || 150), Number(payload.initialStoredMl || 0), payload.preferredSide || 'left',
+    toDateTimeString(payload.startedAt), new Date()
+  ];
+  sheet.getRange(2, 1, 1, PUMPING_PLAN_HEADERS.length).setValues([row]);
+  return { ok: true, plan: getPumpingPlan(sheet) };
+}
+
+function getPumpingPlan(sheet) {
+  if (sheet.getLastRow() < 2) return null;
+  const row = sheet.getRange(2, 1, 1, PUMPING_PLAN_HEADERS.length).getValues()[0];
+  if (String(row[0] || '') !== 'current') return null;
+  return {
+    active: String(row[1] || '').toLowerCase() === 'sim' || row[1] === true,
+    targetAt: toDateTimeString(row[2]), coverageHours: Number(row[3] || 8), mlPerFeeding: Number(row[4] || 150),
+    initialStoredMl: Number(row[5] || 0), preferredSide: row[6] || 'left', startedAt: toDateTimeString(row[7]), updatedAt: toIsoString(row[8])
+  };
+}
+
 function activeSessionRowToObject(row) {
   return {
     id: String(row[1] || ''),
@@ -825,6 +920,10 @@ function toFeedingSheetRow(payload) {
   ];
 }
 
+function toPumpingSheetRow(payload) {
+  return [new Date(), payload.id || '', payload.babyName || '', payload.babyAge || '', toDateTimeString(payload.at), pumpingSideLabel(payload.side), Math.max(1, Math.round(Number(payload.amountMl) || 0)), payload.note || ''];
+}
+
 function toDiaperSheetRow(payload) {
   return [
     new Date(),
@@ -927,6 +1026,16 @@ function listFeedingRows(sheet) {
       dayStart: toTimeString(row[8])
     }));
 
+  return { ok: true, records: records };
+}
+
+function listPumpingRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, records: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_HEADERS.length).getValues();
+  const records = values.filter(function(row) { return row[1]; }).map(function(row) {
+    return { receivedAt: toIsoString(row[0]), id: String(row[1]), babyName: row[2] || '', babyAge: row[3] || '', at: toDateTimeString(row[4]), side: pumpingSideKey(row[5]), amountMl: Number(row[6] || 0), note: row[7] || '' };
+  });
   return { ok: true, records: records };
 }
 
@@ -1086,6 +1195,20 @@ function feedingSideKey(value) {
   if (text.indexOf('ambos') >= 0) return 'both';
   if (text.indexOf('esquerdo') >= 0) return 'left';
   return '';
+}
+
+function pumpingSideKey(value) {
+  const text = String(value || '').toLowerCase();
+  if (text.indexOf('direito') >= 0 || text === 'right') return 'right';
+  if (text.indexOf('ambos') >= 0 || text === 'both') return 'both';
+  return 'left';
+}
+
+function pumpingSideLabel(value) {
+  const side = pumpingSideKey(value);
+  if (side === 'right') return 'Direito';
+  if (side === 'both') return 'Ambos';
+  return 'Esquerdo';
 }
 
 function diaperTypeKey(value) {

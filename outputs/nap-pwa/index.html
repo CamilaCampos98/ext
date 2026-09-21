@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=119">
+    <link rel="stylesheet" href="styles.css?v=120">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -77,6 +77,11 @@
               <span class="breast-side" id="breastLeft">E</span>
               <span class="breast-side" id="breastRight">D</span>
             </span>
+          </button>
+          <button class="pumping-home-card" id="pumpingHomeCard" type="button" hidden>
+            <span class="pumping-home-icon" aria-hidden="true"><i class="fa-solid fa-bottle-droplet"></i></span>
+            <span><small>Plano de ordenha</small><strong id="pumpingHomeSummary">0 ml guardados</strong></span>
+            <span class="pumping-home-progress"><i id="pumpingHomeProgress"></i></span>
           </button>
           <div class="hero-meter" aria-label="Pressão de sono estimada">
             <svg viewBox="0 0 120 120" role="img">
@@ -217,7 +222,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260918.v2</span>
+        <span class="app-version-badge" id="appVersion">20260921.v1</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -286,7 +291,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260918.v2</strong>
+            <strong id="installedAppVersion">20260921.v1</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -505,6 +510,11 @@
             <strong>Hora de dormir</strong>
             <span class="action-info" title="Inicia o sono noturno com horário atual ou informado."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
           </button>
+          <button class="manual-card-button pumping" id="openPumping" type="button">
+            <i class="fa-solid fa-bottle-droplet" aria-hidden="true"></i>
+            <strong>Ordenha</strong>
+            <span class="action-info" title="Planeja o estoque e registra quanto foi ordenhado de cada peito."><i class="fa-solid fa-info" aria-hidden="true"></i></span>
+          </button>
           <button class="manual-card-button night" id="toggleNightRoutine" type="button">
             <i class="fa-solid fa-bath" aria-hidden="true"></i>
             <strong id="nightRoutineActionLabel">Iniciar rotina noturna</strong>
@@ -685,7 +695,54 @@
       </div>
     </div>
 
-    <script src="sleep-calculations.js?v=20260918.2" defer></script>
-    <script src="app.js?v=20260918.2" defer></script>
+    <div class="sheet" id="pumpingSheet" aria-hidden="true">
+      <div class="sheet-card pumping-sheet-card">
+        <button class="icon-button close" id="closePumping" aria-label="Fechar">x</button>
+        <p class="label">Estoque de leite</p>
+        <div class="pumping-title-row">
+          <div><h2>Ordenha</h2><p>Planeje, registre e acompanhe os ml guardados.</p></div>
+          <label class="pumping-switch"><input id="pumpingActive" type="checkbox"><span></span><b>Ordenha ativa</b></label>
+        </div>
+        <section class="pumping-hero" id="pumpingPlanSummary">
+          <div class="pumping-progress-ring" id="pumpingProgressRing" style="--progress: 0"><span><strong id="pumpingStoredMl">0</strong><small>ml guardados</small></span></div>
+          <div class="pumping-hero-copy"><span id="pumpingTargetDate">Configure a data de uso</span><strong><b id="pumpingRemainingMl">0 ml</b> ainda faltam</strong><small id="pumpingDailyTarget">Ative o plano para calcular a meta diária.</small></div>
+        </section>
+        <section class="pumping-breasts" aria-label="Produção por peito">
+          <article class="breast-card" id="pumpingLeftCard"><span class="breast-illustration left" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito esquerdo</small><strong id="pumpingLeftMl">0 ml</strong><span id="pumpingLeftSessions">Nenhuma ordenha</span></div><em id="pumpingLeftBadge" hidden>Sugerido agora</em></article>
+          <article class="breast-card" id="pumpingRightCard"><span class="breast-illustration right" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito direito</small><strong id="pumpingRightMl">0 ml</strong><span id="pumpingRightSessions">Nenhuma ordenha</span></div><em id="pumpingRightBadge" hidden>Sugerido agora</em></article>
+        </section>
+        <section class="pumping-opportunity" id="pumpingOpportunity"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><div><small>Sugestão do assistente</small><strong id="pumpingOpportunityText">Ative o plano para receber sugestões.</strong></div></section>
+        <details class="pumping-plan-settings" open>
+          <summary>Configurar plano</summary>
+          <div class="form-grid pumping-plan-grid">
+            <label>Usar o leite em<input id="pumpingTargetAt" type="datetime-local"></label>
+            <label>Horas que precisa cobrir<input id="pumpingCoverageHours" type="number" min="1" max="24" step="1" value="8"></label>
+            <label>ml por mamada<input id="pumpingMlPerFeeding" type="number" min="10" max="500" step="10" value="150"></label>
+            <label>Já tinha guardado<input id="pumpingInitialStored" type="number" min="0" max="10000" step="10" value="0"></label>
+            <label>Peito que produz mais<select id="pumpingPreferredSide"><option value="left">Esquerdo</option><option value="right">Direito</option><option value="both">Parecidos / ambos</option></select></label>
+          </div>
+          <div class="pumping-formula" id="pumpingFormula">A estimativa aparecerá aqui.</div>
+          <button class="primary full-width" id="savePumpingPlan" type="button">Salvar plano</button>
+        </details>
+        <section class="pumping-entry-card">
+          <div class="section-head compact-head"><div><p class="label">Nova ordenha</p><h3>Quanto conseguiu guardar?</h3></div></div>
+          <label>Horário<input id="pumpingTime" type="datetime-local"><small>Se vazio, usa o horário atual.</small></label>
+          <div class="pumping-side-picker" id="pumpingSideGroup" role="group" aria-label="Peito ordenhado">
+            <button type="button" data-pumping-side="left"><span class="mini-breast left"></span>Esquerdo</button>
+            <button type="button" data-pumping-side="right"><span class="mini-breast right"></span>Direito</button>
+            <button type="button" data-pumping-side="both"><i class="fa-solid fa-droplet"></i>Ambos</button>
+          </div>
+          <div class="form-grid pumping-entry-grid"><label>Quantidade<input id="pumpingAmount" type="number" min="1" max="1000" step="1" inputmode="numeric" placeholder="ml"><small>Em ml</small></label><label>Observação<input id="pumpingNote" autocomplete="off" placeholder="Opcional"></label></div>
+          <button class="primary full-width" id="savePumping" type="button">Registrar ordenha</button>
+          <p class="fineprint" id="pumpingError"></p>
+        </section>
+        <section class="pumping-history-section"><div class="section-head compact-head"><div><p class="label">Histórico</p><h3>Ordenhas registradas</h3></div></div><div class="pumping-history" id="pumpingHistory"><p class="sync-empty">Nenhuma ordenha registrada.</p></div></section>
+        <p class="fineprint pumping-safety-note">As sugestões indicam oportunidades com base nos registros. Conforto, pega, produção e orientação profissional continuam sendo os critérios principais.</p>
+      </div>
+    </div>
+
+    <script src="sleep-calculations.js?v=20260921.1" defer></script>
+    <script src="pumping-calculations.js?v=20260921.1" defer></script>
+    <script src="app.js?v=20260921.1" defer></script>
   </body>
 </html>

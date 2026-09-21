@@ -186,6 +186,85 @@ main {
   gap: 10px;
 }
 
+/* Ordenha */
+.manual-card-button.pumping { color: #f5c4ff; border-color: rgba(233, 163, 255, .24); }
+.pumping-home-card { width: min(560px, calc(100% - 32px)); margin: 12px auto 0; padding: 12px 14px; border: 1px solid rgba(233, 163, 255, .3); border-radius: 20px; background: rgba(14, 25, 61, .72); color: #eef4ff; display: grid; grid-template-columns: 38px 1fr 72px; gap: 10px; align-items: center; text-align: left; }
+.pumping-home-card[hidden] { display: none; }
+.pumping-home-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 14px; color: #ffd5fa; background: linear-gradient(145deg, #7c4ed8, #d76bb9); }
+.pumping-home-card small, .pumping-home-card strong { display: block; }
+.pumping-home-card small { color: #9bb3d2; text-transform: uppercase; font-size: .65rem; font-weight: 800; letter-spacing: .05em; }
+.pumping-home-progress { height: 7px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.12); }
+.pumping-home-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #dc77c6, #8ddde5); transition: width .25s ease; }
+.pumping-sheet-card { max-width: 720px; background: linear-gradient(180deg, #141d43 0%, #111938 100%); }
+.pumping-title-row { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 18px; }
+.pumping-title-row h2, .pumping-title-row p { margin: 0; }
+.pumping-title-row p { color: #9fb2cf; margin-top: 4px; font-size: .9rem; }
+.pumping-switch { flex: 0 0 auto; display: grid; grid-template-columns: 46px auto; grid-template-rows: auto; gap: 8px; align-items: center; cursor: pointer; }
+.pumping-switch input { position: absolute; opacity: 0; }
+.pumping-switch span { width: 46px; height: 26px; border-radius: 99px; background: #49516f; position: relative; transition: .2s; }
+.pumping-switch span::after { content: ""; width: 20px; height: 20px; position: absolute; left: 3px; top: 3px; background: white; border-radius: 50%; transition: .2s; }
+.pumping-switch input:checked + span { background: #9a5ee4; }
+.pumping-switch input:checked + span::after { transform: translateX(20px); }
+.pumping-switch b { font-size: .76rem; color: #dce6f7; }
+.pumping-hero { display: grid; grid-template-columns: 128px 1fr; align-items: center; gap: 22px; padding: 20px; border-radius: 24px; border: 1px solid rgba(197,151,255,.25); background: radial-gradient(circle at 10% 20%, rgba(206,106,196,.22), transparent 42%), rgba(22,31,70,.8); }
+.pumping-progress-ring { --progress: 0; width: 118px; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(#d678c8 calc(var(--progress) * 1%), rgba(255,255,255,.1) 0); position: relative; }
+.pumping-progress-ring::before { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: #141d43; }
+.pumping-progress-ring span { position: relative; text-align: center; }
+.pumping-progress-ring strong, .pumping-progress-ring small { display: block; }
+.pumping-progress-ring strong { font-size: 1.7rem; }
+.pumping-progress-ring small { color: #aebed6; font-size: .67rem; }
+.pumping-hero-copy > span, .pumping-hero-copy > strong, .pumping-hero-copy > small { display: block; }
+.pumping-hero-copy > span { color: #aebed6; font-size: .78rem; text-transform: uppercase; font-weight: 800; }
+.pumping-hero-copy > strong { margin: 7px 0; font-size: 1.2rem; }
+.pumping-hero-copy b { color: #f0a9e1; font-size: 1.45rem; }
+.pumping-hero-copy small { color: #b9c9de; line-height: 1.45; }
+.pumping-breasts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.breast-card { min-height: 118px; padding: 14px; display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 12px; border: 1px solid rgba(148,174,215,.18); border-radius: 20px; background: rgba(13,23,56,.76); position: relative; }
+.breast-card.is-suggested { border-color: #8de2d7; box-shadow: 0 0 0 2px rgba(141,226,215,.08) inset; }
+.breast-illustration { width: 52px; height: 64px; border-radius: 55% 55% 48% 48%; display: grid; place-items: center; background: linear-gradient(160deg, #efb4dc, #9b67d5); box-shadow: inset -7px -6px 0 rgba(56,28,94,.14); }
+.breast-illustration.right { transform: scaleX(-1); background: linear-gradient(200deg, #b9a9f3, #6e80d8); }
+.breast-illustration i { color: rgba(255,255,255,.82); font-size: .85rem; }
+.breast-card small, .breast-card strong, .breast-card span { display: block; }
+.breast-card small { color: #aebed6; }
+.breast-card strong { margin: 3px 0; font-size: 1.25rem; }
+.breast-card div > span { color: #879cbd; font-size: .74rem; }
+.breast-card em { position: absolute; right: 9px; top: 8px; padding: 4px 7px; border-radius: 99px; background: #235f62; color: #bcfff4; font-style: normal; font-size: .61rem; font-weight: 800; }
+.pumping-opportunity { padding: 14px; margin: 14px 0; display: flex; gap: 12px; align-items: center; border-radius: 18px; background: linear-gradient(135deg, rgba(84,67,148,.52), rgba(27,86,100,.45)); border: 1px solid rgba(142,216,220,.2); }
+.pumping-opportunity > i { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 13px; background: rgba(255,255,255,.09); color: #a9eee5; }
+.pumping-opportunity small, .pumping-opportunity strong { display: block; }
+.pumping-opportunity small { color: #9fb4d2; font-size: .68rem; text-transform: uppercase; font-weight: 800; }
+.pumping-opportunity strong { margin-top: 3px; line-height: 1.35; font-size: .9rem; }
+.pumping-plan-settings, .pumping-entry-card, .pumping-history-section { margin-top: 14px; padding: 16px; border-radius: 20px; background: rgba(10,19,49,.65); border: 1px solid rgba(149,172,211,.16); }
+.pumping-plan-settings summary { cursor: pointer; font-weight: 900; margin-bottom: 14px; }
+.pumping-plan-grid { grid-template-columns: repeat(2, 1fr); }
+.pumping-formula { margin: 12px 0; padding: 12px; border-radius: 14px; background: rgba(155,106,218,.13); color: #cbd7e8; line-height: 1.45; font-size: .82rem; }
+.pumping-side-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+.pumping-side-picker button { padding: 12px 7px; display: flex; justify-content: center; align-items: center; gap: 7px; color: #cbd8ec; background: #182347; border: 1px solid #33436d; border-radius: 14px; font-weight: 800; }
+.pumping-side-picker button.is-active { color: white; border-color: #c279d6; background: #563b83; }
+.mini-breast { width: 18px; height: 22px; border-radius: 55% 55% 48% 48%; background: #e8a9d1; }
+.mini-breast.right { background: #a99eea; }
+.pumping-entry-grid { grid-template-columns: 1fr 2fr; }
+.pumping-history { display: grid; gap: 8px; }
+.pumping-history-item { display: grid; grid-template-columns: 38px 1fr auto auto; gap: 10px; align-items: center; padding: 11px; border-radius: 15px; background: #151f43; }
+.pumping-history-side { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 13px; color: white; background: #a85b9d; }
+.pumping-history-side.right { background: #6470c5; }
+.pumping-history-side.both { background: linear-gradient(135deg,#a85b9d 50%,#6470c5 50%); }
+.pumping-history-item strong, .pumping-history-item small { display: block; }
+.pumping-history-item small { color: #8fa4c6; margin-top: 2px; }
+.pumping-history-item > b { color: #c7faef; }
+.pumping-delete { width: 34px; height: 34px; border-radius: 11px; color: #ffadb7; background: rgba(255,90,111,.1); border: 0; }
+.pumping-safety-note { margin-top: 14px; text-align: center; }
+@media (max-width: 560px) {
+  .pumping-title-row { align-items: flex-start; }
+  .pumping-switch { grid-template-columns: 42px; justify-items: center; }
+  .pumping-switch b { text-align: center; }
+  .pumping-hero { grid-template-columns: 105px 1fr; padding: 16px; gap: 14px; }
+  .pumping-progress-ring { width: 100px; }
+  .pumping-breasts { grid-template-columns: 1fr; }
+  .pumping-plan-grid, .pumping-entry-grid { grid-template-columns: 1fr; }
+  .pumping-history-item { grid-template-columns: 38px 1fr auto auto; }
+}
+
 .sheet-sync-button {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
@@ -3505,6 +3584,23 @@ select {
       max-height: min(84dvh, calc(100dvh - 24px));
     }
   }
+}
+
+.sheet-card.pumping-sheet-card {
+  width: min(720px, 100%);
+  overflow-x: hidden;
+}
+
+.pumping-sheet-card select,
+.pumping-sheet-card input,
+.pumping-sheet-card details,
+.pumping-sheet-card section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pumping-sheet-card select {
+  width: 100%;
 }
 
 @media (max-width: 560px) {
