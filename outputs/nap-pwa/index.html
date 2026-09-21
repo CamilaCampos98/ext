@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=121">
+    <link rel="stylesheet" href="styles.css?v=122">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -222,7 +222,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260921.v3</span>
+        <span class="app-version-badge" id="appVersion">20260921.v4</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -291,7 +291,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260921.v3</strong>
+            <strong id="installedAppVersion">20260921.v4</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -708,8 +708,8 @@
           <div class="pumping-hero-copy"><span id="pumpingTargetDate">Configure a data de uso</span><strong><b id="pumpingRemainingMl">0 ml</b> ainda faltam</strong><small id="pumpingDailyTarget">Ative o plano para calcular a meta diária.</small></div>
         </section>
         <section class="pumping-breasts" aria-label="Produção por peito">
-          <article class="breast-card productive" id="pumpingLeftCard"><span class="breast-illustration left" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito esquerdo</small><strong id="pumpingLeftMl">0 ml guardados</strong><span id="pumpingLeftSessions">Produção principal</span><b id="pumpingLeftTarget">Meta de hoje: 0 ml</b></div><em id="pumpingLeftBadge" hidden>Ordenhar agora</em></article>
-          <article class="breast-card slow" id="pumpingRightCard"><span class="breast-illustration right" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito direito</small><strong id="pumpingRightMl">0 ml guardados</strong><span id="pumpingRightSessions">Produção mais lenta</span><b id="pumpingRightTarget">Meta de hoje: 0 ml</b></div><em id="pumpingRightBadge" hidden>Ordenhar agora</em></article>
+          <article class="breast-card productive" id="pumpingLeftCard"><span class="breast-illustration left" id="pumpingLeftFill" style="--fill: 0%" aria-label="Progresso do peito esquerdo: 0%"><i class="fa-solid fa-droplet"></i><b>0%</b></span><div><small>Peito esquerdo</small><strong id="pumpingLeftMl">0 ml guardados</strong><span id="pumpingLeftSessions">Produção principal</span><b id="pumpingLeftTarget">Meta de hoje: 0 ml</b></div><em id="pumpingLeftBadge" hidden>Ordenhar agora</em></article>
+          <article class="breast-card slow" id="pumpingRightCard"><span class="breast-illustration right" id="pumpingRightFill" style="--fill: 0%" aria-label="Progresso do peito direito: 0%"><i class="fa-solid fa-droplet"></i><b>0%</b></span><div><small>Peito direito</small><strong id="pumpingRightMl">0 ml guardados</strong><span id="pumpingRightSessions">Produção mais lenta</span><b id="pumpingRightTarget">Meta de hoje: 0 ml</b></div><em id="pumpingRightBadge" hidden>Ordenhar agora</em></article>
         </section>
         <p class="pumping-production-note"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Começa distribuindo 70% da meta para o esquerdo e 30% para o direito. Depois aprende a proporção real pelos ml registrados.</p>
         <section class="pumping-opportunity" id="pumpingOpportunity"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><div><small>Sugestão do assistente</small><strong id="pumpingOpportunityText">Ative o plano para receber sugestões.</strong></div></section>
@@ -743,6 +743,6 @@
 
     <script src="sleep-calculations.js?v=20260921.1" defer></script>
     <script src="pumping-calculations.js?v=20260921.3" defer></script>
-    <script src="app.js?v=20260921.3" defer></script>
+    <script src="app.js?v=20260921.4" defer></script>
   </body>
 </html>

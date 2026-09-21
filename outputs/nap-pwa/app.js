@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260921.v3";
+const APP_VERSION = "20260921.v4";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -377,6 +377,8 @@ const els = {
   pumpingRightCard: document.querySelector("#pumpingRightCard"),
   pumpingLeftMl: document.querySelector("#pumpingLeftMl"),
   pumpingRightMl: document.querySelector("#pumpingRightMl"),
+  pumpingLeftFill: document.querySelector("#pumpingLeftFill"),
+  pumpingRightFill: document.querySelector("#pumpingRightFill"),
   pumpingLeftTarget: document.querySelector("#pumpingLeftTarget"),
   pumpingRightTarget: document.querySelector("#pumpingRightTarget"),
   pumpingLeftSessions: document.querySelector("#pumpingLeftSessions"),
@@ -2209,6 +2211,7 @@ function renderPumping() {
   const active = Boolean(state.pumpingPlan?.active);
   const side = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
   const sideTargets = PumpingCalculations.dailySideTargets(plan);
+  const todayTotals = pumpingTotalsToday();
   const target = new Date(state.pumpingPlan?.targetAt || "");
   const formatSessions = (count) => count ? `${count} ordenha${count === 1 ? "" : "s"}` : "Nenhuma ordenha";
 
@@ -2233,6 +2236,8 @@ function renderPumping() {
   els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
   els.pumpingLeftTarget.textContent = `Meta de hoje: ${sideTargets.left} ml`;
   els.pumpingRightTarget.textContent = `Meta de hoje: ${sideTargets.right} ml`;
+  renderBreastFill(els.pumpingLeftFill, todayTotals.left, sideTargets.left, "esquerdo");
+  renderBreastFill(els.pumpingRightFill, todayTotals.right, sideTargets.right, "direito");
   const suggestLeft = active && side === "left";
   const suggestRight = active && side === "right";
   els.pumpingLeftCard.classList.toggle("is-suggested", suggestLeft);
@@ -2241,6 +2246,32 @@ function renderPumping() {
   els.pumpingRightBadge.hidden = !suggestRight;
   els.pumpingOpportunityText.textContent = pumpingOpportunityText(side, plan);
   renderPumpingHistory();
+}
+
+function pumpingTotalsToday() {
+  const today = dateInputValue(new Date());
+  return state.pumpings.reduce((totals, record) => {
+    const at = new Date(record.at || "");
+    if (Number.isNaN(at.getTime()) || dateInputValue(at) !== today) return totals;
+    const amount = Math.max(0, Number(record.amountMl) || 0);
+    if (record.side === "left") totals.left += amount;
+    else if (record.side === "right") totals.right += amount;
+    else {
+      totals.left += amount / 2;
+      totals.right += amount / 2;
+    }
+    return totals;
+  }, { left: 0, right: 0 });
+}
+
+function renderBreastFill(element, amount, target, sideLabel) {
+  if (!element) return;
+  const percent = target > 0 ? Math.min(100, Math.round((amount / target) * 100)) : 0;
+  element.style.setProperty("--fill", `${percent}%`);
+  element.classList.toggle("is-empty", percent === 0);
+  element.setAttribute("aria-label", `Progresso do peito ${sideLabel}: ${percent}%`);
+  const label = element.querySelector("b");
+  if (label) label.textContent = `${percent}%`;
 }
 
 function pumpingOpportunityText(side, plan) {

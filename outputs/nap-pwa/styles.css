@@ -223,9 +223,16 @@ main {
 .breast-card.productive { background: radial-gradient(circle at 10% 50%, rgba(226,112,199,.2), transparent 46%), rgba(13,23,56,.82); }
 .breast-card.slow { background: radial-gradient(circle at 10% 50%, rgba(106,125,218,.15), transparent 46%), rgba(13,23,56,.82); }
 .breast-card.is-suggested { border-color: #8de2d7; box-shadow: 0 0 0 2px rgba(141,226,215,.08) inset; }
-.breast-illustration { width: 62px; height: 78px; border-radius: 55% 55% 48% 48%; display: grid; place-items: center; background: linear-gradient(160deg, #efb4dc, #9b67d5); box-shadow: inset -7px -6px 0 rgba(56,28,94,.14), 0 8px 24px rgba(209,103,187,.18); }
-.breast-illustration.right { transform: scaleX(-1); background: linear-gradient(200deg, #b9a9f3, #6e80d8); }
-.breast-illustration i { color: rgba(255,255,255,.82); font-size: .85rem; }
+.breast-illustration { --fill: 0%; width: 62px; height: 78px; border: 2px solid rgba(239,180,220,.75); border-radius: 55% 55% 48% 48%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; overflow: hidden; position: relative; background: rgba(116,65,139,.2); box-shadow: inset -7px -6px 0 rgba(56,28,94,.1), 0 8px 24px rgba(209,103,187,.14); }
+.breast-illustration::before { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: var(--fill); background: linear-gradient(180deg, #f0a9d9, #a85bc3); transition: height .55s cubic-bezier(.2,.8,.2,1); }
+.breast-illustration::after { content: ""; position: absolute; right: -8px; bottom: calc(var(--fill) - 5px); left: -8px; height: 10px; border-radius: 50%; background: rgba(255,220,244,.7); opacity: .75; transition: bottom .55s cubic-bezier(.2,.8,.2,1), opacity .2s ease; }
+.breast-illustration.is-empty::after { opacity: 0; }
+.breast-illustration.right { border-color: rgba(185,169,243,.75); background: rgba(80,88,156,.2); }
+.breast-illustration.right::before { background: linear-gradient(180deg, #c3b9ff, #6878ce); }
+.breast-illustration.right::after { background: rgba(224,220,255,.7); }
+.breast-illustration i, .breast-illustration > b { position: relative; z-index: 1; text-shadow: 0 1px 4px rgba(20,17,55,.65); }
+.breast-illustration i { color: rgba(255,255,255,.9); font-size: .8rem; }
+.breast-illustration > b { color: #fff; font-size: .74rem; }
 .breast-card small, .breast-card strong, .breast-card span { display: block; }
 .breast-card small { color: #aebed6; }
 .breast-card strong { margin: 3px 0; font-size: 1.25rem; }
