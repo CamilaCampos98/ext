@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260921.v1";
+const APP_VERSION = "20260921.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -2216,7 +2216,6 @@ function renderPumping() {
     els.pumpingHomeSummary.textContent = `${Math.round(plan.storedMl)} de ${Math.round(plan.targetMl)} ml · faltam ${Math.round(plan.remainingMl)} ml`;
     els.pumpingHomeProgress.style.width = `${plan.progressPercent}%`;
   }
-  els.pumpingActive.checked = active;
   els.pumpingStoredMl.textContent = String(Math.round(plan.storedMl));
   els.pumpingRemainingMl.textContent = `${Math.round(plan.remainingMl)} ml`;
   els.pumpingProgressRing.style.setProperty("--progress", plan.progressPercent);
