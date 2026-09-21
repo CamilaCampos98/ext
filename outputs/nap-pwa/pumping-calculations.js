@@ -86,5 +86,23 @@
     return productiveSide(records, plan?.preferredSide, plan?.startedAt);
   }
 
-  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide };
+  function dailySideTargets(planResult, leftShare) {
+    const dailyTarget = Math.max(0, Math.round(Number(planResult?.dailyTargetMl) || 0));
+    const totals = planResult?.totals || {};
+    let calculatedShare = Number(leftShare);
+    if (!Number.isFinite(calculatedShare)) {
+      const leftSessions = Number(totals.leftSessions) || 0;
+      const rightSessions = Number(totals.rightSessions) || 0;
+      const leftAverage = leftSessions ? (Number(totals.left) || 0) / leftSessions : 0;
+      const rightAverage = rightSessions ? (Number(totals.right) || 0) / rightSessions : 0;
+      calculatedShare = leftSessions >= 2 && rightSessions >= 2 && leftAverage + rightAverage > 0
+        ? leftAverage / (leftAverage + rightAverage)
+        : 0.7;
+    }
+    const normalizedLeftShare = clamp(calculatedShare, 0.55, 0.85);
+    const left = dailyTarget ? Math.ceil(dailyTarget * normalizedLeftShare) : 0;
+    return { left, right: Math.max(0, dailyTarget - left), total: dailyTarget };
+  }
+
+  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets };
 });

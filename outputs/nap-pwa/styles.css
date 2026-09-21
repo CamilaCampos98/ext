@@ -219,16 +219,22 @@ main {
 .pumping-hero-copy b { color: #f0a9e1; font-size: 1.45rem; }
 .pumping-hero-copy small { color: #b9c9de; line-height: 1.45; }
 .pumping-breasts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
-.breast-card { min-height: 118px; padding: 14px; display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 12px; border: 1px solid rgba(148,174,215,.18); border-radius: 20px; background: rgba(13,23,56,.76); position: relative; }
+.breast-card { min-height: 142px; padding: 15px; display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 13px; border: 1px solid rgba(148,174,215,.18); border-radius: 20px; background: rgba(13,23,56,.76); position: relative; overflow: hidden; }
+.breast-card.productive { background: radial-gradient(circle at 10% 50%, rgba(226,112,199,.2), transparent 46%), rgba(13,23,56,.82); }
+.breast-card.slow { background: radial-gradient(circle at 10% 50%, rgba(106,125,218,.15), transparent 46%), rgba(13,23,56,.82); }
 .breast-card.is-suggested { border-color: #8de2d7; box-shadow: 0 0 0 2px rgba(141,226,215,.08) inset; }
-.breast-illustration { width: 52px; height: 64px; border-radius: 55% 55% 48% 48%; display: grid; place-items: center; background: linear-gradient(160deg, #efb4dc, #9b67d5); box-shadow: inset -7px -6px 0 rgba(56,28,94,.14); }
+.breast-illustration { width: 62px; height: 78px; border-radius: 55% 55% 48% 48%; display: grid; place-items: center; background: linear-gradient(160deg, #efb4dc, #9b67d5); box-shadow: inset -7px -6px 0 rgba(56,28,94,.14), 0 8px 24px rgba(209,103,187,.18); }
 .breast-illustration.right { transform: scaleX(-1); background: linear-gradient(200deg, #b9a9f3, #6e80d8); }
 .breast-illustration i { color: rgba(255,255,255,.82); font-size: .85rem; }
 .breast-card small, .breast-card strong, .breast-card span { display: block; }
 .breast-card small { color: #aebed6; }
 .breast-card strong { margin: 3px 0; font-size: 1.25rem; }
 .breast-card div > span { color: #879cbd; font-size: .74rem; }
+.breast-card div > b { display: inline-block; margin-top: 8px; padding: 5px 8px; border-radius: 99px; color: #c7faef; background: rgba(68,154,146,.18); font-size: .7rem; }
+.breast-card.slow div > b { color: #c9d2ff; background: rgba(100,112,197,.18); }
 .breast-card em { position: absolute; right: 9px; top: 8px; padding: 4px 7px; border-radius: 99px; background: #235f62; color: #bcfff4; font-style: normal; font-size: .61rem; font-weight: 800; }
+.pumping-production-note { margin: -4px 4px 14px; color: #91a6c6; font-size: .72rem; line-height: 1.45; text-align: center; }
+.pumping-production-note i { margin-right: 5px; color: #9de7db; }
 .pumping-opportunity { padding: 14px; margin: 14px 0; display: flex; gap: 12px; align-items: center; border-radius: 18px; background: linear-gradient(135deg, rgba(84,67,148,.52), rgba(27,86,100,.45)); border: 1px solid rgba(142,216,220,.2); }
 .pumping-opportunity > i { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 13px; background: rgba(255,255,255,.09); color: #a9eee5; }
 .pumping-opportunity small, .pumping-opportunity strong { display: block; }
@@ -237,13 +243,21 @@ main {
 .pumping-plan-settings, .pumping-entry-card, .pumping-history-section { margin-top: 14px; padding: 16px; border-radius: 20px; background: rgba(10,19,49,.65); border: 1px solid rgba(149,172,211,.16); }
 .pumping-plan-settings summary { cursor: pointer; font-weight: 900; margin-bottom: 14px; }
 .pumping-plan-grid { grid-template-columns: repeat(2, 1fr); }
-.pumping-formula { margin: 12px 0; padding: 12px; border-radius: 14px; background: rgba(155,106,218,.13); color: #cbd7e8; line-height: 1.45; font-size: .82rem; }
+.pumping-formula { margin: 12px 0; padding: 14px; border-radius: 16px; background: rgba(155,106,218,.13); color: #cbd7e8; line-height: 1.45; font-size: .82rem; }
+.pumping-formula > small { display: block; margin-bottom: 9px; color: #98aac6; text-transform: uppercase; font-weight: 900; letter-spacing: .04em; }
+.pumping-formula > div { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
+.pumping-formula span { flex: 1; min-width: 0; padding: 8px 5px; text-align: center; border-radius: 12px; background: rgba(255,255,255,.045); }
+.pumping-formula span b { display: block; color: #fff; font-size: 1rem; }
+.pumping-formula span.total { color: #bff6eb; background: rgba(71,161,151,.14); }
+.pumping-formula i { color: #8fa4c6; font-size: .65rem; }
 .pumping-side-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
 .pumping-side-picker button { padding: 12px 7px; display: flex; justify-content: center; align-items: center; gap: 7px; color: #cbd8ec; background: #182347; border: 1px solid #33436d; border-radius: 14px; font-weight: 800; }
 .pumping-side-picker button.is-active { color: white; border-color: #c279d6; background: #563b83; }
 .mini-breast { width: 18px; height: 22px; border-radius: 55% 55% 48% 48%; background: #e8a9d1; }
 .mini-breast.right { background: #a99eea; }
-.pumping-entry-grid { grid-template-columns: 1fr 2fr; }
+.pumping-amount-field { position: relative; margin: 12px 0; }
+.pumping-amount-field input { min-height: 64px; padding-right: 54px; font-size: 1.45rem; font-weight: 900; text-align: center; }
+.pumping-amount-field > span { position: absolute; right: 18px; bottom: 18px; color: #9db0ce; font-weight: 900; }
 .pumping-history { display: grid; gap: 8px; }
 .pumping-history-item { display: grid; grid-template-columns: 38px 1fr auto auto; gap: 10px; align-items: center; padding: 11px; border-radius: 15px; background: #151f43; }
 .pumping-history-side { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 13px; color: white; background: #a85b9d; }
@@ -261,7 +275,10 @@ main {
   .pumping-hero { grid-template-columns: 105px 1fr; padding: 16px; gap: 14px; }
   .pumping-progress-ring { width: 100px; }
   .pumping-breasts { grid-template-columns: 1fr; }
-  .pumping-plan-grid, .pumping-entry-grid { grid-template-columns: 1fr; }
+  .pumping-plan-grid { grid-template-columns: 1fr; }
+  .pumping-formula > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .pumping-formula span.total { grid-column: 1 / -1; }
+  .pumping-formula i { display: none; }
   .pumping-history-item { grid-template-columns: 38px 1fr auto auto; }
 }
 

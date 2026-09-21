@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=120">
+    <link rel="stylesheet" href="styles.css?v=121">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -222,7 +222,7 @@
       </main>
 
       <footer class="app-version-footer" aria-label="Informações da versão">
-        <span class="app-version-badge" id="appVersion">20260921.v2</span>
+        <span class="app-version-badge" id="appVersion">20260921.v3</span>
       </footer>
 
       <nav class="bottom-nav" aria-label="Ações principais">
@@ -291,7 +291,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260921.v2</strong>
+            <strong id="installedAppVersion">20260921.v3</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -708,9 +708,10 @@
           <div class="pumping-hero-copy"><span id="pumpingTargetDate">Configure a data de uso</span><strong><b id="pumpingRemainingMl">0 ml</b> ainda faltam</strong><small id="pumpingDailyTarget">Ative o plano para calcular a meta diária.</small></div>
         </section>
         <section class="pumping-breasts" aria-label="Produção por peito">
-          <article class="breast-card" id="pumpingLeftCard"><span class="breast-illustration left" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito esquerdo</small><strong id="pumpingLeftMl">0 ml</strong><span id="pumpingLeftSessions">Nenhuma ordenha</span></div><em id="pumpingLeftBadge" hidden>Sugerido agora</em></article>
-          <article class="breast-card" id="pumpingRightCard"><span class="breast-illustration right" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito direito</small><strong id="pumpingRightMl">0 ml</strong><span id="pumpingRightSessions">Nenhuma ordenha</span></div><em id="pumpingRightBadge" hidden>Sugerido agora</em></article>
+          <article class="breast-card productive" id="pumpingLeftCard"><span class="breast-illustration left" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito esquerdo</small><strong id="pumpingLeftMl">0 ml guardados</strong><span id="pumpingLeftSessions">Produção principal</span><b id="pumpingLeftTarget">Meta de hoje: 0 ml</b></div><em id="pumpingLeftBadge" hidden>Ordenhar agora</em></article>
+          <article class="breast-card slow" id="pumpingRightCard"><span class="breast-illustration right" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span><div><small>Peito direito</small><strong id="pumpingRightMl">0 ml guardados</strong><span id="pumpingRightSessions">Produção mais lenta</span><b id="pumpingRightTarget">Meta de hoje: 0 ml</b></div><em id="pumpingRightBadge" hidden>Ordenhar agora</em></article>
         </section>
+        <p class="pumping-production-note"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Começa distribuindo 70% da meta para o esquerdo e 30% para o direito. Depois aprende a proporção real pelos ml registrados.</p>
         <section class="pumping-opportunity" id="pumpingOpportunity"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><div><small>Sugestão do assistente</small><strong id="pumpingOpportunityText">Ative o plano para receber sugestões.</strong></div></section>
         <details class="pumping-plan-settings" open>
           <summary>Configurar plano</summary>
@@ -718,10 +719,9 @@
             <label>Usar o leite em<input id="pumpingTargetAt" type="datetime-local"></label>
             <label>Horas que precisa cobrir<input id="pumpingCoverageHours" type="number" min="1" max="24" step="1" value="8"></label>
             <label>ml por mamada<input id="pumpingMlPerFeeding" type="number" min="10" max="500" step="10" value="150"></label>
-            <label>Já tinha guardado<input id="pumpingInitialStored" type="number" min="0" max="10000" step="10" value="0"></label>
-            <label>Peito que produz mais<select id="pumpingPreferredSide"><option value="left">Esquerdo</option><option value="right">Direito</option><option value="both">Parecidos / ambos</option></select></label>
+            <label>Estoque que já existia (ml)<input id="pumpingInitialStored" type="number" min="0" max="10000" step="10" value="0"></label>
           </div>
-          <div class="pumping-formula" id="pumpingFormula">A estimativa aparecerá aqui.</div>
+          <div class="pumping-formula" id="pumpingFormula"><small>Como chegamos na meta</small><strong>A estimativa aparecerá aqui.</strong></div>
           <button class="primary full-width" id="savePumpingPlan" type="button">Salvar plano</button>
         </details>
         <section class="pumping-entry-card">
@@ -732,7 +732,7 @@
             <button type="button" data-pumping-side="right"><span class="mini-breast right"></span>Direito</button>
             <button type="button" data-pumping-side="both"><i class="fa-solid fa-droplet"></i>Ambos</button>
           </div>
-          <div class="form-grid pumping-entry-grid"><label>Quantidade<input id="pumpingAmount" type="number" min="1" max="1000" step="1" inputmode="numeric" placeholder="ml"><small>Em ml</small></label><label>Observação<input id="pumpingNote" autocomplete="off" placeholder="Opcional"></label></div>
+          <label class="pumping-amount-field">Quantidade ordenhada<input id="pumpingAmount" type="number" min="1" max="1000" step="1" inputmode="numeric" placeholder="0"><span>ml</span></label>
           <button class="primary full-width" id="savePumping" type="button">Registrar ordenha</button>
           <p class="fineprint" id="pumpingError"></p>
         </section>
@@ -742,7 +742,7 @@
     </div>
 
     <script src="sleep-calculations.js?v=20260921.1" defer></script>
-    <script src="pumping-calculations.js?v=20260921.1" defer></script>
-    <script src="app.js?v=20260921.2" defer></script>
+    <script src="pumping-calculations.js?v=20260921.3" defer></script>
+    <script src="app.js?v=20260921.3" defer></script>
   </body>
 </html>

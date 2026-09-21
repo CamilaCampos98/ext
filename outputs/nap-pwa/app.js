@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260921.v2";
+const APP_VERSION = "20260921.v3";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -366,7 +366,6 @@ const els = {
   pumpingCoverageHours: document.querySelector("#pumpingCoverageHours"),
   pumpingMlPerFeeding: document.querySelector("#pumpingMlPerFeeding"),
   pumpingInitialStored: document.querySelector("#pumpingInitialStored"),
-  pumpingPreferredSide: document.querySelector("#pumpingPreferredSide"),
   savePumpingPlan: document.querySelector("#savePumpingPlan"),
   pumpingProgressRing: document.querySelector("#pumpingProgressRing"),
   pumpingStoredMl: document.querySelector("#pumpingStoredMl"),
@@ -378,6 +377,8 @@ const els = {
   pumpingRightCard: document.querySelector("#pumpingRightCard"),
   pumpingLeftMl: document.querySelector("#pumpingLeftMl"),
   pumpingRightMl: document.querySelector("#pumpingRightMl"),
+  pumpingLeftTarget: document.querySelector("#pumpingLeftTarget"),
+  pumpingRightTarget: document.querySelector("#pumpingRightTarget"),
   pumpingLeftSessions: document.querySelector("#pumpingLeftSessions"),
   pumpingRightSessions: document.querySelector("#pumpingRightSessions"),
   pumpingLeftBadge: document.querySelector("#pumpingLeftBadge"),
@@ -386,7 +387,6 @@ const els = {
   pumpingTime: document.querySelector("#pumpingTime"),
   pumpingSideGroup: document.querySelector("#pumpingSideGroup"),
   pumpingAmount: document.querySelector("#pumpingAmount"),
-  pumpingNote: document.querySelector("#pumpingNote"),
   savePumping: document.querySelector("#savePumping"),
   pumpingError: document.querySelector("#pumpingError"),
   pumpingHistory: document.querySelector("#pumpingHistory"),
@@ -2208,6 +2208,7 @@ function renderPumping() {
   const plan = pumpingPlanResult();
   const active = Boolean(state.pumpingPlan?.active);
   const side = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
+  const sideTargets = PumpingCalculations.dailySideTargets(plan);
   const target = new Date(state.pumpingPlan?.targetAt || "");
   const formatSessions = (count) => count ? `${count} ordenha${count === 1 ? "" : "s"}` : "Nenhuma ordenha";
 
@@ -2225,11 +2226,13 @@ function renderPumping() {
   els.pumpingDailyTarget.textContent = active
     ? plan.remainingMl ? `Meta atual: ${plan.dailyTargetMl} ml por dia durante ${plan.daysRemaining} dia(s).` : "Meta atingida. O estoque planejado está completo."
     : "Ative o plano para calcular a meta diária.";
-  els.pumpingFormula.textContent = `${plan.coverageHours}h ÷ mamadas a cada ${formatDuration(plan.intervalMinutes)} ≈ ${plan.feedsNeeded} mamadas × ${plan.mlPerFeeding} ml = ${plan.targetMl} ml.`;
-  els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml`;
-  els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml`;
-  els.pumpingLeftSessions.textContent = formatSessions(plan.totals.leftSessions);
-  els.pumpingRightSessions.textContent = formatSessions(plan.totals.rightSessions);
+  els.pumpingFormula.innerHTML = `<small>Como chegamos na meta</small><div><span><b>${plan.coverageHours}h</b> para cobrir</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.feedsNeeded}</b> mamadas</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.mlPerFeeding} ml</b> cada</span><i class="fa-solid fa-equals"></i><span class="total"><b>${plan.targetMl} ml</b> necessários</span></div>`;
+  els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml guardados`;
+  els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml guardados`;
+  els.pumpingLeftSessions.textContent = `Produção principal · ${formatSessions(plan.totals.leftSessions)}`;
+  els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
+  els.pumpingLeftTarget.textContent = `Meta de hoje: ${sideTargets.left} ml`;
+  els.pumpingRightTarget.textContent = `Meta de hoje: ${sideTargets.right} ml`;
   const suggestLeft = active && side === "left";
   const suggestRight = active && side === "right";
   els.pumpingLeftCard.classList.toggle("is-suggested", suggestLeft);
@@ -2249,14 +2252,16 @@ function pumpingOpportunityText(side, plan) {
   }
   const feeding = latestPastFeeding();
   const sideLabel = side === "right" ? "direito" : side === "both" ? "ambos" : "esquerdo";
+  const sideTargets = PumpingCalculations.dailySideTargets(plan);
+  const suggestedMl = side === "right" ? sideTargets.right : side === "both" ? sideTargets.total : sideTargets.left;
   if (feeding?.type === "breast" && ["left", "right"].includes(feeding.side)) {
     const fedSide = feeding.side === "left" ? "esquerdo" : "direito";
-    return `Após a última mamada no peito ${fedSide}, o ${sideLabel} é a melhor oportunidade para considerar agora, se estiver confortável.`;
+    return `Após a mamada no peito ${fedSide}, priorize o ${sideLabel}. Sugestão para esta oportunidade: até ${suggestedMl} ml, sem forçar além do conforto.`;
   }
   if (feeding && minutesSinceDate(feeding.at) >= plan.intervalMinutes * 1.25) {
-    return `Já passou mais que o intervalo habitual sem mamada. Se ${babyDisplayName()} não for mamar agora, considere o peito ${sideLabel}.`;
+    return `Já passou mais que o intervalo habitual sem mamada. Se ${babyDisplayName()} não for mamar agora, considere o peito ${sideLabel}, com alvo de até ${suggestedMl} ml.`;
   }
-  return `Próxima oportunidade sugerida: peito ${sideLabel}, respeitando o conforto e a próxima mamada.`;
+  return `Próxima oportunidade: peito ${sideLabel}, com alvo de até ${suggestedMl} ml e respeitando o conforto e a próxima mamada.`;
 }
 
 function renderPumpingHistory() {
@@ -2269,7 +2274,7 @@ function renderPumpingHistory() {
     const side = record.side || "both";
     const label = side === "left" ? "Esquerdo" : side === "right" ? "Direito" : "Ambos";
     const date = new Date(record.at);
-    return `<article class="pumping-history-item"><span class="pumping-history-side ${side}"><i class="fa-solid fa-droplet"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}${record.note ? ` · ${escapeHtml(record.note)}` : ""}</small></div><b>${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" data-delete-pumping="${escapeHtml(record.id)}" aria-label="Excluir ordenha"><i class="fa-solid fa-trash"></i></button></article>`;
+    return `<article class="pumping-history-item"><span class="pumping-history-side ${side}"><i class="fa-solid fa-droplet"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" data-delete-pumping="${escapeHtml(record.id)}" aria-label="Excluir ordenha"><i class="fa-solid fa-trash"></i></button></article>`;
   }).join("");
 }
 
@@ -6128,7 +6133,7 @@ function normalizeRemotePumpingPlan(plan) {
     coverageHours: Math.min(24, Math.max(1, Number(plan.coverageHours) || 8)),
     mlPerFeeding: Math.min(500, Math.max(10, Number(plan.mlPerFeeding) || 150)),
     initialStoredMl: Math.max(0, Number(plan.initialStoredMl) || 0),
-    preferredSide: ["left", "right", "both"].includes(plan.preferredSide) ? plan.preferredSide : "left",
+    preferredSide: "left",
     startedAt: plan.startedAt || null,
     updatedAt: plan.updatedAt || null,
     synced: true
@@ -8203,7 +8208,7 @@ function loadState() {
     loaded.pumpingPlan.coverageHours = Math.min(24, Math.max(1, Number(loaded.pumpingPlan.coverageHours) || 8));
     loaded.pumpingPlan.mlPerFeeding = Math.min(500, Math.max(10, Number(loaded.pumpingPlan.mlPerFeeding) || 150));
     loaded.pumpingPlan.initialStoredMl = Math.max(0, Number(loaded.pumpingPlan.initialStoredMl) || 0);
-    loaded.pumpingPlan.preferredSide = ["left", "right", "both"].includes(loaded.pumpingPlan.preferredSide) ? loaded.pumpingPlan.preferredSide : "left";
+    loaded.pumpingPlan.preferredSide = "left";
     loaded.pumpings = (loaded.pumpings || []).map((record) => {
       const at = new Date(record.at);
       if (Number.isNaN(at.getTime())) return null;
@@ -8673,7 +8678,6 @@ function togglePumpingSheet(open) {
     selectPumpingSide(suggested === "both" ? "both" : suggested);
     if (els.pumpingTime) els.pumpingTime.value = "";
     if (els.pumpingAmount) els.pumpingAmount.value = "";
-    if (els.pumpingNote) els.pumpingNote.value = "";
     if (els.pumpingError) els.pumpingError.textContent = "";
     renderPumping();
   }
@@ -8687,7 +8691,6 @@ function hydratePumpingForm() {
   els.pumpingCoverageHours.value = String(plan.coverageHours || 8);
   els.pumpingMlPerFeeding.value = String(plan.mlPerFeeding || 150);
   els.pumpingInitialStored.value = String(plan.initialStoredMl || 0);
-  els.pumpingPreferredSide.value = ["left", "right", "both"].includes(plan.preferredSide) ? plan.preferredSide : "left";
 }
 
 function selectPumpingSide(side) {
@@ -8711,7 +8714,7 @@ function savePumpingPlan() {
     coverageHours: Math.min(24, Math.max(1, Number(els.pumpingCoverageHours.value) || 8)),
     mlPerFeeding: Math.min(500, Math.max(10, Number(els.pumpingMlPerFeeding.value) || 150)),
     initialStoredMl: Math.max(0, Number(els.pumpingInitialStored.value) || 0),
-    preferredSide: els.pumpingPreferredSide.value || "left",
+    preferredSide: "left",
     startedAt: !wasActive && els.pumpingActive.checked ? new Date().toISOString() : state.pumpingPlan?.startedAt,
     updatedAt: new Date().toISOString(),
     synced: false
@@ -8741,7 +8744,7 @@ function savePumping() {
     at: at.toISOString(),
     side: selectedPumpingSide,
     amountMl,
-    note: els.pumpingNote.value.trim(),
+    note: "",
     synced: false
   };
   state.pumpings.unshift(record);
@@ -8749,7 +8752,6 @@ function savePumping() {
   saveState();
   syncPumpingToSheet(record);
   els.pumpingAmount.value = "";
-  els.pumpingNote.value = "";
   els.pumpingTime.value = "";
   els.pumpingError.textContent = `${amountMl} ml registrados no peito ${selectedPumpingSide === "left" ? "esquerdo" : selectedPumpingSide === "right" ? "direito" : "em ambos"}.`;
   render();

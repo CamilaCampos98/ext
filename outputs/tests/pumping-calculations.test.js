@@ -43,3 +43,15 @@ test("aprende o peito mais produtivo depois de três registros de cada lado", ()
     .concat([70, 75, 80].map((amountMl, index) => ({ at: `2026-09-2${index + 1}T09:00:00-03:00`, side: "left", amountMl })));
   assert.equal(pumping.productiveSide(records, "right"), "left");
 });
+
+test("distribui uma meta maior para o peito esquerdo de produção mais rápida", () => {
+  assert.deepEqual(pumping.dailySideTargets({ dailyTargetMl: 150 }), { left: 105, right: 45, total: 150 });
+});
+
+test("aprende a proporção entre os peitos sem deixar de priorizar o esquerdo", () => {
+  const targets = pumping.dailySideTargets({
+    dailyTargetMl: 200,
+    totals: { left: 240, leftSessions: 2, right: 160, rightSessions: 2 }
+  });
+  assert.deepEqual(targets, { left: 120, right: 80, total: 200 });
+});
