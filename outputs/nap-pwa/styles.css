@@ -606,8 +606,8 @@ main {
   flex: 0 0 auto;
   justify-content: center;
   width: 100%;
-  margin: 8px auto 0;
-  padding-top: 6px;
+  margin: 7px auto 0;
+  padding-top: 5px;
   border-top: 1px solid rgba(168, 216, 240, 0.1);
   text-align: center;
 }
@@ -744,7 +744,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 8px 0 0 62px;
+  margin: 4px 0 0 62px;
   padding: 4px 0;
   border: 0;
   background: transparent;
