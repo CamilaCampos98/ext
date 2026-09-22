@@ -18,6 +18,23 @@ test("calcula quatro mamadas e 600 ml para oito horas", () => {
   assert.equal(plan.dailyTargetMl, 150);
 });
 
+test("mantém a meta total em 600 ml mesmo quando os intervalos recentes variam", () => {
+  const now = new Date("2026-09-22T09:00:00-03:00");
+  const plan = pumping.calculatePlan({
+    coverageHours: 8,
+    mlPerFeeding: 150,
+    targetAt: "2026-09-26T08:00:00-03:00"
+  }, [], [
+    { at: "2026-09-21T20:00:00-03:00" },
+    { at: "2026-09-21T22:40:00-03:00" },
+    { at: "2026-09-22T02:00:00-03:00" }
+  ], now);
+
+  assert.equal(plan.intervalMinutes, 120);
+  assert.equal(plan.feedsNeeded, 4);
+  assert.equal(plan.targetMl, 600);
+});
+
 test("desconta estoque inicial e ordenhas registradas", () => {
   const plan = pumping.calculatePlan({
     coverageHours: 8,

@@ -50,7 +50,7 @@
   }
 
   function calculatePlan(plan, records, feedings, nowValue = new Date()) {
-    const intervalMinutes = estimateFeedingInterval(feedings, 120);
+    const intervalMinutes = clamp(plan?.feedingIntervalMinutes || 120, 60, 360);
     const coverageHours = clamp(plan?.coverageHours || 8, 1, 24);
     const mlPerFeeding = clamp(plan?.mlPerFeeding || 150, 10, 500);
     const feedsNeeded = Math.max(1, Math.ceil((coverageHours * 60) / intervalMinutes));

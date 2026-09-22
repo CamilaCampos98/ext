@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260922.v1";
+const APP_VERSION = "20260922.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -369,6 +369,7 @@ const els = {
   savePumpingPlan: document.querySelector("#savePumpingPlan"),
   pumpingProgressRing: document.querySelector("#pumpingProgressRing"),
   pumpingStoredMl: document.querySelector("#pumpingStoredMl"),
+  pumpingTotalTarget: document.querySelector("#pumpingTotalTarget"),
   pumpingRemainingMl: document.querySelector("#pumpingRemainingMl"),
   pumpingTargetDate: document.querySelector("#pumpingTargetDate"),
   pumpingDailyTarget: document.querySelector("#pumpingDailyTarget"),
@@ -2225,6 +2226,7 @@ function renderPumping() {
     els.pumpingHomeProgress.style.width = `${plan.progressPercent}%`;
   }
   els.pumpingStoredMl.textContent = String(Math.round(plan.storedMl));
+  els.pumpingTotalTarget.textContent = `de ${Math.round(plan.targetMl)} ml`;
   els.pumpingRemainingMl.textContent = `${Math.round(plan.remainingMl)} ml`;
   els.pumpingProgressRing.style.setProperty("--progress", plan.progressPercent);
   els.pumpingTargetDate.textContent = Number.isNaN(target.getTime())
@@ -2289,8 +2291,8 @@ function renderPumpingSideTarget(element, amount, target) {
   if (!element) return;
   const achieved = target > 0 && amount >= target;
   element.textContent = achieved
-    ? `Meta de hoje atingida · ${Math.round(amount)} ml`
-    : `Faltam ${Math.max(0, Math.round(target - amount))} ml de ${Math.round(target)} ml`;
+    ? `Hoje: ${Math.round(amount)} de ${Math.round(target)} ml · atingida`
+    : `Hoje: ${Math.round(amount)} de ${Math.round(target)} ml · faltam ${Math.max(0, Math.round(target - amount))} ml`;
   element.classList.toggle("is-achieved", achieved);
 }
 
