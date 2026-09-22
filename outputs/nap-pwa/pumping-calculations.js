@@ -60,8 +60,17 @@
     const remainingMl = Math.max(0, targetMl - storedMl);
     const now = new Date(nowValue);
     const targetAt = new Date(plan?.targetAt || "");
-    const remainingMs = targetAt.getTime() - now.getTime();
-    const daysRemaining = Number.isNaN(remainingMs) ? 1 : Math.max(1, Math.ceil(remainingMs / 86400000));
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const daysRemaining = Number.isNaN(targetAt.getTime())
+      ? 1
+      : Math.max(1, Math.round((Date.UTC(targetAt.getFullYear(), targetAt.getMonth(), targetAt.getDate()) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000));
+    const totalsBeforeToday = pumpingTotals((records || []).filter((record) => {
+      const at = new Date(record.at || "");
+      return !Number.isNaN(at.getTime()) && at < todayStart;
+    }), plan?.startedAt);
+    const storedBeforeToday = Math.max(0, Number(plan?.initialStoredMl) || 0) + totalsBeforeToday.total;
+    const remainingAtDayStart = Math.max(0, targetMl - storedBeforeToday);
     return {
       intervalMinutes,
       coverageHours,
@@ -71,7 +80,7 @@
       storedMl,
       remainingMl,
       daysRemaining,
-      dailyTargetMl: remainingMl ? Math.ceil(remainingMl / daysRemaining) : 0,
+      dailyTargetMl: remainingMl ? Math.ceil(remainingAtDayStart / daysRemaining) : 0,
       progressPercent: targetMl ? Math.min(100, Math.round((storedMl / targetMl) * 100)) : 0,
       totals
     };

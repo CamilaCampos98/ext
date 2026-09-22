@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260921.v5";
+const APP_VERSION = "20260922.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -2259,9 +2259,10 @@ function renderPumping() {
 
 function pumpingTotalsToday() {
   const today = dateInputValue(new Date());
+  const planStartedAt = new Date(state.pumpingPlan?.startedAt || 0).getTime();
   return state.pumpings.reduce((totals, record) => {
     const at = new Date(record.at || "");
-    if (Number.isNaN(at.getTime()) || dateInputValue(at) !== today) return totals;
+    if (Number.isNaN(at.getTime()) || at.getTime() < planStartedAt || dateInputValue(at) !== today) return totals;
     const amount = Math.max(0, Number(record.amountMl) || 0);
     if (record.side === "left") totals.left += amount;
     else if (record.side === "right") totals.right += amount;

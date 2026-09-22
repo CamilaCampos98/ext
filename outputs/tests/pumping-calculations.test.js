@@ -28,7 +28,26 @@ test("desconta estoque inicial e ordenhas registradas", () => {
   }, [{ at: "2026-09-21T08:00:00-03:00", side: "left", amountMl: 80 }], [], "2026-09-21T10:00:00-03:00");
   assert.equal(plan.storedMl, 180);
   assert.equal(plan.remainingMl, 420);
-  assert.equal(plan.dailyTargetMl, 210);
+  assert.equal(plan.dailyTargetMl, 250);
+});
+
+test("mantém a meta do dia fixa e não conta o dia de uso", () => {
+  const plan = pumping.calculatePlan({
+    coverageHours: 8,
+    mlPerFeeding: 150,
+    initialStoredMl: 0,
+    startedAt: "2026-09-21T00:00:00-03:00",
+    targetAt: "2026-09-26T08:00:00-03:00"
+  }, [
+    { at: "2026-09-21T20:00:00-03:00", side: "right", amountMl: 40 },
+    { at: "2026-09-22T08:00:00-03:00", side: "left", amountMl: 50 }
+  ], [], "2026-09-22T09:00:00-03:00");
+
+  assert.equal(plan.targetMl, 600);
+  assert.equal(plan.storedMl, 90);
+  assert.equal(plan.remainingMl, 510);
+  assert.equal(plan.daysRemaining, 4);
+  assert.equal(plan.dailyTargetMl, 140);
 });
 
 test("sugere o peito oposto ao da última mamada", () => {
