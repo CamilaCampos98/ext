@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260921.v4";
+const APP_VERSION = "20260921.v5";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -2212,8 +2212,12 @@ function renderPumping() {
   const side = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
   const sideTargets = PumpingCalculations.dailySideTargets(plan);
   const todayTotals = pumpingTotalsToday();
+  const todayTotal = Math.round(todayTotals.left + todayTotals.right);
+  const dailyTarget = Math.max(0, Math.round(plan.dailyTargetMl));
+  const dailyTargetAchieved = active && dailyTarget > 0 && todayTotal >= dailyTarget;
+  const recommendationPause = PumpingCalculations.recommendationPause(state.feedings, state.pumpings, new Date());
   const target = new Date(state.pumpingPlan?.targetAt || "");
-  const formatSessions = (count) => count ? `${count} ordenha${count === 1 ? "" : "s"}` : "Nenhuma ordenha";
+  const formatSessions = (count) => count ? `${count} registro${count === 1 ? "" : "s"}` : "Nenhum registro";
 
   els.pumpingHomeCard.hidden = !active;
   if (active) {
@@ -2227,19 +2231,24 @@ function renderPumping() {
     ? "Configure a data de uso"
     : `Para ${target.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
   els.pumpingDailyTarget.textContent = active
-    ? plan.remainingMl ? `Meta atual: ${plan.dailyTargetMl} ml por dia durante ${plan.daysRemaining} dia(s).` : "Meta atingida. O estoque planejado está completo."
+    ? plan.remainingMl
+      ? dailyTargetAchieved
+        ? `Meta de hoje atingida: ${todayTotal} de ${dailyTarget} ml.`
+        : `Meta de hoje ainda não atingida: ${todayTotal} de ${dailyTarget} ml · faltam ${Math.max(0, dailyTarget - todayTotal)} ml.`
+      : "Meta atingida. O estoque planejado está completo."
     : "Ative o plano para calcular a meta diária.";
+  els.pumpingDailyTarget.classList.toggle("is-achieved", dailyTargetAchieved || (active && !plan.remainingMl));
   els.pumpingFormula.innerHTML = `<small>Como chegamos na meta</small><div><span><b>${plan.coverageHours}h</b> para cobrir</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.feedsNeeded}</b> mamadas</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.mlPerFeeding} ml</b> cada</span><i class="fa-solid fa-equals"></i><span class="total"><b>${plan.targetMl} ml</b> necessários</span></div>`;
   els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml guardados`;
   els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml guardados`;
   els.pumpingLeftSessions.textContent = `Produção principal · ${formatSessions(plan.totals.leftSessions)}`;
   els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
-  els.pumpingLeftTarget.textContent = `Meta de hoje: ${sideTargets.left} ml`;
-  els.pumpingRightTarget.textContent = `Meta de hoje: ${sideTargets.right} ml`;
+  renderPumpingSideTarget(els.pumpingLeftTarget, todayTotals.left, sideTargets.left);
+  renderPumpingSideTarget(els.pumpingRightTarget, todayTotals.right, sideTargets.right);
   renderBreastFill(els.pumpingLeftFill, todayTotals.left, sideTargets.left, "esquerdo");
   renderBreastFill(els.pumpingRightFill, todayTotals.right, sideTargets.right, "direito");
-  const suggestLeft = active && side === "left";
-  const suggestRight = active && side === "right";
+  const suggestLeft = active && !recommendationPause && side === "left";
+  const suggestRight = active && !recommendationPause && side === "right";
   els.pumpingLeftCard.classList.toggle("is-suggested", suggestLeft);
   els.pumpingRightCard.classList.toggle("is-suggested", suggestRight);
   els.pumpingLeftBadge.hidden = !suggestLeft;
@@ -2269,17 +2278,31 @@ function renderBreastFill(element, amount, target, sideLabel) {
   const percent = target > 0 ? Math.min(100, Math.round((amount / target) * 100)) : 0;
   element.style.setProperty("--fill", `${percent}%`);
   element.classList.toggle("is-empty", percent === 0);
-  element.setAttribute("aria-label", `Progresso do peito ${sideLabel}: ${percent}%`);
-  const label = element.querySelector("b");
-  if (label) label.textContent = `${percent}%`;
+  element.classList.toggle("is-complete", target > 0 && amount >= target);
+  element.setAttribute("aria-label", target > 0 && amount >= target
+    ? `Meta diária do peito ${sideLabel} atingida`
+    : `Meta diária do peito ${sideLabel} em andamento`);
+}
+
+function renderPumpingSideTarget(element, amount, target) {
+  if (!element) return;
+  const achieved = target > 0 && amount >= target;
+  element.textContent = achieved
+    ? `Meta de hoje atingida · ${Math.round(amount)} ml`
+    : `Faltam ${Math.max(0, Math.round(target - amount))} ml de ${Math.round(target)} ml`;
+  element.classList.toggle("is-achieved", achieved);
 }
 
 function pumpingOpportunityText(side, plan) {
   if (!state.pumpingPlan?.active) return "Ative o plano para receber sugestões.";
-  if (!plan.remainingMl) return "A meta foi atingida. Não é necessário buscar uma ordenha extra para este plano.";
-  const lastPumping = state.pumpings.slice().sort((a, b) => new Date(b.at) - new Date(a.at))[0];
-  if (lastPumping && Date.now() - new Date(lastPumping.at).getTime() < 90 * 60000) {
-    return `Ordenha recente registrada. O próximo momento pode esperar; ainda faltam ${Math.round(plan.remainingMl)} ml.`;
+  if (!plan.remainingMl) return "A meta foi atingida. Não é necessário guardar mais leite para este plano.";
+  const pause = PumpingCalculations.recommendationPause(state.feedings, state.pumpings, new Date());
+  if (pause?.reason === "feeding") {
+    const fedSide = pause.record?.side === "left" ? "esquerdo" : pause.record?.side === "right" ? "direito" : "informado";
+    return `Mamada recente registrada no peito ${fedSide}. Não sugiro retirar leite agora; aguarde a mamada terminar e o próximo intervalo.`;
+  }
+  if (pause?.reason === "pumping") {
+    return `Estoque atualizado recentemente. O próximo momento pode esperar; ainda faltam ${Math.round(plan.remainingMl)} ml.`;
   }
   const feeding = latestPastFeeding();
   const sideLabel = side === "right" ? "direito" : side === "both" ? "ambos" : "esquerdo";
@@ -2287,7 +2310,7 @@ function pumpingOpportunityText(side, plan) {
   const suggestedMl = side === "right" ? sideTargets.right : side === "both" ? sideTargets.total : sideTargets.left;
   if (feeding?.type === "breast" && ["left", "right"].includes(feeding.side)) {
     const fedSide = feeding.side === "left" ? "esquerdo" : "direito";
-    return `Após a mamada no peito ${fedSide}, priorize o ${sideLabel}. Sugestão para esta oportunidade: até ${suggestedMl} ml, sem forçar além do conforto.`;
+    return `Após a mamada no peito ${fedSide}, priorize o ${sideLabel} no próximo intervalo. Sugestão: até ${suggestedMl} ml, sem forçar além do conforto.`;
   }
   if (feeding && minutesSinceDate(feeding.at) >= plan.intervalMinutes * 1.25) {
     return `Já passou mais que o intervalo habitual sem mamada. Se ${babyDisplayName()} não for mamar agora, considere o peito ${sideLabel}, com alvo de até ${suggestedMl} ml.`;
@@ -2298,14 +2321,14 @@ function pumpingOpportunityText(side, plan) {
 function renderPumpingHistory() {
   const records = state.pumpings.slice().sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 12);
   if (!records.length) {
-    els.pumpingHistory.innerHTML = '<p class="sync-empty">Nenhuma ordenha registrada.</p>';
+    els.pumpingHistory.innerHTML = '<p class="sync-empty">Nenhum registro no estoque.</p>';
     return;
   }
   els.pumpingHistory.innerHTML = records.map((record) => {
     const side = record.side || "both";
     const label = side === "left" ? "Esquerdo" : side === "right" ? "Direito" : "Ambos";
     const date = new Date(record.at);
-    return `<article class="pumping-history-item"><span class="pumping-history-side ${side}"><i class="fa-solid fa-droplet"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" data-delete-pumping="${escapeHtml(record.id)}" aria-label="Excluir ordenha"><i class="fa-solid fa-trash"></i></button></article>`;
+    return `<article class="pumping-history-item"><span class="pumping-history-side ${side}"><i class="fa-solid fa-droplet"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" data-delete-pumping="${escapeHtml(record.id)}" aria-label="Excluir registro do estoque"><i class="fa-solid fa-trash"></i></button></article>`;
   }).join("");
 }
 
@@ -2390,6 +2413,7 @@ function renderDayPlanner(prediction) {
   const today = napsToday();
   const ringNaps = [...today].sort((a, b) => new Date(a.start) - new Date(b.start));
   const feedings = feedingsToday();
+  const pumpings = pumpingsToday();
   const tummyTimes = tummyTimesToday();
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
   currentRingEndMinutes = night.start;
@@ -2411,6 +2435,11 @@ function renderDayPlanner(prediction) {
       type: "feed",
       at: ringMarkerMinute(new Date(feeding.at)),
       id: feedingIdentity(feeding)
+    })),
+    ...pumpings.map((record) => ({
+      type: "pumping",
+      at: ringMarkerMinute(new Date(record.at)),
+      id: pumpingIdentity(record)
     })),
     ...tummyTimes.map((item) => ({
       type: "tummy",
@@ -2454,6 +2483,7 @@ function renderNightPlanner() {
   const nowMinute = dateToDayMinutes(now);
   const awakenings = activeNightAwakeningsUntil(now);
   const feedings = feedingsInActiveNight();
+  const pumpings = pumpingsInActiveNight();
 
   els.daySegments.innerHTML = [
     arcPath(nightStart, nowMinute, "night"),
@@ -2470,6 +2500,11 @@ function renderNightPlanner() {
       type: "feed",
       at: nightFeedingMarkerMinute(new Date(feeding.at), nightStart),
       id: feedingIdentity(feeding)
+    })),
+    ...pumpings.map((record) => ({
+      type: "pumping",
+      at: nightFeedingMarkerMinute(new Date(record.at), nightStart),
+      id: pumpingIdentity(record)
     }))
   ]
     .filter((marker) => Number.isFinite(marker.at))
@@ -2529,6 +2564,15 @@ function handleDayMarkerClick(event) {
     const feeding = [...feedingsToday(), ...feedingsInActiveNight()].find((item) => feedingIdentity(item) === feedMarker.dataset.feedingId);
     if (feeding) {
       showFeedingDetailCard(feeding);
+      return;
+    }
+  }
+
+  const pumpingMarker = event.target.closest(".day-marker-group.pumping[data-pumping-id]");
+  if (pumpingMarker) {
+    const record = [...pumpingsToday(), ...pumpingsInActiveNight()].find((item) => pumpingIdentity(item) === pumpingMarker.dataset.pumpingId);
+    if (record) {
+      showPumpingDetailCard(record);
       return;
     }
   }
@@ -2737,6 +2781,19 @@ function showFeedingDetailCard(feeding) {
     <span>Mamada</span>
     <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
     <small>Lado: ${side || "não informado"}</small>
+  `;
+  els.napDetailCard.hidden = false;
+}
+
+function showPumpingDetailCard(record) {
+  if (!els.napDetailCard) return;
+  const savedAt = new Date(record.at);
+  const side = record.side === "left" ? "Peito esquerdo" : record.side === "right" ? "Peito direito" : "Ambos os peitos";
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
+    <span>Estoque</span>
+    <strong>${timeLabel(savedAt)} · ${Math.round(Number(record.amountMl) || 0)} ml</strong>
+    <small>${side}</small>
   `;
   els.napDetailCard.hidden = false;
 }
@@ -3219,7 +3276,7 @@ function renderAssistantInsight(message, prediction) {
     <span class="assistant-line"><b>Agora</b>${escapeHtml(insight.now)}</span>
     <span class="assistant-line"><b>Por quê</b>${escapeHtml(insight.why)}</span>
     ${insight.attention ? `<span class="assistant-line attention"><b>Atenção</b>${escapeHtml(insight.attention)}</span>` : ""}
-    ${pumpingLine ? `<span class="assistant-line"><b>Ordenha</b>${escapeHtml(pumpingLine)}</span>` : ""}
+    ${pumpingLine ? `<span class="assistant-line"><b>Estoque</b>${escapeHtml(pumpingLine)}</span>` : ""}
   `;
 }
 
@@ -6144,7 +6201,7 @@ async function loadPumpingsFromSheet(options = {}) {
     if (!deferRender) { saveState(); render(); }
     return { count: remote.length, changed: Boolean(remote.length || result.plan) };
   } catch (error) {
-    return { count: 0, changed: false, error: `Nao consegui carregar as ordenhas: ${error.message}` };
+    return { count: 0, changed: false, error: `Nao consegui carregar o estoque: ${error.message}` };
   }
 }
 
@@ -6184,27 +6241,27 @@ async function syncPendingPumpingsToSheet() {
 async function syncPumpingsToSheet(records) {
   if (!SHEETS_WEB_APP_URL || !records.length) return;
   if (!await ensurePumpingSheetSupport(true)) {
-    setHint("Ordenha salva no aparelho. Atualize e reimplante o Apps Script para sincronizar as abas Ordenhas e PlanoOrdenha.");
+    setHint("Estoque salvo no aparelho. Atualize e reimplante o Apps Script para sincronizar as abas Ordenhas e PlanoOrdenha.");
     return;
   }
   try {
     const payloadRecords = records.map((record) => ({ ...record, at: toLocalDateTimeValue(new Date(record.at)) }));
     const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: records.length > 1 ? "bulkAppendPumpings" : "appendPumping", records: payloadRecords, ...payloadRecords[0] }) });
     const result = await response.json();
-    if (!result.ok) throw new Error(result.error || "Falha ao gravar ordenha.");
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar no estoque.");
     pumpingSheetSupport = true;
     const ids = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
     state.pumpings = state.pumpings.map((record) => ids.has(String(record.id)) ? { ...record, synced: true } : record);
     saveState();
   } catch (error) {
-    setHint(`Ordenha salva no aparelho, mas não sincronizada: ${error.message}`);
+    setHint(`Estoque salvo no aparelho, mas não sincronizado: ${error.message}`);
   }
 }
 
 async function syncPumpingPlanToSheet() {
   if (!SHEETS_WEB_APP_URL || state.pumpingPlan?.synced !== false) return;
   if (!await ensurePumpingSheetSupport(true)) {
-    setHint("Plano salvo no aparelho. Atualize e reimplante o Apps Script para sincronizar a ordenha.");
+    setHint("Plano salvo no aparelho. Atualize e reimplante o Apps Script para sincronizar o estoque.");
     return;
   }
   try {
@@ -6238,7 +6295,7 @@ async function deletePumpingFromSheet(id) {
   try {
     await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "deletePumping", id }) });
   } catch (error) {
-    setHint(`Ordenha removida deste aparelho, mas não da planilha: ${error.message}`);
+    setHint(`Registro removido deste aparelho, mas não da planilha: ${error.message}`);
   }
 }
 
@@ -7598,6 +7655,20 @@ function feedingsToday() {
   }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
+function pumpingIdentity(record) {
+  return String(record?.id || `${record?.at || ""}|${record?.side || "both"}|${record?.amountMl || 0}`);
+}
+
+function pumpingsToday() {
+  const cycleStart = currentCycleStartDate();
+  const start = new Date(cycleStart.getTime() - CYCLE_START_GRACE_MINUTES * 60000);
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+  return (state.pumpings || []).filter((record) => {
+    const savedAt = new Date(record.at);
+    return !Number.isNaN(savedAt.getTime()) && savedAt >= start && savedAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
 function feedingsInActiveNight() {
   if (!state.activeNightStart) return [];
   const nightStart = new Date(state.activeNightStart);
@@ -7608,6 +7679,16 @@ function feedingsInActiveNight() {
   return state.feedings.filter((feeding) => {
     const fedAt = new Date(feeding.at);
     return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+function pumpingsInActiveNight() {
+  if (!state.activeNightStart) return [];
+  const start = new Date(state.activeNightStart);
+  const end = new Date();
+  return (state.pumpings || []).filter((record) => {
+    const savedAt = new Date(record.at);
+    return !Number.isNaN(savedAt.getTime()) && savedAt >= start && savedAt <= end;
   }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
@@ -7811,6 +7892,9 @@ function markerAttributes(marker) {
   if (marker.type === "feed") {
     return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
   }
+  if (marker.type === "pumping") {
+    return `data-pumping-id="${marker.id}" role="button" tabindex="0"`;
+  }
   if (marker.type === "tummy") {
     return `data-tummy-id="${marker.id}" role="button" tabindex="0"`;
   }
@@ -7824,11 +7908,12 @@ function markerTimeText(label, at, type) {
 }
 
 function markerIcon(type) {
-  if (type === "feed") return "🍼";
+  if (type === "feed") return "🤱";
   const icons = {
     nap: "☁",
     next: "☁",
-    feed: "•",
+    feed: "🤱",
+    pumping: "●",
     "day-start": "☀",
     "day-end": "☾"
   };
@@ -7839,7 +7924,8 @@ function markerIconFa(type) {
   const icons = {
     nap: "\uf0c2",
     next: "\uf0c2",
-    feed: "\ue4c4",
+    feed: "\ue53a",
+    pumping: "\uf043",
     tummy: "\ue59d",
     awake: "\uf186",
     "day-start": "\uf6c4",
@@ -8443,7 +8529,7 @@ function renderSyncCenter() {
   els.syncActiveTimer.textContent = currentSharedTimerLabel();
   if (els.syncAlertDot) els.syncAlertDot.hidden = status !== "warning" && status !== "error";
 
-  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-bottle-water", pumping: "fa-bottle-droplet", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
+  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-person-breastfeeding", pumping: "fa-droplet", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
   const visibleChanges = visibleSyncChanges();
   els.syncChangesList.innerHTML = visibleChanges.length
     ? visibleChanges.map((change) => `
@@ -8481,7 +8567,7 @@ function sharedRecordSnapshot() {
   (state.naps || []).forEach((record) => add("nap", record.id || napIdentity(record), "Soneca recebida", syncRecordTimeDetail(record.start, record.end), record.start));
   (state.nights || []).forEach((record) => add("night", record.id || napIdentity(record), "Sono noturno recebido", syncRecordTimeDetail(record.start, record.end), record.start));
   (state.feedings || []).forEach((record) => add("feeding", record.id || feedingIdentity(record), "Mamada recebida", syncSingleTimeDetail(record.at), record.at));
-  (state.pumpings || []).forEach((record) => add("pumping", record.id, "Ordenha recebida", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
+  (state.pumpings || []).forEach((record) => add("pumping", record.id, "Estoque atualizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.diapers || []).forEach((record) => add("diaper", record.id || diaperIdentity(record), "Troca de fralda recebida", syncSingleTimeDetail(record.at), record.at));
   (state.tummyTimes || []).forEach((record) => add("tummy", record.id || tummyTimeIdentity(record), "Tummy time recebido", syncSingleTimeDetail(record.at), record.at));
   Object.entries(state.sleepDiary || {}).forEach(([id, record]) => add("diary", id, "Diário do sono atualizado", "Detalhes da soneca recebidos", record?.updatedAt));
@@ -8765,7 +8851,7 @@ function savePumping() {
     return;
   }
   if (Number.isNaN(at.getTime()) || at > new Date()) {
-    els.pumpingError.textContent = "O horário da ordenha é inválido.";
+    els.pumpingError.textContent = "O horário do registro é inválido.";
     return;
   }
   const record = {

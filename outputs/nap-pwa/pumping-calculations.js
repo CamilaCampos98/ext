@@ -104,5 +104,26 @@
     return { left, right: Math.max(0, dailyTarget - left), total: dailyTarget };
   }
 
-  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets };
+  function recommendationPause(feedings, records, nowValue = new Date(), feedingPauseMinutes = 45, pumpingPauseMinutes = 90) {
+    const now = new Date(nowValue).getTime();
+    const latestBreastfeeding = (feedings || [])
+      .filter((item) => item?.type === "breast")
+      .map((item) => ({ item, at: new Date(item.at || "").getTime() }))
+      .filter(({ at }) => Number.isFinite(at) && at <= now)
+      .sort((a, b) => b.at - a.at)[0];
+    if (latestBreastfeeding && now - latestBreastfeeding.at <= feedingPauseMinutes * 60000) {
+      return { reason: "feeding", record: latestBreastfeeding.item };
+    }
+
+    const latestPumping = (records || [])
+      .map((item) => ({ item, at: new Date(item.at || "").getTime() }))
+      .filter(({ at }) => Number.isFinite(at) && at <= now)
+      .sort((a, b) => b.at - a.at)[0];
+    if (latestPumping && now - latestPumping.at <= pumpingPauseMinutes * 60000) {
+      return { reason: "pumping", record: latestPumping.item };
+    }
+    return null;
+  }
+
+  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets, recommendationPause };
 });

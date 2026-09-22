@@ -55,3 +55,20 @@ test("aprende a proporção entre os peitos sem deixar de priorizar o esquerdo",
   });
   assert.deepEqual(targets, { left: 120, right: 80, total: 200 });
 });
+
+test("pausa a sugestão de estoque durante uma mamada recente", () => {
+  const pause = pumping.recommendationPause([
+    { at: "2026-09-21T20:45:00-03:00", type: "breast", side: "right" }
+  ], [
+    { at: "2026-09-21T20:00:00-03:00", side: "right", amountMl: 40 }
+  ], "2026-09-21T20:49:00-03:00");
+  assert.equal(pause.reason, "feeding");
+  assert.equal(pause.record.side, "right");
+});
+
+test("pausa a sugestão depois de guardar leite recentemente", () => {
+  const pause = pumping.recommendationPause([], [
+    { at: "2026-09-21T20:00:00-03:00", side: "right", amountMl: 40 }
+  ], "2026-09-21T20:49:00-03:00");
+  assert.equal(pause.reason, "pumping");
+});

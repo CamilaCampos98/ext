@@ -218,6 +218,7 @@ main {
 .pumping-hero-copy > strong { margin: 7px 0; font-size: 1.2rem; }
 .pumping-hero-copy b { color: #f0a9e1; font-size: 1.45rem; }
 .pumping-hero-copy small { color: #b9c9de; line-height: 1.45; }
+.pumping-hero-copy small.is-achieved { color: #9df2d9; font-weight: 800; }
 .pumping-breasts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
 .breast-card { min-height: 142px; padding: 15px; display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 13px; border: 1px solid rgba(148,174,215,.18); border-radius: 20px; background: rgba(13,23,56,.76); position: relative; overflow: hidden; }
 .breast-card.productive { background: radial-gradient(circle at 10% 50%, rgba(226,112,199,.2), transparent 46%), rgba(13,23,56,.82); }
@@ -230,15 +231,16 @@ main {
 .breast-illustration.right { border-color: rgba(185,169,243,.75); background: rgba(80,88,156,.2); }
 .breast-illustration.right::before { background: linear-gradient(180deg, #c3b9ff, #6878ce); }
 .breast-illustration.right::after { background: rgba(224,220,255,.7); }
-.breast-illustration i, .breast-illustration > b { position: relative; z-index: 1; text-shadow: 0 1px 4px rgba(20,17,55,.65); }
+.breast-illustration i { position: relative; z-index: 1; text-shadow: 0 1px 4px rgba(20,17,55,.65); }
 .breast-illustration i { color: rgba(255,255,255,.9); font-size: .8rem; }
-.breast-illustration > b { color: #fff; font-size: .74rem; }
+.breast-illustration.is-complete { border-color: #9df2d9; box-shadow: inset -7px -6px 0 rgba(56,28,94,.1), 0 0 20px rgba(157,242,217,.24); }
 .breast-card small, .breast-card strong, .breast-card span { display: block; }
 .breast-card small { color: #aebed6; }
 .breast-card strong { margin: 3px 0; font-size: 1.25rem; }
 .breast-card div > span { color: #879cbd; font-size: .74rem; }
 .breast-card div > b { display: inline-block; margin-top: 8px; padding: 5px 8px; border-radius: 99px; color: #c7faef; background: rgba(68,154,146,.18); font-size: .7rem; }
 .breast-card.slow div > b { color: #c9d2ff; background: rgba(100,112,197,.18); }
+.breast-card div > b.is-achieved { color: #9df2d9; background: rgba(68,154,146,.28); }
 .breast-card em { position: absolute; right: 9px; top: 8px; padding: 4px 7px; border-radius: 99px; background: #235f62; color: #bcfff4; font-style: normal; font-size: .61rem; font-weight: 800; }
 .pumping-production-note { margin: -4px 4px 14px; color: #91a6c6; font-size: .72rem; line-height: 1.45; text-align: center; }
 .pumping-production-note i { margin-right: 5px; color: #9de7db; }
@@ -997,6 +999,12 @@ h2 {
   stroke-width: 1.15;
 }
 
+.day-marker-group.pumping .marker-orb {
+  fill: var(--marker-shell-fill);
+  stroke: #ef9bd8;
+  stroke-width: 1.15;
+}
+
 .day-marker-group.tummy .marker-orb {
   fill: var(--marker-shell-fill);
   stroke: var(--tummy);
@@ -1058,6 +1066,10 @@ h2 {
 
 .day-marker-group.feed .marker-icon {
   fill: #F8FBFD;
+}
+
+.day-marker-group.pumping .marker-icon {
+  fill: #f5c4ff;
 }
 
 .day-marker-group.day-start .marker-icon {
