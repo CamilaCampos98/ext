@@ -601,13 +601,14 @@ main {
 
 .app-version-footer {
   position: relative;
-  order: 4;
   z-index: 1;
   display: flex;
   flex: 0 0 auto;
   justify-content: center;
   width: 100%;
-  margin: 10px auto 5px;
+  margin: 8px auto 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(168, 216, 240, 0.1);
   text-align: center;
 }
 
