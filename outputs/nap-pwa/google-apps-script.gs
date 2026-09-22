@@ -7,7 +7,7 @@ const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
-const SCRIPT_VERSION = 'active-routine-v2';
+const SCRIPT_VERSION = 'stock-feeding-v1';
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const ACTIVE_ROUTINE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
@@ -42,7 +42,8 @@ const FEEDING_HEADERS = [
   'Tipo',
   'Peito',
   'Observação',
-  'Inicio do dia'
+  'Inicio do dia',
+  'Retirar outro peito'
 ];
 
 const PUMPING_HEADERS = [
@@ -916,7 +917,8 @@ function toFeedingSheetRow(payload) {
     payload.typeLabel || payload.type || '',
     payload.sideLabel || payload.side || '',
     payload.note || '',
-    toTimeString(payload.dayStart)
+    toTimeString(payload.dayStart),
+    Boolean(payload.pumpOtherSide)
   ];
 }
 
@@ -1023,7 +1025,8 @@ function listFeedingRows(sheet) {
       type: feedingTypeKey(row[5]),
       side: feedingSideKey(row[6]),
       note: row[7] || '',
-      dayStart: toTimeString(row[8])
+      dayStart: toTimeString(row[8]),
+      pumpOtherSide: row[9] === true || String(row[9] || '').toLowerCase() === 'sim' || String(row[9] || '').toLowerCase() === 'true'
     }));
 
   return { ok: true, records: records };

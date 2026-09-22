@@ -277,6 +277,12 @@ main {
 .pumping-history-item > b { color: #c7faef; }
 .pumping-delete { width: 34px; height: 34px; border-radius: 11px; color: #ffadb7; background: rgba(255,90,111,.1); border: 0; }
 .pumping-safety-note { margin-top: 14px; text-align: center; }
+.feeding-pump-option { display: grid; grid-template-columns: auto 1fr; gap: 11px; align-items: flex-start; margin: 14px 0; padding: 13px; border: 1px solid rgba(157,242,217,.22); border-radius: 15px; background: rgba(68,154,146,.1); cursor: pointer; }
+.feeding-pump-option[hidden] { display: none; }
+.feeding-pump-option input { width: 20px; height: 20px; margin-top: 2px; accent-color: #9a5ee4; }
+.feeding-pump-option strong, .feeding-pump-option small { display: block; }
+.feeding-pump-option strong { color: #edf7ff; font-size: .85rem; }
+.feeding-pump-option small { margin-top: 3px; color: #9fb2cf; line-height: 1.35; }
 @media (max-width: 560px) {
   .pumping-title-row { align-items: flex-start; }
   .pumping-switch { grid-template-columns: 42px; justify-items: center; }

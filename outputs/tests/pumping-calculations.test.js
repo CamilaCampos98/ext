@@ -102,9 +102,74 @@ test("pausa a sugestão de estoque durante uma mamada recente", () => {
   assert.equal(pause.record.side, "right");
 });
 
-test("pausa a sugestão depois de guardar leite recentemente", () => {
-  const pause = pumping.recommendationPause([], [
+test("bloqueia somente o peito usado para guardar leite", () => {
+  const availability = pumping.recommendationAvailability([], [
     { at: "2026-09-21T20:00:00-03:00", side: "right", amountMl: 40 }
   ], "2026-09-21T20:49:00-03:00");
-  assert.equal(pause.reason, "pumping");
+  assert.equal(availability.right.available, false);
+  assert.equal(availability.right.waitMinutes, 41);
+  assert.equal(availability.left.available, true);
+  assert.equal(pumping.availableSuggestedSide("right", availability), "left");
+});
+
+test("depois da pausa geral mantém em recuperação somente o peito amamentado", () => {
+  const availability = pumping.recommendationAvailability([
+    { at: "2026-09-21T14:00:00-03:00", type: "breast", side: "right" },
+    { at: "2026-09-21T17:00:00-03:00", type: "breast", side: "left" },
+    { at: "2026-09-21T20:00:00-03:00", type: "breast", side: "right" }
+  ], [], "2026-09-21T20:50:00-03:00");
+  assert.equal(availability.globalPause, null);
+  assert.equal(availability.right.available, false);
+  assert.equal(availability.right.waitMinutes, 40);
+  assert.equal(availability.left.available, true);
+});
+
+test("reserva o peito da próxima mamada e libera o outro no exemplo das 10h30", () => {
+  const feedings = [
+    { at: "2026-09-22T03:00:00-03:00", type: "breast", side: "right" },
+    { at: "2026-09-22T05:30:00-03:00", type: "breast", side: "left" },
+    { at: "2026-09-22T08:00:00-03:00", type: "breast", side: "right" }
+  ];
+  const records = [
+    { at: "2026-09-22T07:50:00-03:00", side: "left", amountMl: 40 }
+  ];
+
+  const atNineTwenty = pumping.recommendationAvailability(feedings, records, "2026-09-22T09:20:00-03:00");
+  assert.equal(atNineTwenty.forecast.minutesUntil, 70);
+  assert.equal(atNineTwenty.forecast.nextSide, "left");
+  assert.equal(atNineTwenty.left.reservedForFeeding, true);
+  assert.equal(atNineTwenty.right.available, false);
+  assert.equal(pumping.availableSuggestedSide("left", atNineTwenty), "");
+
+  const atNineThirty = pumping.recommendationAvailability(feedings, records, "2026-09-22T09:30:00-03:00");
+  assert.equal(atNineThirty.left.reservedForFeeding, true);
+  assert.equal(atNineThirty.right.available, true);
+  assert.equal(pumping.availableSuggestedSide("left", atNineThirty), "right");
+});
+
+test("permite retirada simultânea somente quando marcada naquela mamada", () => {
+  const feedings = [
+    { at: "2026-09-22T03:00:00-03:00", type: "breast", side: "right" },
+    { at: "2026-09-22T05:30:00-03:00", type: "breast", side: "left" },
+    { at: "2026-09-22T08:00:00-03:00", type: "breast", side: "right", pumpOtherSide: true }
+  ];
+  const availability = pumping.recommendationAvailability(feedings, [], "2026-09-22T08:05:00-03:00");
+  assert.equal(availability.globalPause, null);
+  assert.equal(availability.allowsSimultaneousPumping, true);
+  assert.equal(availability.right.available, false);
+  assert.equal(availability.left.available, true);
+  assert.equal(pumping.availableSuggestedSide("left", availability), "left");
+});
+
+test("não sugere retirada simultânea se o outro peito também estiver em recuperação", () => {
+  const feedings = [
+    { at: "2026-09-22T08:00:00-03:00", type: "breast", side: "right", pumpOtherSide: true }
+  ];
+  const records = [
+    { at: "2026-09-22T07:50:00-03:00", side: "left", amountMl: 40 }
+  ];
+  const availability = pumping.recommendationAvailability(feedings, records, "2026-09-22T08:05:00-03:00");
+  assert.equal(availability.left.available, false);
+  assert.equal(availability.right.available, false);
+  assert.equal(pumping.availableSuggestedSide("left", availability), "");
 });

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260922.v2";
+const APP_VERSION = "20260922.v3";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -8,7 +8,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyGG7qkMz7WLeHtFed2iqrX_CruG0Z5D5U000w8a2kHmRQ7-fBc1kNamOLSjHs0fqBzdA/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxnSD5FPNSpjl1WPNIZFUuSjsYQ6Fp6QUPiy9iTvzPq3HJFupNUXg556B2mNPIDf4KVnw/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -356,6 +356,8 @@ const els = {
   feedingType: document.querySelector("#feedingType"),
   feedingTypeGroup: document.querySelector("#feedingTypeGroup"),
   feedingSideGroup: document.querySelector("#feedingSideGroup"),
+  feedingPumpOtherOption: document.querySelector("#feedingPumpOtherOption"),
+  feedingPumpOtherSide: document.querySelector("#feedingPumpOtherSide"),
   feedingNote: document.querySelector("#feedingNote"),
   saveFeeding: document.querySelector("#saveFeeding"),
   feedingError: document.querySelector("#feedingError"),
@@ -1540,7 +1542,7 @@ function createNightRecord(startedAt, endedAt, awakenings = [], options = {}) {
   };
 }
 
-function createFeedingRecord(fedAt, type, side, note) {
+function createFeedingRecord(fedAt, type, side, note, pumpOtherSide = false) {
   return {
     id: `feed-${fedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     babyName: state.babyName || "",
@@ -1548,6 +1550,7 @@ function createFeedingRecord(fedAt, type, side, note) {
     at: fedAt.toISOString(),
     type,
     side: type === "breast" ? side : "",
+    pumpOtherSide: type === "breast" && ["left", "right"].includes(side) && Boolean(pumpOtherSide),
     note: note || "",
     dayStart: state.dayStart,
     synced: false
@@ -1715,7 +1718,7 @@ function addFeedingRecord(feeding) {
   const duplicate = state.feedings.find((item) => feedingSignature(item) === feedingSignature(feeding));
   if (duplicate) {
     setHint("Mamada duplicada ignorada: já existe um registro igual neste horário.");
-    return;
+    return false;
   }
 
   state.feedings.unshift(feeding);
@@ -1725,7 +1728,8 @@ function addFeedingRecord(feeding) {
   hydrateFeedingOptions();
   saveState();
   syncFeedingToSheet(feeding);
-  scheduleUpcomingNotifications();
+  scheduleCurrentNotifications();
+  return true;
 }
 
 function addDiaperRecord(diaper) {
@@ -2210,13 +2214,14 @@ function renderPumping() {
   if (!els.pumpingSheet || !window.PumpingCalculations) return;
   const plan = pumpingPlanResult();
   const active = Boolean(state.pumpingPlan?.active);
-  const side = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
+  const preferredSide = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
+  const availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date());
+  const side = PumpingCalculations.availableSuggestedSide(preferredSide, availability);
   const sideTargets = PumpingCalculations.dailySideTargets(plan);
   const todayTotals = pumpingTotalsToday();
   const todayTotal = Math.round(todayTotals.left + todayTotals.right);
   const dailyTarget = Math.max(0, Math.round(plan.dailyTargetMl));
   const dailyTargetAchieved = active && dailyTarget > 0 && todayTotal >= dailyTarget;
-  const recommendationPause = PumpingCalculations.recommendationPause(state.feedings, state.pumpings, new Date());
   const target = new Date(state.pumpingPlan?.targetAt || "");
   const formatSessions = (count) => count ? `${count} registro${count === 1 ? "" : "s"}` : "Nenhum registro";
 
@@ -2249,13 +2254,13 @@ function renderPumping() {
   renderPumpingSideTarget(els.pumpingRightTarget, todayTotals.right, sideTargets.right);
   renderBreastFill(els.pumpingLeftFill, todayTotals.left, sideTargets.left, "esquerdo");
   renderBreastFill(els.pumpingRightFill, todayTotals.right, sideTargets.right, "direito");
-  const suggestLeft = active && !recommendationPause && side === "left";
-  const suggestRight = active && !recommendationPause && side === "right";
+  const suggestLeft = active && side === "left";
+  const suggestRight = active && side === "right";
   els.pumpingLeftCard.classList.toggle("is-suggested", suggestLeft);
   els.pumpingRightCard.classList.toggle("is-suggested", suggestRight);
   els.pumpingLeftBadge.hidden = !suggestLeft;
   els.pumpingRightBadge.hidden = !suggestRight;
-  els.pumpingOpportunityText.textContent = pumpingOpportunityText(side, plan);
+  els.pumpingOpportunityText.textContent = pumpingOpportunityText(side, plan, availability);
   renderPumpingHistory();
 }
 
@@ -2296,21 +2301,36 @@ function renderPumpingSideTarget(element, amount, target) {
   element.classList.toggle("is-achieved", achieved);
 }
 
-function pumpingOpportunityText(side, plan) {
+function pumpingOpportunityText(side, plan, availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date())) {
   if (!state.pumpingPlan?.active) return "Ative o plano para receber sugestões.";
   if (!plan.remainingMl) return "A meta foi atingida. Não é necessário guardar mais leite para este plano.";
-  const pause = PumpingCalculations.recommendationPause(state.feedings, state.pumpings, new Date());
-  if (pause?.reason === "feeding") {
-    const fedSide = pause.record?.side === "left" ? "esquerdo" : pause.record?.side === "right" ? "direito" : "informado";
-    return `Mamada recente registrada no peito ${fedSide}. Não sugiro retirar leite agora; aguarde a mamada terminar e o próximo intervalo.`;
+  if (availability.globalPause?.reason === "feeding") {
+    const fedSide = availability.globalPause.record?.side === "left" ? "esquerdo" : availability.globalPause.record?.side === "right" ? "direito" : "informado";
+    return `Mamada recente no peito ${fedSide}. Aguarde cerca de ${availability.globalPause.waitMinutes} min antes de avaliar uma retirada.`;
   }
-  if (pause?.reason === "pumping") {
-    return `Estoque atualizado recentemente. O próximo momento pode esperar; ainda faltam ${Math.round(plan.remainingMl)} ml.`;
+  if (availability.globalPause?.reason === "upcoming-feeding") {
+    return `Mamada prevista perto de ${timeLabel(availability.forecast.expectedAt)}. Vou preservar os dois peitos neste momento.`;
+  }
+  if (!side) {
+    const waitMinutes = Math.min(availability.left.waitMinutes, availability.right.waitMinutes);
+    const reservedSide = availability.left.reservedForFeeding ? "esquerdo" : availability.right.reservedForFeeding ? "direito" : "";
+    if (reservedSide && availability.forecast) {
+      return `O peito ${reservedSide} está reservado para a mamada prevista perto de ${timeLabel(availability.forecast.expectedAt)}. O outro ainda se recupera; reavalie em cerca de ${waitMinutes} min.`;
+    }
+    return `Os dois peitos estão em recuperação. O próximo estará disponível em cerca de ${waitMinutes} min; ainda faltam ${Math.round(plan.remainingMl)} ml.`;
   }
   const feeding = latestPastFeeding();
-  const sideLabel = side === "right" ? "direito" : side === "both" ? "ambos" : "esquerdo";
+  const sideLabel = side === "right" ? "direito" : "esquerdo";
   const sideTargets = PumpingCalculations.dailySideTargets(plan);
-  const suggestedMl = side === "right" ? sideTargets.right : side === "both" ? sideTargets.total : sideTargets.left;
+  const suggestedMl = side === "right" ? sideTargets.right : sideTargets.left;
+  if (availability.allowsSimultaneousPumping && feeding?.type === "breast") {
+    const fedSide = feeding.side === "left" ? "esquerdo" : "direito";
+    return `Durante esta mamada no peito ${fedSide}, o ${sideLabel} está disponível para retirada simultânea, com alvo de até ${suggestedMl} ml.`;
+  }
+  const reservedSide = availability.left.reservedForFeeding ? "esquerdo" : availability.right.reservedForFeeding ? "direito" : "";
+  if (reservedSide && availability.forecast) {
+    return `O peito ${reservedSide} fica reservado para a mamada prevista perto de ${timeLabel(availability.forecast.expectedAt)}. O ${sideLabel} está disponível, com alvo de até ${suggestedMl} ml.`;
+  }
   if (feeding?.type === "breast" && ["left", "right"].includes(feeding.side)) {
     const fedSide = feeding.side === "left" ? "esquerdo" : "direito";
     return `Após a mamada no peito ${fedSide}, priorize o ${sideLabel} no próximo intervalo. Sugestão: até ${suggestedMl} ml, sem forçar além do conforto.`;
@@ -2784,6 +2804,7 @@ function showFeedingDetailCard(feeding) {
     <span>Mamada</span>
     <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
     <small>Lado: ${side || "não informado"}</small>
+    ${feeding.pumpOtherSide ? "<small>Retirada simultânea do outro peito permitida.</small>" : ""}
   `;
   els.napDetailCard.hidden = false;
 }
@@ -3272,9 +3293,13 @@ function renderInsights(prediction) {
 function renderAssistantInsight(message, prediction) {
   if (!els.assistantInsight) return;
   const insight = assistantInsightParts(message, prediction);
-  const pumpingLine = state.pumpingPlan?.active && window.PumpingCalculations
-    ? pumpingOpportunityText(PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan), pumpingPlanResult())
-    : "";
+  let pumpingLine = "";
+  if (state.pumpingPlan?.active && window.PumpingCalculations) {
+    const availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date());
+    const preferredSide = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
+    const availableSide = PumpingCalculations.availableSuggestedSide(preferredSide, availability);
+    pumpingLine = pumpingOpportunityText(availableSide, pumpingPlanResult(), availability);
+  }
   els.assistantInsight.innerHTML = `
     <span class="assistant-line"><b>Agora</b>${escapeHtml(insight.now)}</span>
     <span class="assistant-line"><b>Por quê</b>${escapeHtml(insight.why)}</span>
@@ -5710,6 +5735,7 @@ function sheetRecordToFeeding(record) {
     at: fedAt.toISOString(),
     type: record.type || "breast",
     side: record.side || "",
+    pumpOtherSide: feedingPumpOtherSideValue(record.pumpOtherSide),
     note: record.note || "",
     dayStart: normalizeTimeField(record.dayStart),
     synced: true
@@ -5955,10 +5981,17 @@ function mergeNights(remoteNights) {
 
 function mergeFeedings(remoteFeedings) {
   const byId = new Map();
+  const localPumpOtherById = new Map(state.feedings.map((feeding) => [
+    String(feeding.id || feedingIdentity(feeding)),
+    Boolean(feeding.pumpOtherSide)
+  ]));
   state.feedings
     .filter((feeding) => !feeding.synced)
     .forEach((feeding) => byId.set(String(feeding.id || feedingIdentity(feeding)), feeding));
-  remoteFeedings.forEach((feeding) => byId.set(String(feeding.id), feeding));
+  remoteFeedings.forEach((feeding) => byId.set(String(feeding.id), {
+    ...feeding,
+    pumpOtherSide: Boolean(feeding.pumpOtherSide) || localPumpOtherById.get(String(feeding.id)) === true
+  }));
   state.feedings = dedupeFeedings(Array.from(byId.values()))
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, 160);
@@ -6176,6 +6209,7 @@ function sheetPayloadForFeeding(feeding) {
     typeLabel: feedingLabel(feeding),
     side: feeding.side || "",
     sideLabel: feedingSideLabel(feeding.side),
+    pumpOtherSide: Boolean(feeding.pumpOtherSide),
     note: feeding.note || "",
     dayStart: normalizeTimeField(feeding.dayStart || state.dayStart)
   };
@@ -6689,6 +6723,81 @@ async function deleteTummyTimeFromSheet(id) {
   }
 }
 
+function pumpingOpportunityAt(at = new Date()) {
+  if (!state.pumpingPlan?.active || !window.PumpingCalculations) return null;
+  const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at);
+  if (!plan.remainingMl || !plan.dailyTargetMl) return null;
+  const todayTotals = pumpingTotalsToday();
+  const todayTotal = todayTotals.left + todayTotals.right;
+  if (todayTotal >= plan.dailyTargetMl) return null;
+  const availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, at);
+  const preferred = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
+  const sideTargets = PumpingCalculations.dailySideTargets(plan);
+  const candidates = [preferred === "right" ? "right" : "left", preferred === "right" ? "left" : "right"];
+  const side = candidates.find((candidate) => (
+    availability[candidate]?.available
+    && todayTotals[candidate] < sideTargets[candidate]
+  ));
+  if (!side) return null;
+  return {
+    side,
+    sideLabel: side === "left" ? "esquerdo" : "direito",
+    remainingToday: Math.max(0, Math.round(plan.dailyTargetMl - todayTotal)),
+    remainingSide: Math.max(0, Math.round(sideTargets[side] - todayTotals[side])),
+    simultaneous: availability.allowsSimultaneousPumping
+  };
+}
+
+function nextPumpingReminder(now = new Date()) {
+  if (!state.pumpingPlan?.active || state.activeNightStart || pumpingOpportunityAt(now)) return null;
+  const currentAvailability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, now);
+  let maxDelayMinutes = 6 * 60;
+  if (currentAvailability.forecast?.minutesUntil > 0) {
+    maxDelayMinutes = Math.min(maxDelayMinutes, Math.max(0, currentAvailability.forecast.minutesUntil - 30));
+  }
+  for (let delay = 1; delay <= maxDelayMinutes; delay += 1) {
+    const at = new Date(now.getTime() + delay * 60000);
+    const opportunity = pumpingOpportunityAt(at);
+    if (!opportunity) continue;
+    return {
+      absoluteAt: at.toISOString(),
+      title: "Hora de guardar leite 💧",
+      body: `Peito ${opportunity.sideLabel} disponível. Faltam ${opportunity.remainingToday} ml para a meta de hoje (${opportunity.remainingSide} ml neste peito).`,
+      tag: "soneca-estoque-oportunidade"
+    };
+  }
+  return null;
+}
+
+function schedulePumpingReminder(reminder) {
+  if (!reminder || !canNotify()) return;
+  const delay = new Date(reminder.absoluteAt).getTime() - Date.now();
+  if (delay <= 0) return;
+  notificationTimers.push(setTimeout(() => {
+    const opportunity = pumpingOpportunityAt(new Date());
+    if (!opportunity) {
+      scheduleCurrentNotifications();
+      return;
+    }
+    notify(
+      reminder.title,
+      `Peito ${opportunity.sideLabel} disponível. Faltam ${opportunity.remainingToday} ml para a meta de hoje (${opportunity.remainingSide} ml neste peito).`,
+      reminder.tag
+    );
+  }, delay));
+}
+
+function notifyImmediatePumpingOpportunity(feeding) {
+  if (!canNotify() || !feeding?.pumpOtherSide) return;
+  const opportunity = pumpingOpportunityAt(new Date());
+  if (!opportunity?.simultaneous) return;
+  notify(
+    "Retirada durante a mamada 💧",
+    `Enquanto ${babyDisplayName()} mama, o peito ${opportunity.sideLabel} está disponível. Meta desta oportunidade: até ${opportunity.remainingSide} ml.`,
+    `soneca-estoque-mamada-${feeding.id || new Date(feeding.at).getTime()}`
+  );
+}
+
 function scheduleUpcomingNotifications() {
   clearNotificationTimers();
   if (!canNotify() || state.activeNapStart || state.activeNightStart) return;
@@ -6698,6 +6807,7 @@ function scheduleUpcomingNotifications() {
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
   const hasNapSlot = shouldSuggestNapBeforeNight(prediction) && !shouldSkipNextNapForNight(prediction, night);
   const tummyReminders = tummyTimeSuggestionReminders(prediction, now);
+  const pumpingReminder = nextPumpingReminder(new Date());
   const reminders = [
     {
       at: prediction.start - 15,
@@ -6843,12 +6953,14 @@ function scheduleActiveNapNotifications() {
   if (!Number.isFinite(started)) return;
 
   const elapsedMinutes = Math.floor((Date.now() - started) / 60000);
+  const pumpingReminder = nextPumpingReminder(new Date());
   const activeReminders = [
     { minute: 30, body: "Soneca há 30 minutos. Observe se vai emendar o próximo ciclo.", tag: "soneca-ativa-30" },
     { minute: 45, body: "Soneca há 45 minutos. Muitos bebês mudam de ciclo nessa faixa.", tag: "soneca-ativa-45" },
     { minute: 90, body: "Soneca há 1h30. Vale observar a rotina do resto do dia.", tag: "soneca-ativa-90" }
   ];
   activeReminders.forEach(applyFriendlyActiveNapCopy);
+  schedulePumpingReminder(pumpingReminder);
   let nextDelay = null;
   activeReminders.forEach((item) => {
     const delay = started + item.minute * 60000 - Date.now();
@@ -6866,12 +6978,21 @@ function scheduleActiveNapNotifications() {
       notify("Soneca em andamento ☁️", item.body, item.tag);
     }
   });
-  syncRemoteNotificationScheduleAbsolute(activeReminders.map((item) => ({
+  const remoteReminders = activeReminders.map((item) => ({
     at: new Date(started + item.minute * 60000).toISOString(),
     title: "Soneca em andamento ☁️",
     body: item.body,
     tag: item.tag
-  })));
+  }));
+  if (pumpingReminder) {
+    remoteReminders.push({
+      at: pumpingReminder.absoluteAt,
+      title: pumpingReminder.title,
+      body: pumpingReminder.body,
+      tag: pumpingReminder.tag
+    });
+  }
+  syncRemoteNotificationScheduleAbsolute(remoteReminders);
   updateNotificationHelp(nextDelay === null
     ? "Avisos ligados para esta soneca. Os marcos de acompanhamento previstos já passaram."
     : `Avisos ligados para esta soneca. Próximo acompanhamento em ${formatDuration(nextDelay / 60000)}.`
@@ -7167,7 +7288,7 @@ async function syncRemoteNotificationSchedule(reminders, now = nowMinutes()) {
   const scheduled = reminders
     .map((reminder) => ({
       id: reminder.tag,
-      at: dateForClockMinuteToday(reminder.at).toISOString(),
+      at: reminder.absoluteAt || dateForClockMinuteToday(reminder.at).toISOString(),
       title: reminder.title,
       body: reminder.body,
       tag: reminder.tag
@@ -8044,6 +8165,8 @@ function registerServiceWorker() {
     updateNotificationHelp("Não consegui registrar o Service Worker. Avisos e modo offline podem falhar.");
     return null;
   });
+  schedulePumpingReminder(pumpingReminder);
+  if (pumpingReminder) reminders.push(pumpingReminder);
 }
 
 function watchServiceWorkerRegistration(registration) {
@@ -8318,6 +8441,7 @@ function loadState() {
       at: feeding.at,
       type: feeding.type || "breast",
       side: feeding.side || "",
+      pumpOtherSide: feedingPumpOtherSideValue(feeding.pumpOtherSide),
       babyAge: Number.isFinite(Number(feeding.babyAge)) ? Number(feeding.babyAge) : loaded.babyAge,
       dayStart: normalizeTimeField(feeding.dayStart) || loaded.dayStart,
       synced: Boolean(feeding.synced)
@@ -8781,6 +8905,7 @@ function openFeedingSheet(manual = false) {
   if (manual) fedAt.setMinutes(fedAt.getMinutes() - 60);
   els.feedingTime.value = manual ? toDateTimeLocalValue(fedAt) : "";
   els.feedingNote.value = "";
+  els.feedingPumpOtherSide.checked = false;
   selectFeedSide(selectedFeedSide || "left");
   updateFeedingSideVisibility();
   showFeedingError("");
@@ -8841,6 +8966,7 @@ function savePumpingPlan() {
   };
   saveState();
   syncPumpingPlanToSheet();
+  scheduleCurrentNotifications();
   render();
   hydratePumpingForm();
   els.pumpingError.textContent = state.pumpingPlan.active ? "Plano ativo e cálculo atualizado." : "Plano salvo como inativo.";
@@ -8871,6 +8997,7 @@ function savePumping() {
   state.pumpings = state.pumpings.sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
   saveState();
   syncPumpingToSheet(record);
+  scheduleCurrentNotifications();
   els.pumpingAmount.value = "";
   els.pumpingTime.value = "";
   els.pumpingError.textContent = `${amountMl} ml registrados no peito ${selectedPumpingSide === "left" ? "esquerdo" : selectedPumpingSide === "right" ? "direito" : "em ambos"}.`;
@@ -8883,6 +9010,7 @@ function removePumpingRecord(id) {
   state.pumpings = state.pumpings.filter((item) => String(item.id) !== String(id));
   saveState();
   deletePumpingFromSheet(id);
+  scheduleCurrentNotifications();
   render();
 }
 
@@ -8953,10 +9081,14 @@ function selectFeedSide(side) {
   document.querySelectorAll("[data-feed-side]").forEach((button) => {
     button.classList.toggle("is-selected", button.dataset.feedSide === selectedFeedSide);
   });
+  updateFeedingSideVisibility();
 }
 
 function updateFeedingSideVisibility() {
-  els.feedingSideGroup.hidden = els.feedingType.value !== "breast";
+  const isBreast = els.feedingType.value === "breast";
+  els.feedingSideGroup.hidden = !isBreast;
+  els.feedingPumpOtherOption.hidden = !isBreast || !["left", "right"].includes(selectedFeedSide);
+  if (els.feedingPumpOtherOption.hidden) els.feedingPumpOtherSide.checked = false;
 }
 
 function saveFeeding() {
@@ -8976,8 +9108,11 @@ function saveFeeding() {
   }
 
   const type = els.feedingType.value || "breast";
-  const feeding = createFeedingRecord(fedAt, type, selectedFeedSide, els.feedingNote.value.trim());
-  addFeedingRecord(feeding);
+  const feeding = createFeedingRecord(fedAt, type, selectedFeedSide, els.feedingNote.value.trim(), els.feedingPumpOtherSide.checked);
+  const added = addFeedingRecord(feeding);
+  if (added && feeding.pumpOtherSide && Date.now() - fedAt.getTime() <= 10 * 60000) {
+    notifyImmediatePumpingOpportunity(feeding);
+  }
   toggleFeedingSheet(false);
   els.saveFeeding.disabled = false;
   render();
@@ -9147,6 +9282,12 @@ function feedingSideLabel(side) {
   return labels[side] || "-";
 }
 
+function feedingPumpOtherSideValue(value) {
+  if (value === true) return true;
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "true" || normalized === "sim" || normalized === "1";
+}
+
 function feedingIdentity(feeding) {
   return feeding.id || `${feeding.at}|${feeding.type}|${feeding.side || ""}|${feeding.note || ""}`;
 }
@@ -9199,6 +9340,7 @@ function feedingCollectionSignature(feedings = []) {
       feeding.type || "",
       feeding.side || "",
       feeding.note || "",
+      feeding.pumpOtherSide ? "1" : "0",
       feeding.synced ? "1" : "0"
     ].join("|"))
     .sort()

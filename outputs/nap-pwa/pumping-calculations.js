@@ -114,25 +114,88 @@
   }
 
   function recommendationPause(feedings, records, nowValue = new Date(), feedingPauseMinutes = 45, pumpingPauseMinutes = 90) {
-    const now = new Date(nowValue).getTime();
-    const latestBreastfeeding = (feedings || [])
-      .filter((item) => item?.type === "breast")
-      .map((item) => ({ item, at: new Date(item.at || "").getTime() }))
-      .filter(({ at }) => Number.isFinite(at) && at <= now)
-      .sort((a, b) => b.at - a.at)[0];
-    if (latestBreastfeeding && now - latestBreastfeeding.at <= feedingPauseMinutes * 60000) {
-      return { reason: "feeding", record: latestBreastfeeding.item };
-    }
-
-    const latestPumping = (records || [])
-      .map((item) => ({ item, at: new Date(item.at || "").getTime() }))
-      .filter(({ at }) => Number.isFinite(at) && at <= now)
-      .sort((a, b) => b.at - a.at)[0];
-    if (latestPumping && now - latestPumping.at <= pumpingPauseMinutes * 60000) {
-      return { reason: "pumping", record: latestPumping.item };
+    const availability = recommendationAvailability(feedings, records, nowValue, feedingPauseMinutes, pumpingPauseMinutes);
+    if (availability.globalPause) return availability.globalPause;
+    if (!availability.left.available && !availability.right.available) {
+      return { reason: "both", waitMinutes: Math.min(availability.left.waitMinutes, availability.right.waitMinutes) };
     }
     return null;
   }
 
-  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets, recommendationPause };
+  function recommendationAvailability(feedings, records, nowValue = new Date(), feedingPauseMinutes = 45, sideRecoveryMinutes = 90) {
+    const now = new Date(nowValue).getTime();
+    const breastfeedings = (feedings || [])
+      .filter((item) => item?.type === "breast" && ["left", "right", "both"].includes(item.side))
+      .map((item) => ({ item, at: new Date(item.at || "").getTime(), type: "feeding" }))
+      .filter(({ at }) => Number.isFinite(at) && at <= now);
+    const pumpings = (records || [])
+      .filter((item) => ["left", "right", "both"].includes(item?.side))
+      .map((item) => ({ item, at: new Date(item.at || "").getTime(), type: "pumping" }))
+      .filter(({ at }) => Number.isFinite(at) && at <= now);
+    const latestBreastfeeding = breastfeedings.slice().sort((a, b) => b.at - a.at)[0];
+    const feedingAgeMinutes = latestBreastfeeding ? (now - latestBreastfeeding.at) / 60000 : Infinity;
+    const allowsSimultaneousPumping = Boolean(latestBreastfeeding?.item?.pumpOtherSide)
+      && ["left", "right"].includes(latestBreastfeeding.item.side);
+    const forecast = nextFeedingForecast(feedings, nowValue);
+    const upcomingFeedingPause = forecast && forecast.minutesUntil >= -30 && forecast.minutesUntil <= 30;
+    const globalPause = feedingAgeMinutes < feedingPauseMinutes && !allowsSimultaneousPumping
+      ? {
+          reason: "feeding",
+          record: latestBreastfeeding.item,
+          waitMinutes: Math.max(1, Math.ceil(feedingPauseMinutes - feedingAgeMinutes))
+        }
+      : upcomingFeedingPause
+        ? { reason: "upcoming-feeding", waitMinutes: Math.max(1, forecast.minutesUntil), forecast }
+        : null;
+
+    function statusFor(side) {
+      const latestUse = [...breastfeedings, ...pumpings]
+        .filter(({ item }) => item.side === side || item.side === "both")
+        .sort((a, b) => b.at - a.at)[0];
+      const ageMinutes = latestUse ? (now - latestUse.at) / 60000 : Infinity;
+      const sideWait = latestUse ? Math.max(0, Math.ceil(sideRecoveryMinutes - ageMinutes)) : 0;
+      const reservedForFeeding = !globalPause
+        && forecast?.nextSide === side
+        && forecast.minutesUntil > 30
+        && forecast.minutesUntil <= sideRecoveryMinutes;
+      const reservationWait = reservedForFeeding ? Math.ceil(forecast.minutesUntil) : 0;
+      const waitMinutes = Math.max(sideWait, reservationWait, globalPause?.waitMinutes || 0);
+      return {
+        available: waitMinutes === 0 && !reservedForFeeding,
+        waitMinutes,
+        reason: globalPause?.reason || (reservedForFeeding ? "upcoming-feeding" : sideWait ? latestUse.type : ""),
+        record: latestUse?.item,
+        reservedForFeeding
+      };
+    }
+
+    return { globalPause, forecast, allowsSimultaneousPumping, left: statusFor("left"), right: statusFor("right") };
+  }
+
+  function nextFeedingForecast(feedings, nowValue = new Date(), fallbackMinutes = 120) {
+    const now = new Date(nowValue).getTime();
+    const validFeedings = (feedings || [])
+      .map((item) => ({ item, at: new Date(item.at || "").getTime() }))
+      .filter(({ at }) => Number.isFinite(at) && at <= now)
+      .sort((a, b) => a.at - b.at);
+    const latest = validFeedings[validFeedings.length - 1];
+    if (!latest) return null;
+    const intervalMinutes = estimateFeedingInterval(validFeedings.map(({ item }) => item), fallbackMinutes);
+    const expectedAt = new Date(latest.at + intervalMinutes * 60000);
+    const minutesUntil = Math.ceil((expectedAt.getTime() - now) / 60000);
+    const nextSide = latest.item.type === "breast"
+      ? latest.item.side === "left" ? "right" : latest.item.side === "right" ? "left" : ""
+      : "";
+    return { expectedAt, minutesUntil, intervalMinutes, nextSide, lastFeeding: latest.item };
+  }
+
+  function availableSuggestedSide(preferredSide, availability) {
+    const preferred = preferredSide === "right" ? "right" : "left";
+    if (availability?.[preferred]?.available) return preferred;
+    const alternative = preferred === "left" ? "right" : "left";
+    if (availability?.[alternative]?.available) return alternative;
+    return "";
+  }
+
+  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets, recommendationPause, recommendationAvailability, availableSuggestedSide, nextFeedingForecast };
 });
