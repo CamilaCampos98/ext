@@ -600,14 +600,13 @@ main {
 }
 
 .app-version-footer {
-  position: sticky;
-  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 86px);
-  z-index: 9;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 0 0 auto;
   justify-content: center;
   width: 100%;
-  margin: 7px auto 3px;
+  margin: 10px auto 5px;
   text-align: center;
 }
 
