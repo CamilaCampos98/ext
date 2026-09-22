@@ -69,3 +69,21 @@ test("redistribui a segunda meta depois de uma primeira soneca longa", () => {
     remainingSlots: 4
   }), 44);
 });
+
+test("mantém a soneca atrasada como prioridade quando a noite ainda está distante", () => {
+  assert.equal(sleep.lateNapShouldStayPrimary({
+    now: 11 * 60 + 21,
+    windowEnd: 10 * 60 + 56,
+    nightStart: 18 * 60 + 35,
+    remainingNapSlots: 3
+  }), true);
+});
+
+test("troca para rotina noturna quando não há mais espaço seguro", () => {
+  assert.equal(sleep.lateNapShouldStayPrimary({
+    now: 17 * 60 + 20,
+    windowEnd: 17 * 60,
+    nightStart: 18 * 60 + 35,
+    remainingNapSlots: 1
+  }), false);
+});

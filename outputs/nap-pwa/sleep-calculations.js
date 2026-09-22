@@ -117,11 +117,23 @@
     return clamp(blendedGoal, 35, 140);
   }
 
+  function lateNapShouldStayPrimary(options = {}) {
+    const now = Number(options.now);
+    const windowEnd = Number(options.windowEnd);
+    const nightStart = Number(options.nightStart);
+    const remainingNapSlots = Math.max(0, Math.round(Number(options.remainingNapSlots) || 0));
+    const minimumNightDistance = Math.max(0, Math.round(Number(options.minimumNightDistance) || 105));
+    if (![now, windowEnd, nightStart].every(Number.isFinite) || !remainingNapSlots || now <= windowEnd) return false;
+    const nightDistance = nightStart >= now ? nightStart - now : nightStart + 24 * 60 - now;
+    return nightDistance > minimumNightDistance;
+  }
+
   return {
     awakeMinutesFromNote,
     distributedNapGoal,
     effectiveNightMinutes,
     nightAwakeMinutes,
+    lateNapShouldStayPrimary,
     recoveryAdjustedDayTarget,
     totalAwakeningMinutes,
     totalEffectiveSleep

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260922.v3";
+const APP_VERSION = "20260922.v4";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -2396,15 +2396,21 @@ function renderPrediction(prediction) {
     return;
   }
 
-  if (!shouldSuggestNapBeforeNight(prediction)) {
-    const night = calculateNightSuggestion(prediction);
+  const night = calculateNightSuggestion(prediction);
+  if (shouldKeepLateNapVisible(prediction, today, night)) {
+    const name = state.babyName || "bebê";
+    if (els.nextWindow) els.nextWindow.textContent = "Janela aberta";
+    if (els.nextHint) els.nextHint.textContent = `${name} passou da janela calculada. Tente a soneca agora e recalcule o restante do dia quando ela acordar.`;
+    return;
+  }
+
+  if (!shouldSuggestNapBeforeNight(prediction, today)) {
     const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
     if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Rotina noturna em ${formatDuration(delay)}` : "Rotina noturna agora";
     if (els.nextHint) els.nextHint.textContent = `Próxima janela não cabe bem antes da noite. Inicie a rotina por volta de ${minutesToTime(night.start)} para tentar dormir perto de ${minutesToTime(night.sleepTime)}.`;
     return;
   }
 
-  const night = calculateNightSuggestion(prediction);
   if (shouldSkipNextNapForNight(prediction, night, today)) {
     const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
     if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Rotina noturna em ${formatDuration(delay)}` : "Rotina noturna agora";
@@ -2896,8 +2902,15 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
+  const night = calculateNightSuggestion(prediction);
+  if (shouldKeepLateNapVisible(prediction, today, night)) {
+    els.dayCenterLabel.textContent = nextNapName;
+    els.dayCenterTime.textContent = "janela aberta";
+    els.dayCenterHint.textContent = `${name} passou da janela · tente agora`;
+    return;
+  }
+
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
-    const night = calculateNightSuggestion(prediction);
     const delay = minutesUntilTodayOrNow(night.start, now);
     els.dayCenterLabel.textContent = "rotina noturna em";
     els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
@@ -2905,7 +2918,6 @@ function renderRingCenter(prediction, today) {
     return;
   }
 
-  const night = calculateNightSuggestion(prediction);
   if (shouldSkipNextNapForNight(prediction, night, today)) {
     const delay = minutesUntilTodayOrNow(night.start, now);
     els.dayCenterLabel.textContent = "rotina noturna em";
@@ -3152,6 +3164,19 @@ function shouldSuggestNapBeforeNight(prediction, today = napsToday()) {
   const enoughGapAfterNap = minutesBetweenClock(prediction.end, night.start) >= 45;
   const notTooLate = minutesBetweenClock(now, night.start) >= 80;
   return windowStillUseful && enoughGapAfterNap && notTooLate;
+}
+
+function shouldKeepLateNapVisible(prediction, today = napsToday(), night = calculateNightSuggestion(prediction)) {
+  if (!prediction || state.activeNightStart || nightRoutineIsActive()) return false;
+  if (!window.SonecaSleepCalculations?.lateNapShouldStayPrimary) return false;
+
+  return window.SonecaSleepCalculations.lateNapShouldStayPrimary({
+    now: nowMinutes(),
+    windowEnd: prediction.end,
+    nightStart: night.start,
+    remainingNapSlots: Math.max(0, plannedNapCount() - today.length),
+    minimumNightDistance: NIGHT_ROUTINE_NAP_CUTOFF_MINUTES + 45
+  });
 }
 
 function effectiveLastWakeMinutes(today = napsToday()) {
@@ -3439,6 +3464,12 @@ function assistantCalculationDetails(prediction, daySleep, nightSleep, goals) {
       `A soneca foi limitada a ${formatDuration(rescueNap.duration)} para preservar a pressão de sono noturna.`,
       ...reasons
     ];
+  } else if (shouldKeepLateNapVisible(prediction, today, night)) {
+    decisionItems = [
+      { label: "Próxima ação", value: "Tentar soneca agora" },
+      { label: "Janela calculada", value: `${minutesToTime(prediction.start)}–${minutesToTime(prediction.end)}` }
+    ];
+    reasons = ["A janela calculada passou, mas ainda há uma soneca prevista e a rotina noturna está distante.", ...reasons];
   } else if (!shouldSuggestNapBeforeNight(prediction, today)) {
     decisionItems = [
       { label: "Próxima ação", value: `Rotina às ${minutesToTime(night.start)}` },
@@ -6805,7 +6836,9 @@ function scheduleUpcomingNotifications() {
   const night = calculateNightSuggestion(prediction);
   const now = nowMinutes();
   const minutesToWindow = minutesUntilReminder(prediction.start, now);
-  const hasNapSlot = shouldSuggestNapBeforeNight(prediction) && !shouldSkipNextNapForNight(prediction, night);
+  const today = napsToday();
+  const hasNapSlot = (shouldSuggestNapBeforeNight(prediction, today) || shouldKeepLateNapVisible(prediction, today, night))
+    && !shouldSkipNextNapForNight(prediction, night);
   const tummyReminders = tummyTimeSuggestionReminders(prediction, now);
   const pumpingReminder = nextPumpingReminder(new Date());
   const reminders = [
@@ -7518,6 +7551,10 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   const rescueNap = lateRescueNapPlan(prediction, night, today);
   if (rescueNap) {
     return `Ainda cabe uma soneca curta por volta de ${minutesToTime(rescueNap.start)}. Limite a cerca de ${formatDuration(rescueNap.duration)} e tente encerrar até ${minutesToTime(rescueNap.end)} para preservar o sono noturno perto de ${minutesToTime(rescueNap.recommendedSleep)}.`;
+  }
+
+  if (shouldKeepLateNapVisible(prediction, today, night)) {
+    return `A janela da ${ordinalFeminine(today.length + 1)} soneca passou, mas a noite ainda está distante. Tente a soneca agora e recalcule o restante do dia quando ${babyDisplayName()} acordar.`;
   }
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
