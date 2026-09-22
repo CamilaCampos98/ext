@@ -601,6 +601,7 @@ main {
 
 .app-version-footer {
   position: relative;
+  order: 4;
   z-index: 1;
   display: flex;
   flex: 0 0 auto;
