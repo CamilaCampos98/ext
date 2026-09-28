@@ -2184,9 +2184,12 @@ select {
   line-height: 1.45;
 }
 
+.notification-help-status { display: block; margin-bottom: 6px; color: #a8efdc; font-weight: 800; }
+
 .notification-button {
   margin-top: 12px;
 }
+.notification-button[hidden] { display: none; }
 
 .note strong {
   display: block;

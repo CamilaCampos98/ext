@@ -1,7 +1,9 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260928.v4";
+const APP_VERSION = "20260928.v5";
 const SleepCalculations = window.SonecaSleepCalculations;
+const BabyAge = window.SonecaBabyAge;
+const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
 const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
@@ -275,6 +277,7 @@ const els = {
   toggleAssistantDetails: document.querySelector("#toggleAssistantDetails"),
   assistantDetails: document.querySelector("#assistantDetails"),
   notificationHelpText: document.querySelector("#notificationHelpText"),
+  notificationHelpStatus: document.querySelector("#notificationHelpStatus"),
   history: document.querySelector("#history"),
   historyDate: document.querySelector("#historyDate"),
   todayHistory: document.querySelector("#todayHistory"),
@@ -894,6 +897,8 @@ function updateProfile() {
   const nextDayStart = els.dayStart.value || DEFAULT_DAY_START;
   state.babyName = els.babyName.value.trim();
   state.babyBirthDate = els.babyBirthDate.value;
+  applyVerifiedLiviaBirthDate(state);
+  els.babyBirthDate.value = state.babyBirthDate || "";
   state.babyAge = currentBabyAgeMonths();
   if (nextDayStart !== previousDayStart) {
     applyDayStartOverride(nextDayStart, previousCycleStart);
@@ -2119,6 +2124,15 @@ function render() {
 function renderLiveTick() {
   if (isInitialLoading) return;
   reconcileInvalidResumedNight();
+  const currentAge = currentBabyAgeMonths();
+  if (state.babyAge !== currentAge) {
+    state.babyAge = currentAge;
+    saveState();
+    renderProfile();
+    renderActivities();
+    renderReport();
+    scheduleCurrentNotifications();
+  }
   const prediction = calculatePrediction();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
@@ -6259,6 +6273,7 @@ function mergeNights(remoteNights) {
   if (state.nights.length) {
     if (state.nights[0].babyName) state.babyName = state.nights[0].babyName;
     if (!state.babyBirthDate && Number(state.nights[0].babyAge) > 0) state.babyAge = clamp(Number(state.nights[0].babyAge), 0, 36);
+    applyVerifiedLiviaBirthDate(state);
     const latestNightEnd = new Date(state.nights[0].end);
     const currentCycle = new Date(state.cycleStartAt || "");
     const nightEndShouldResetCycle = !state.dayStartOverride
@@ -6345,6 +6360,7 @@ function applyProfileFromLatestNap() {
 
   if (latest.babyName) state.babyName = latest.babyName;
   if (!state.babyBirthDate && Number(latest.babyAge) > 0) state.babyAge = clamp(Number(latest.babyAge), 0, 36);
+  applyVerifiedLiviaBirthDate(state);
   if (!state.nights.length && latest.dayStart) state.dayStart = latest.dayStart;
 
   els.babyName.value = state.babyName;
@@ -7347,10 +7363,10 @@ function scheduleUpcomingNotifications() {
   const nextReminder = nextUpcomingReminder(reminders, now);
   const nextReminderDelay = nextReminder ? nextReminder.delay : null;
   updateNotificationHelp(hasNapSlot && minutesToWindow <= 15
-    ? "Avisos ligados. Como a janela está próxima, um lembrete deve aparecer agora."
+    ? "Janela de soneca próxima. O lembrete deve aparecer agora."
     : nextReminderDelay
-      ? `Avisos ligados. Próximo lembrete em ${formatDuration(nextReminderDelay)} (${minutesToTime(nextReminder.at)}).`
-      : "Avisos ligados. Não há outro lembrete previsto para as próximas horas."
+      ? `Próximo lembrete previsto em ${formatDuration(nextReminderDelay)} (${minutesToTime(nextReminder.at)}).`
+      : "Não há outro lembrete previsto para as próximas horas."
   );
 }
 
@@ -7372,7 +7388,7 @@ function scheduleActiveNightNotifications() {
 
   if (state.activeNightAwakeStart) {
     syncRemoteNotificationScheduleAbsolute([]);
-    updateNotificationHelp("Avisos ligados. O alerta de duração será recalculado quando ela voltar a dormir.");
+    updateNotificationHelp("O alerta de duração será recalculado quando ela voltar a dormir.");
     return;
   }
 
@@ -7398,7 +7414,7 @@ function scheduleActiveNightNotifications() {
       notify(reminder.title, activeNightSleepAlertBody(currentPlan), reminder.tag);
     }, delay));
     syncRemoteNotificationScheduleAbsolute([reminder]);
-    updateNotificationHelp(`Avisos ligados para esta noite. Alerta de duração em ${formatDuration(delay / 60000)}.`);
+    updateNotificationHelp(`Alerta de duração desta noite previsto em ${formatDuration(delay / 60000)}.`);
     return;
   }
 
@@ -7407,7 +7423,7 @@ function scheduleActiveNightNotifications() {
     markActiveNightNoticeSent(reminder.tag);
     notify(reminder.title, reminder.body, reminder.tag);
   }
-  updateNotificationHelp("Avisos ligados. O marco de duração da noite já foi atingido.");
+  updateNotificationHelp("O marco de duração da noite já foi atingido.");
 }
 
 function activeNightSleepAlertPlan() {
@@ -7487,8 +7503,8 @@ function scheduleActiveNapNotifications() {
   }
   syncRemoteNotificationScheduleAbsolute(remoteReminders);
   updateNotificationHelp(nextDelay === null
-    ? "Avisos ligados para esta soneca. Os marcos de acompanhamento previstos já passaram."
-    : `Avisos ligados para esta soneca. Próximo acompanhamento em ${formatDuration(nextDelay / 60000)}.`
+    ? "Os marcos de acompanhamento desta soneca já passaram."
+    : `Próximo lembrete desta soneca previsto em ${formatDuration(nextDelay / 60000)}.`
   );
 }
 
@@ -7685,20 +7701,22 @@ function notify(title, body, tag = "soneca-alerta") {
 }
 
 function updateNotificationState(label) {
-  if (label) {
-    els.notificationState.textContent = label;
-    return;
-  }
-  if (!("Notification" in window)) {
-    els.notificationState.textContent = "Sem suporte";
-    return;
-  }
+  const permission = "Notification" in window ? Notification.permission : "unsupported";
   const labels = {
     granted: backgroundPushReady ? "Avisos em 2º plano" : "Só com app aberto",
     denied: "Avisos bloqueados",
-    default: "Avisos desligados"
+    default: "Avisos desligados",
+    unsupported: "Sem suporte"
   };
-  els.notificationState.textContent = labels[Notification.permission] || "Avisos desligados";
+  const status = label || labels[permission] || "Avisos desligados";
+  els.notificationState.textContent = status;
+  if (els.notificationHelpStatus) els.notificationHelpStatus.textContent = status;
+  if (els.requestNotifications) {
+    els.requestNotifications.hidden = permission === "unsupported" || (permission === "granted" && backgroundPushReady);
+    els.requestNotifications.textContent = permission === "granted"
+      ? "Tentar ativar em 2º plano"
+      : permission === "denied" ? "Ver como liberar avisos" : "Ativar avisos";
+  }
 }
 
 function setHint(message) {
@@ -9052,6 +9070,9 @@ function loadState() {
       }
     }
     normalizeManualCycleDate(loaded);
+    if (applyVerifiedLiviaBirthDate(loaded)) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
+    }
     return loaded;
   } catch {
     return { ...defaultState };
@@ -9814,17 +9835,26 @@ function currentBabyAgeMonths() {
   return Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
 }
 
+function applyVerifiedLiviaBirthDate(profile) {
+  if (profile.liviaBirthDateVerified20260928) return false;
+  const names = [profile.babyName, profile.naps?.[0]?.babyName, profile.nights?.[0]?.babyName];
+  const isLivia = names.some((name) => String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase() === "livia");
+  if (!isLivia) return false;
+  profile.babyBirthDate = LIVIA_VERIFIED_BIRTH_DATE;
+  profile.babyAge = ageMonthsFromBirthDate(LIVIA_VERIFIED_BIRTH_DATE);
+  profile.liviaBirthDateVerified20260928 = true;
+  return true;
+}
+
 function ageMonthsFromBirthDate(value) {
   const normalized = normalizeDateInputValue(value);
   if (!normalized) return Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
-
-  const birth = new Date(`${normalized}T00:00:00`);
-  const today = new Date();
-  if (Number.isNaN(birth.getTime()) || birth > today) return 0;
-
-  let months = (today.getFullYear() - birth.getFullYear()) * 12 + today.getMonth() - birth.getMonth();
-  if (today.getDate() < birth.getDate()) months -= 1;
-  return clamp(months, 0, 36);
+  const months = BabyAge.completedMonths(normalized);
+  return months === null ? 0 : clamp(months, 0, 36);
 }
 
 function normalizeDateInputValue(value) {
