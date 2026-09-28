@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=20260922.8">
+    <link rel="stylesheet" href="styles.css?v=20260928.2">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -39,7 +39,7 @@
             <span>Assistente</span>
             <p id="assistantInsight">Registre as sonecas para receber uma sugestão da rotina.</p>
             <footer class="app-version-footer" aria-label="Informações da versão">
-              <span class="app-version-badge" id="appVersion">20260928.v1</span>
+              <span class="app-version-badge" id="appVersion">20260928.v2</span>
             </footer>
             <button class="assistant-details-toggle" id="toggleAssistantDetails" type="button" aria-expanded="false" aria-controls="assistantDetails">
               <span>Como calculei</span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
@@ -290,7 +290,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260928.v1</strong>
+            <strong id="installedAppVersion">20260928.v2</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -707,7 +707,7 @@
           <label class="pumping-switch"><input id="pumpingActive" type="checkbox"><span></span><b>Estoque ativo</b></label>
         </div>
         <section class="pumping-hero" id="pumpingPlanSummary">
-          <div class="pumping-progress-ring" id="pumpingProgressRing" style="--progress: 0"><span><strong id="pumpingStoredMl">0</strong><small id="pumpingTotalTarget">de 0 ml</small></span></div>
+          <div class="pumping-progress-ring" id="pumpingProgressRing" style="--progress: 0"><span><strong id="pumpingStoredMl">0</strong><small id="pumpingTotalTarget">ml disponíveis</small></span></div>
           <div class="pumping-hero-copy"><span id="pumpingTargetDate">Configure a data de uso</span><strong><b id="pumpingRemainingMl">0 ml</b><span id="pumpingRemainingSuffix"> ainda faltam</span></strong><small id="pumpingDailyTarget">Ative o plano para calcular a meta diária.</small></div>
         </section>
         <section class="pumping-breasts" aria-label="Produção por peito">
@@ -739,13 +739,21 @@
           <button class="primary full-width" id="savePumping" type="button">Guardar no estoque</button>
           <p class="fineprint" id="pumpingError"></p>
         </section>
-        <section class="pumping-history-section"><div class="section-head compact-head"><div><p class="label">Histórico</p><h3>Leite guardado</h3></div></div><div class="pumping-history" id="pumpingHistory"><p class="sync-empty">Nenhum registro no estoque.</p></div></section>
+        <section class="pumping-entry-card">
+          <div class="section-head compact-head"><div><p class="label">Saída do estoque</p><h3>Leite utilizado</h3></div></div>
+          <p class="pumping-available">Disponível agora: <strong id="pumpingAvailableMl">0 ml</strong></p>
+          <label>Horário do uso<input id="pumpingUseTime" type="datetime-local"><small>Se vazio, usa o horário atual.</small></label>
+          <label class="pumping-amount-field">Quantidade utilizada<input id="pumpingUseAmount" type="number" min="1" max="10000" step="1" inputmode="numeric" placeholder="0"><span>ml</span></label>
+          <div class="pumping-use-actions"><button class="primary" id="savePumpingUse" type="button">Registrar uso</button><button class="secondary" id="useAllPumpingStock" type="button">Usei todo o estoque</button></div>
+          <p class="fineprint" id="pumpingUseError" role="status"></p>
+        </section>
+        <section class="pumping-history-section"><div class="section-head compact-head"><div><p class="label">Histórico</p><h3>Entradas e usos</h3></div></div><div class="pumping-history" id="pumpingHistory"><p class="sync-empty">Nenhuma movimentação no estoque.</p></div></section>
         <p class="fineprint pumping-safety-note">As sugestões indicam oportunidades com base nos registros. Conforto, pega, produção e orientação profissional continuam sendo os critérios principais.</p>
       </div>
     </div>
 
     <script src="sleep-calculations.js?v=20260922.7" defer></script>
-    <script src="pumping-calculations.js?v=20260928.1" defer></script>
-    <script src="app.js?v=20260928.1" defer></script>
+    <script src="pumping-calculations.js?v=20260928.2" defer></script>
+    <script src="app.js?v=20260928.2" defer></script>
   </body>
 </html>

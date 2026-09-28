@@ -9,6 +9,38 @@ test("desativa a meta ao desmarcar o estoque ou passar a data de uso", () => {
   assert.equal(pumping.isPlanActive({ active: true, targetAt }, "2026-09-26T08:00:00-03:00"), false);
 });
 
+test("uso do leite reduz o estoque disponível sem apagar o total ordenhado", () => {
+  const plan = pumping.calculatePlan({
+    active: false,
+    initialStoredMl: 0,
+    startedAt: "2026-09-20T00:00:00-03:00",
+    targetAt: "2026-09-26T08:00:00-03:00"
+  }, [
+    { at: "2026-09-21T08:00:00-03:00", side: "left", amountMl: 320 },
+    { at: "2026-09-22T08:00:00-03:00", side: "right", amountMl: 150 }
+  ], [], "2026-09-28T10:00:00-03:00", [
+    { at: "2026-09-26T10:00:00-03:00", amountMl: 470 }
+  ]);
+  assert.equal(plan.pumpedMl, 470);
+  assert.equal(plan.usedMl, 470);
+  assert.equal(plan.storedMl, 0);
+  assert.equal(plan.totals.left, 320);
+});
+
+test("uso parcial aumenta o que ainda falta guardar para a data planejada", () => {
+  const plan = pumping.calculatePlan({
+    active: true,
+    startedAt: "2026-09-20T00:00:00-03:00",
+    targetAt: "2026-09-26T08:00:00-03:00",
+    coverageHours: 8,
+    mlPerFeeding: 150
+  }, [{ at: "2026-09-21T08:00:00-03:00", side: "left", amountMl: 470 }], [],
+  "2026-09-24T10:00:00-03:00", [{ at: "2026-09-23T12:00:00-03:00", amountMl: 200 }]);
+  assert.equal(plan.storedMl, 270);
+  assert.equal(plan.remainingMl, 330);
+  assert.equal(plan.dailyTargetMl, 165);
+});
+
 test("calcula quatro mamadas e 600 ml para oito horas", () => {
   const now = new Date("2026-09-21T10:00:00-03:00");
   const feedings = [0, 120, 240].map((minutes, index) => ({

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260928.v1";
+const APP_VERSION = "20260928.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -8,7 +8,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxnSD5FPNSpjl1WPNIZFUuSjsYQ6Fp6QUPiy9iTvzPq3HJFupNUXg556B2mNPIDf4KVnw/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzOtFFfJHvzjzd8Nt0CPiIDj612hFkNCZs742YamiJj2a0TtkUA0SCmArgDr769lwYcIQ/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -129,6 +129,7 @@ const defaultState = {
   nights: [],
   feedings: [],
   pumpings: [],
+  pumpingUses: [],
   pumpingPlan: {
     active: false,
     targetAt: "",
@@ -395,6 +396,12 @@ const els = {
   pumpingAmount: document.querySelector("#pumpingAmount"),
   savePumping: document.querySelector("#savePumping"),
   pumpingError: document.querySelector("#pumpingError"),
+  pumpingAvailableMl: document.querySelector("#pumpingAvailableMl"),
+  pumpingUseTime: document.querySelector("#pumpingUseTime"),
+  pumpingUseAmount: document.querySelector("#pumpingUseAmount"),
+  savePumpingUse: document.querySelector("#savePumpingUse"),
+  useAllPumpingStock: document.querySelector("#useAllPumpingStock"),
+  pumpingUseError: document.querySelector("#pumpingUseError"),
   pumpingHistory: document.querySelector("#pumpingHistory"),
   diaperSheet: document.querySelector("#diaperSheet"),
   closeDiaper: document.querySelector("#closeDiaper"),
@@ -416,6 +423,7 @@ let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
 let pumpingSheetSupport = null;
+let pumpingUseSheetSupport = null;
 let selectedPumpingSide = "left";
 let diaperSheetSupport = null;
 let tummyTimeSheetSupport = null;
@@ -753,11 +761,18 @@ function bindEvents() {
   });
   els.savePumpingPlan?.addEventListener("click", savePumpingPlan);
   els.savePumping?.addEventListener("click", savePumping);
+  els.savePumpingUse?.addEventListener("click", () => savePumpingUse(false));
+  els.useAllPumpingStock?.addEventListener("click", () => savePumpingUse(true));
   els.pumpingSideGroup?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pumping-side]");
     if (button) selectPumpingSide(button.dataset.pumpingSide);
   });
   els.pumpingHistory?.addEventListener("click", (event) => {
+    const useButton = event.target.closest("[data-delete-pumping-use]");
+    if (useButton) {
+      removePumpingUseRecord(useButton.dataset.deletePumpingUse);
+      return;
+    }
     const button = event.target.closest("[data-delete-pumping]");
     if (button) removePumpingRecord(button.dataset.deletePumping);
   });
@@ -2243,7 +2258,7 @@ function calculatePrediction() {
 }
 
 function pumpingPlanResult() {
-  return PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, new Date());
+  return PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, new Date(), state.pumpingUses);
 }
 
 function pumpingPlanIsActive(at = new Date()) {
@@ -2283,11 +2298,11 @@ function renderPumping() {
 
   els.pumpingHomeCard.hidden = !active;
   if (active) {
-    els.pumpingHomeSummary.textContent = `${Math.round(plan.storedMl)} de ${Math.round(plan.targetMl)} ml · faltam ${Math.round(plan.remainingMl)} ml`;
+    els.pumpingHomeSummary.textContent = `${Math.round(plan.storedMl)} de ${Math.round(plan.targetMl)} ml disponíveis · faltam ${Math.round(plan.remainingMl)} ml`;
     els.pumpingHomeProgress.style.width = `${plan.progressPercent}%`;
   }
   els.pumpingStoredMl.textContent = String(Math.round(plan.storedMl));
-  els.pumpingTotalTarget.textContent = active ? `de ${Math.round(plan.targetMl)} ml` : "ml guardados";
+  els.pumpingTotalTarget.textContent = active ? `de ${Math.round(plan.targetMl)} ml` : "ml disponíveis";
   els.pumpingRemainingMl.textContent = active ? `${Math.round(plan.remainingMl)} ml` : "Plano inativo";
   els.pumpingRemainingSuffix.hidden = !active;
   els.pumpingProgressRing.style.setProperty("--progress", active ? plan.progressPercent : 0);
@@ -2303,8 +2318,9 @@ function renderPumping() {
     : state.pumpingPlan?.active ? "A data de uso passou. O plano não está mais ativo." : "Ative o plano para calcular a meta diária.";
   els.pumpingDailyTarget.classList.toggle("is-achieved", dailyTargetAchieved || (active && !plan.remainingMl));
   els.pumpingFormula.innerHTML = `<small>Como chegamos na meta</small><div><span><b>${plan.coverageHours}h</b> para cobrir</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.feedsNeeded}</b> mamadas</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.mlPerFeeding} ml</b> cada</span><i class="fa-solid fa-equals"></i><span class="total"><b>${plan.targetMl} ml</b> necessários</span></div>`;
-  els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml guardados`;
-  els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml guardados`;
+  els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml ordenhados`;
+  els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml ordenhados`;
+  els.pumpingAvailableMl.textContent = `${Math.round(plan.storedMl)} ml`;
   els.pumpingLeftSessions.textContent = `Produção principal · ${formatSessions(plan.totals.leftSessions)}`;
   els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
   renderPumpingSideTarget(els.pumpingLeftTarget, todayTotals.left, active ? sideTargets.left : 0);
@@ -2404,16 +2420,21 @@ function pumpingOpportunityText(side, plan, availability = PumpingCalculations.r
 }
 
 function renderPumpingHistory() {
-  const records = state.pumpings.slice().sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 12);
+  const records = [
+    ...state.pumpings.map((record) => ({ ...record, movement: "in" })),
+    ...state.pumpingUses.map((record) => ({ ...record, movement: "out" }))
+  ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 12);
   if (!records.length) {
-    els.pumpingHistory.innerHTML = '<p class="sync-empty">Nenhum registro no estoque.</p>';
+    els.pumpingHistory.innerHTML = '<p class="sync-empty">Nenhuma movimentação no estoque.</p>';
     return;
   }
   els.pumpingHistory.innerHTML = records.map((record) => {
-    const side = record.side || "both";
-    const label = side === "left" ? "Esquerdo" : side === "right" ? "Direito" : "Ambos";
+    const used = record.movement === "out";
+    const side = used ? "used" : record.side || "both";
+    const label = used ? "Leite utilizado" : `Ordenhado · ${side === "left" ? "esquerdo" : side === "right" ? "direito" : "ambos"}`;
     const date = new Date(record.at);
-    return `<article class="pumping-history-item"><span class="pumping-history-side ${side}"><i class="fa-solid fa-droplet"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" data-delete-pumping="${escapeHtml(record.id)}" aria-label="Excluir registro do estoque"><i class="fa-solid fa-trash"></i></button></article>`;
+    const deleteAttribute = used ? "data-delete-pumping-use" : "data-delete-pumping";
+    return `<article class="pumping-history-item ${used ? "is-use" : ""}"><span class="pumping-history-side ${side}"><i class="fa-solid fa-${used ? "glass-water" : "droplet"}"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${used ? "−" : "+"}${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" ${deleteAttribute}="${escapeHtml(record.id)}" aria-label="Excluir ${used ? "uso" : "ordenha"} do estoque"><i class="fa-solid fa-trash"></i></button></article>`;
   }).join("");
 }
 
@@ -5698,6 +5719,7 @@ async function syncPendingAfterInitialLoad() {
     syncPendingDiapersToSheet(),
     syncPendingTummyTimesToSheet(),
     syncPendingPumpingsToSheet(),
+    syncPendingPumpingUsesToSheet(),
     syncPumpingPlanToSheet()
   ]);
 }
@@ -6326,16 +6348,22 @@ async function loadPumpingsFromSheet(options = {}) {
       return { count: 0, changed: false };
     }
     pumpingSheetSupport = true;
-    const remote = result.records.map(sheetRecordToPumping).filter(Boolean);
+    const remotePumpings = result.records.map(sheetRecordToPumping).filter(Boolean);
+    pumpingUseSheetSupport = Array.isArray(result.uses);
+    const remoteUses = pumpingUseSheetSupport ? result.uses.map(sheetRecordToPumpingUse).filter(Boolean) : [];
     const localPending = state.pumpings.filter((record) => !record.synced);
     const byId = new Map(localPending.map((record) => [String(record.id), record]));
-    remote.forEach((record) => byId.set(String(record.id), record));
-    state.pumpings = Array.from(byId.values()).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
+    remotePumpings.forEach((record) => byId.set(String(record.id), record));
+    state.pumpings = Array.from(byId.values()).sort((a, b) => new Date(b.at) - new Date(a.at));
+    const localUses = pumpingUseSheetSupport ? state.pumpingUses.filter((record) => !record.synced) : state.pumpingUses;
+    const usesById = new Map(localUses.map((record) => [String(record.id), record]));
+    remoteUses.forEach((record) => usesById.set(String(record.id), record));
+    state.pumpingUses = Array.from(usesById.values()).sort((a, b) => new Date(b.at) - new Date(a.at));
     if (result.plan && state.pumpingPlan?.synced !== false) {
       state.pumpingPlan = normalizeRemotePumpingPlan(result.plan);
     }
     if (!deferRender) { saveState(); render(); }
-    return { count: remote.length, changed: Boolean(remote.length || result.plan) };
+    return { count: remotePumpings.length + remoteUses.length, changed: Boolean(remotePumpings.length || remoteUses.length || result.plan) };
   } catch (error) {
     return { count: 0, changed: false, error: `Nao consegui carregar o estoque: ${error.message}` };
   }
@@ -6346,6 +6374,17 @@ function sheetRecordToPumping(record) {
   const amountMl = Math.round(Number(record.amountMl) || 0);
   if (!record.id || Number.isNaN(at.getTime()) || amountMl < 1) return null;
   return { id: String(record.id), babyName: record.babyName || "", babyAge: Number(record.babyAge || 0), at: at.toISOString(), side: ["left", "right", "both"].includes(record.side) ? record.side : "both", amountMl, note: record.note || "", synced: true };
+}
+
+function sheetRecordToPumpingUse(record) {
+  const at = new Date(record.at || "");
+  const amountMl = Math.round(Number(record.amountMl) || 0);
+  if (!record.id || Number.isNaN(at.getTime()) || amountMl < 1) return null;
+  return { id: String(record.id), babyName: record.babyName || "", at: at.toISOString(), amountMl, synced: true };
+}
+
+function isPumpingUseRecord(record) {
+  return String(record?.id || "").startsWith("pump-use-");
 }
 
 function normalizeRemotePumpingPlan(plan) {
@@ -6369,9 +6408,19 @@ async function syncPumpingToSheet(record) {
   await syncPumpingsToSheet([record]);
 }
 
+async function syncPumpingUseToSheet(record) {
+  if (!record) return;
+  await syncPumpingUsesToSheet([record]);
+}
+
 async function syncPendingPumpingsToSheet() {
   const pending = state.pumpings.filter((record) => !record.synced);
   if (pending.length) await syncPumpingsToSheet(pending);
+}
+
+async function syncPendingPumpingUsesToSheet() {
+  const pending = state.pumpingUses.filter((record) => !record.synced);
+  if (pending.length) await syncPumpingUsesToSheet(pending);
 }
 
 async function syncPumpingsToSheet(records) {
@@ -6392,6 +6441,40 @@ async function syncPumpingsToSheet(records) {
   } catch (error) {
     setHint(`Estoque salvo no aparelho, mas não sincronizado: ${error.message}`);
   }
+}
+
+async function syncPumpingUsesToSheet(records) {
+  if (!SHEETS_WEB_APP_URL || !records.length) return;
+  if (!await ensurePumpingUseSheetSupport()) {
+    setHint("Uso salvo neste aparelho. Atualize e reimplante o Apps Script para sincronizar a aba UsoEstoque.");
+    return;
+  }
+  try {
+    const payloadRecords = records.map((record) => ({ ...record, at: toLocalDateTimeValue(new Date(record.at)) }));
+    const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: records.length > 1 ? "bulkAppendPumpingUses" : "appendPumpingUse", records: payloadRecords, ...payloadRecords[0] }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao registrar o uso.");
+    const ids = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.pumpingUses = state.pumpingUses.map((record) => ids.has(String(record.id)) ? { ...record, synced: true } : record);
+    saveState();
+    const removedWhileSaving = [...ids].filter((id) => !state.pumpingUses.some((record) => String(record.id) === id));
+    await Promise.all(removedWhileSaving.map(deletePumpingUseFromSheet));
+  } catch (error) {
+    setHint(`Uso salvo neste aparelho, mas não sincronizado: ${error.message}`);
+  }
+}
+
+async function ensurePumpingUseSheetSupport() {
+  if (pumpingUseSheetSupport === true) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    pumpingUseSheetSupport = Boolean(result.ok && Array.isArray(result.uses));
+  } catch {
+    pumpingUseSheetSupport = false;
+  }
+  return pumpingUseSheetSupport;
 }
 
 async function syncPumpingPlanToSheet() {
@@ -6426,12 +6509,27 @@ async function ensurePumpingSheetSupport(forceRetry = false) {
 }
 
 async function deletePumpingFromSheet(id) {
-  if (!SHEETS_WEB_APP_URL || !id) return;
-  if (!await ensurePumpingSheetSupport(true)) return;
+  if (!SHEETS_WEB_APP_URL || !id) return false;
+  if (!await ensurePumpingSheetSupport(true)) return false;
   try {
-    await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "deletePumping", id }) });
+    const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "deletePumping", id }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao excluir o registro.");
+    return true;
   } catch (error) {
     setHint(`Registro removido deste aparelho, mas não da planilha: ${error.message}`);
+    return false;
+  }
+}
+
+async function deletePumpingUseFromSheet(id) {
+  if (!SHEETS_WEB_APP_URL || !await ensurePumpingUseSheetSupport()) return false;
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "deletePumpingUse", id }) });
+    const result = await response.json();
+    return Boolean(result.ok);
+  } catch {
+    return false;
   }
 }
 
@@ -6824,7 +6922,7 @@ async function deleteTummyTimeFromSheet(id) {
 
 function pumpingOpportunityAt(at = new Date()) {
   if (!pumpingPlanIsActive(at) || !window.PumpingCalculations) return null;
-  const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at);
+  const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at, state.pumpingUses);
   if (!plan.remainingMl || !plan.dailyTargetMl) return null;
   const todayTotals = pumpingTotalsToday();
   const todayTotal = todayTotals.left + todayTotals.right;
@@ -8574,6 +8672,12 @@ function loadState() {
       };
     }).filter(Boolean)
       .sort((a, b) => new Date(b.at) - new Date(a.at));
+    loaded.pumpingUses = (loaded.pumpingUses || []).map((record) => {
+      const at = new Date(record.at || "");
+      const amountMl = Math.round(Number(record.amountMl) || 0);
+      if (!isPumpingUseRecord(record) || Number.isNaN(at.getTime()) || amountMl < 1) return null;
+      return { ...record, at: at.toISOString(), amountMl, synced: Boolean(record.synced) };
+    }).filter(Boolean).sort((a, b) => new Date(b.at) - new Date(a.at));
     loaded.diapers = dedupeDiapers((loaded.diapers || []).map((diaper) => ({
       ...diaper,
       id: diaper.id || `diaper-legacy-${Math.abs(hashString(diaperIdentity(diaper)))}`,
@@ -8688,7 +8792,7 @@ function markSyncError(message) {
 }
 
 function pendingSyncCount() {
-  const recordCount = [state.naps, state.nights, state.feedings, state.pumpings, state.diapers, state.tummyTimes]
+  const recordCount = [state.naps, state.nights, state.feedings, state.pumpings, state.pumpingUses, state.diapers, state.tummyTimes]
     .reduce((total, records) => total + (records || []).filter((record) => record?.synced !== true).length, 0);
   const diaryCount = Object.values(state.sleepDiary || {}).filter((entry) => entry?.synced === false).length;
   return recordCount + diaryCount;
@@ -8763,7 +8867,7 @@ function renderSyncCenter() {
   els.syncActiveTimer.textContent = currentSharedTimerLabel();
   if (els.syncAlertDot) els.syncAlertDot.hidden = status !== "warning" && status !== "error";
 
-  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-person-breastfeeding", pumping: "fa-droplet", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
+  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-person-breastfeeding", pumping: "fa-droplet", pumpingUse: "fa-glass-water", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
   const visibleChanges = visibleSyncChanges();
   els.syncChangesList.innerHTML = visibleChanges.length
     ? visibleChanges.map((change) => `
@@ -8802,6 +8906,7 @@ function sharedRecordSnapshot() {
   (state.nights || []).forEach((record) => add("night", record.id || napIdentity(record), "Sono noturno recebido", syncRecordTimeDetail(record.start, record.end), record.start));
   (state.feedings || []).forEach((record) => add("feeding", record.id || feedingIdentity(record), "Mamada recebida", syncSingleTimeDetail(record.at), record.at));
   (state.pumpings || []).forEach((record) => add("pumping", record.id, "Estoque atualizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
+  (state.pumpingUses || []).forEach((record) => add("pumpingUse", record.id, "Leite utilizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.diapers || []).forEach((record) => add("diaper", record.id || diaperIdentity(record), "Troca de fralda recebida", syncSingleTimeDetail(record.at), record.at));
   (state.tummyTimes || []).forEach((record) => add("tummy", record.id || tummyTimeIdentity(record), "Tummy time recebido", syncSingleTimeDetail(record.at), record.at));
   Object.entries(state.sleepDiary || {}).forEach(([id, record]) => add("diary", id, "Diário do sono atualizado", "Detalhes da soneca recebidos", record?.updatedAt));
@@ -9067,7 +9172,7 @@ function savePumpingPlan() {
     mlPerFeeding: Math.min(500, Math.max(10, Number(els.pumpingMlPerFeeding.value) || 150)),
     initialStoredMl: Math.max(0, Number(els.pumpingInitialStored.value) || 0),
     preferredSide: "left",
-    startedAt: !wasActive && els.pumpingActive.checked ? new Date().toISOString() : state.pumpingPlan?.startedAt,
+    startedAt: state.pumpingPlan?.startedAt || (!wasActive && els.pumpingActive.checked ? new Date().toISOString() : null),
     updatedAt: new Date().toISOString(),
     synced: false
   };
@@ -9101,7 +9206,7 @@ function savePumping() {
     synced: false
   };
   state.pumpings.unshift(record);
-  state.pumpings = state.pumpings.sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
+  state.pumpings = state.pumpings.sort((a, b) => new Date(b.at) - new Date(a.at));
   saveState();
   syncPumpingToSheet(record);
   scheduleCurrentNotifications();
@@ -9109,6 +9214,74 @@ function savePumping() {
   els.pumpingTime.value = "";
   els.pumpingError.textContent = `${amountMl} ml registrados no peito ${selectedPumpingSide === "left" ? "esquerdo" : selectedPumpingSide === "right" ? "direito" : "em ambos"}.`;
   render();
+}
+
+function availablePumpingStockAt(at) {
+  const until = new Date(at).getTime();
+  const pumpings = state.pumpings.filter((record) => new Date(record.at).getTime() <= until);
+  const uses = state.pumpingUses.filter((record) => new Date(record.at).getTime() <= until);
+  return PumpingCalculations.calculatePlan(state.pumpingPlan, pumpings, state.feedings, at, uses).storedMl;
+}
+
+async function savePumpingUse(useAll) {
+  if (els.savePumpingUse.disabled) return;
+  els.savePumpingUse.disabled = true;
+  els.useAllPumpingStock.disabled = true;
+  try {
+    const at = els.pumpingUseTime.value ? new Date(els.pumpingUseTime.value) : new Date();
+    const planStartedAt = new Date(state.pumpingPlan?.startedAt || 0);
+    if (Number.isNaN(at.getTime()) || at > new Date() || at < planStartedAt) {
+      els.pumpingUseError.textContent = "Informe um horário válido após o início do estoque.";
+      return;
+    }
+    if (SHEETS_WEB_APP_URL) {
+      try { await withTimeout(loadPumpingsFromSheet({ deferRender: true }), 3500); } catch { /* mantém os registros locais */ }
+    }
+    const availableMl = Math.floor(availablePumpingStockAt(at));
+    const amountMl = useAll ? availableMl : Number(els.pumpingUseAmount.value);
+    if (!Number.isInteger(amountMl) || amountMl < 1 || amountMl > availableMl) {
+      els.pumpingUseError.textContent = availableMl
+        ? `Informe entre 1 e ${availableMl} ml disponíveis nesse horário.`
+        : "Não há leite disponível nesse horário para registrar o uso.";
+      return;
+    }
+    if (useAll && !window.confirm(`Registrar o uso de todo o estoque disponível (${amountMl} ml)?`)) return;
+    const record = {
+      id: `pump-use-${at.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+      babyName: state.babyName || "",
+      babyAge: currentBabyAgeMonths(),
+      at: at.toISOString(),
+      amountMl,
+      synced: false
+    };
+    state.pumpingUses.unshift(record);
+    state.pumpingUses.sort((a, b) => new Date(b.at) - new Date(a.at));
+    saveState();
+    await syncPumpingUseToSheet(record);
+    scheduleCurrentNotifications();
+    els.pumpingUseAmount.value = "";
+    els.pumpingUseTime.value = "";
+    render();
+    const synced = state.pumpingUses.find((item) => item.id === record.id)?.synced;
+    els.pumpingUseError.textContent = `${amountMl} ml utilizados. Disponível agora: ${Math.round(pumpingPlanResult().storedMl)} ml.${synced ? "" : " Salvo neste aparelho; sincronização pendente."}`;
+  } finally {
+    els.savePumpingUse.disabled = false;
+    els.useAllPumpingStock.disabled = false;
+  }
+}
+
+async function removePumpingUseRecord(id) {
+  const record = state.pumpingUses.find((item) => String(item.id) === String(id));
+  if (!record) return;
+  if (record.synced && !await deletePumpingUseFromSheet(id)) {
+    els.pumpingUseError.textContent = "Não consegui excluir esse uso da planilha. Tente novamente com internet.";
+    return;
+  }
+  state.pumpingUses = state.pumpingUses.filter((item) => String(item.id) !== String(id));
+  saveState();
+  scheduleCurrentNotifications();
+  render();
+  els.pumpingUseError.textContent = "Uso removido; o leite voltou ao estoque disponível.";
 }
 
 function removePumpingRecord(id) {

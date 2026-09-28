@@ -267,14 +267,20 @@ main {
 .pumping-amount-field { position: relative; margin: 12px 0; }
 .pumping-amount-field input { min-height: 64px; padding-right: 54px; font-size: 1.45rem; font-weight: 900; text-align: center; }
 .pumping-amount-field > span { position: absolute; right: 18px; bottom: 18px; color: #9db0ce; font-weight: 900; }
+.pumping-available { margin: 8px 0 14px; color: #aebed6; }
+.pumping-available strong { color: #c7faef; }
+.pumping-use-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pumping-use-actions button { flex: 1 1 145px; min-width: 0; }
 .pumping-history { display: grid; gap: 8px; }
 .pumping-history-item { display: grid; grid-template-columns: 38px 1fr auto auto; gap: 10px; align-items: center; padding: 11px; border-radius: 15px; background: #151f43; }
 .pumping-history-side { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 13px; color: white; background: #a85b9d; }
 .pumping-history-side.right { background: #6470c5; }
 .pumping-history-side.both { background: linear-gradient(135deg,#a85b9d 50%,#6470c5 50%); }
+.pumping-history-side.used { background: #4c8a92; }
 .pumping-history-item strong, .pumping-history-item small { display: block; }
 .pumping-history-item small { color: #8fa4c6; margin-top: 2px; }
 .pumping-history-item > b { color: #c7faef; }
+.pumping-history-item.is-use > b { color: #ffc6a8; }
 .pumping-delete { width: 34px; height: 34px; border-radius: 11px; color: #ffadb7; background: rgba(255,90,111,.1); border: 0; }
 .pumping-safety-note { margin-top: 14px; text-align: center; }
 .feeding-pump-option { display: grid; grid-template-columns: auto 1fr; gap: 11px; align-items: flex-start; margin: 14px 0; padding: 13px; border: 1px solid rgba(157,242,217,.22); border-radius: 15px; background: rgba(68,154,146,.1); cursor: pointer; }

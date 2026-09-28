@@ -39,6 +39,15 @@
     return totals;
   }
 
+  function pumpingUseTotal(records, startedAt) {
+    const start = new Date(startedAt || 0).getTime();
+    return (records || []).reduce((total, record) => {
+      const at = new Date(record.at || 0).getTime();
+      if (Number.isNaN(at) || at < start) return total;
+      return total + Math.max(0, Number(record.amountMl) || 0);
+    }, 0);
+  }
+
   function productiveSide(records, preferredSide = "left", startedAt) {
     const totals = pumpingTotals(records, startedAt);
     if (totals.leftSessions >= 3 && totals.rightSessions >= 3) {
@@ -49,14 +58,16 @@
     return preferredSide === "right" ? "right" : preferredSide === "both" ? "both" : "left";
   }
 
-  function calculatePlan(plan, records, feedings, nowValue = new Date()) {
+  function calculatePlan(plan, records, feedings, nowValue = new Date(), uses = []) {
     const intervalMinutes = clamp(plan?.feedingIntervalMinutes || 120, 60, 360);
     const coverageHours = clamp(plan?.coverageHours || 8, 1, 24);
     const mlPerFeeding = clamp(plan?.mlPerFeeding || 150, 10, 500);
     const feedsNeeded = Math.max(1, Math.ceil((coverageHours * 60) / intervalMinutes));
     const targetMl = feedsNeeded * mlPerFeeding;
     const totals = pumpingTotals(records, plan?.startedAt);
-    const storedMl = Math.max(0, Number(plan?.initialStoredMl) || 0) + totals.total;
+    const pumpedMl = Math.max(0, Number(plan?.initialStoredMl) || 0) + totals.total;
+    const usedMl = pumpingUseTotal(uses, plan?.startedAt);
+    const storedMl = Math.max(0, pumpedMl - usedMl);
     const remainingMl = Math.max(0, targetMl - storedMl);
     const now = new Date(nowValue);
     const targetAt = new Date(plan?.targetAt || "");
@@ -69,7 +80,11 @@
       const at = new Date(record.at || "");
       return !Number.isNaN(at.getTime()) && at < todayStart;
     }), plan?.startedAt);
-    const storedBeforeToday = Math.max(0, Number(plan?.initialStoredMl) || 0) + totalsBeforeToday.total;
+    const usesBeforeToday = pumpingUseTotal((uses || []).filter((record) => {
+      const at = new Date(record.at || "");
+      return !Number.isNaN(at.getTime()) && at < todayStart;
+    }), plan?.startedAt);
+    const storedBeforeToday = Math.max(0, Number(plan?.initialStoredMl) || 0) + totalsBeforeToday.total - usesBeforeToday;
     const remainingAtDayStart = Math.max(0, targetMl - storedBeforeToday);
     return {
       intervalMinutes,
@@ -77,6 +92,8 @@
       mlPerFeeding,
       feedsNeeded,
       targetMl,
+      pumpedMl,
+      usedMl,
       storedMl,
       remainingMl,
       daysRemaining,

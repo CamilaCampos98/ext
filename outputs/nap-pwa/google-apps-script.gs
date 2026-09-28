@@ -1,6 +1,7 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
 const PUMPINGS_SHEET_NAME = 'Ordenhas';
+const PUMPING_USES_SHEET_NAME = 'UsoEstoque';
 const PUMPING_PLAN_SHEET_NAME = 'PlanoOrdenha';
 const DIAPERS_SHEET_NAME = 'Fraldas';
 const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
@@ -48,6 +49,10 @@ const FEEDING_HEADERS = [
 
 const PUMPING_HEADERS = [
   'Recebido em', 'ID', 'Bebê', 'Idade (meses)', 'Horário', 'Peito', 'Quantidade (ml)', 'Observação'
+];
+
+const PUMPING_USE_HEADERS = [
+  'Recebido em', 'ID', 'Bebê', 'Horário do uso', 'Quantidade usada (ml)'
 ];
 
 const PUMPING_PLAN_HEADERS = [
@@ -128,6 +133,7 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.action === 'listPumpings') {
     const response = listPumpingRows(getPumpingSheet());
     response.plan = getPumpingPlan(getPumpingPlanSheet());
+    response.uses = listPumpingUseRows(getPumpingUseSheet()).records;
     return jsonResponse(response);
   }
 
@@ -175,6 +181,10 @@ function doPost(e) {
       return jsonResponse(deleteRowById(getPumpingSheet(), payload.id));
     }
 
+    if (payload.action === 'deletePumpingUse') {
+      return jsonResponse(deleteRowById(getPumpingUseSheet(), payload.id));
+    }
+
     if (payload.action === 'deleteDiaper') {
       return jsonResponse(deleteRowById(getDiaperSheet(), payload.id));
     }
@@ -197,6 +207,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendPumpings') {
       return jsonResponse(appendMissingPumpingRows(getPumpingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendPumpingUse') {
+      return jsonResponse(appendMissingPumpingUseRows(getPumpingUseSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendPumpingUses') {
+      return jsonResponse(appendMissingPumpingUseRows(getPumpingUseSheet(), payload.records || []));
     }
 
     if (payload.action === 'setPumpingPlan') {
@@ -308,6 +326,19 @@ function getPumpingSheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, PUMPING_HEADERS);
+  }
+  return sheet;
+}
+
+function getPumpingUseSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PUMPING_USES_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(PUMPING_USES_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PUMPING_USE_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, PUMPING_USE_HEADERS);
   }
   return sheet;
 }
@@ -726,6 +757,24 @@ function appendMissingPumpingRows(sheet, records) {
   return { ok: true, inserted: inserted, skipped: skipped };
 }
 
+function appendMissingPumpingUseRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+  records.forEach(function(record) {
+    const id = String(record.id || '');
+    const amount = Math.round(Number(record.amountMl) || 0);
+    if (!id || amount < 1) { skipped.push(id); return; }
+    if (existingIds.has(id)) { skipped.push(id); return; }
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push([new Date(), id, record.babyName || '', toDateTimeString(record.at), amount]);
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, PUMPING_USE_HEADERS.length).setValues(rows);
+  return { ok: true, inserted: inserted, skipped: skipped };
+}
+
 function setPumpingPlan(sheet, payload) {
   const row = [
     'current', payload.active ? 'Sim' : 'Não', toDateTimeString(payload.targetAt), Number(payload.coverageHours || 8),
@@ -1038,6 +1087,16 @@ function listPumpingRows(sheet) {
   const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_HEADERS.length).getValues();
   const records = values.filter(function(row) { return row[1]; }).map(function(row) {
     return { receivedAt: toIsoString(row[0]), id: String(row[1]), babyName: row[2] || '', babyAge: row[3] || '', at: toDateTimeString(row[4]), side: pumpingSideKey(row[5]), amountMl: Number(row[6] || 0), note: row[7] || '' };
+  });
+  return { ok: true, records: records };
+}
+
+function listPumpingUseRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, records: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_USE_HEADERS.length).getValues();
+  const records = values.filter(function(row) { return row[1]; }).map(function(row) {
+    return { receivedAt: toIsoString(row[0]), id: String(row[1]), babyName: row[2] || '', at: toDateTimeString(row[3]), amountMl: Number(row[4] || 0) };
   });
   return { ok: true, records: records };
 }
