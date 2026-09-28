@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { pushTimerKey, withoutSchedule } = require("./push-schedule.js");
 
 const ROOT = path.join(__dirname, "nap-pwa");
 const HOST = "0.0.0.0";
@@ -221,7 +222,7 @@ function scheduleRemotePushTimers() {
     if (delay < -60 * 1000) return;
     const timer = setTimeout(() => {
       const subscription = pushSubscriptions.find((item) => item.endpoint === reminder.endpoint);
-      if (!subscription) return removeSchedule(reminder.id);
+      if (!subscription) return removeSchedule(reminder.endpoint, reminder.id, reminder.at);
       sendRemotePush(subscription, reminder)
         .catch((error) => {
           if (error.statusCode === 404 || error.statusCode === 410) {
@@ -230,9 +231,9 @@ function scheduleRemotePushTimers() {
             console.error(`Falha ao enviar push: ${error.message}`);
           }
         })
-        .finally(() => removeSchedule(reminder.id));
+        .finally(() => removeSchedule(reminder.endpoint, reminder.id, reminder.at));
     }, Math.max(0, delay));
-    pushTimers.set(reminder.id, timer);
+    pushTimers.set(pushTimerKey(reminder.endpoint, reminder.id, reminder.at), timer);
   });
 }
 
@@ -244,11 +245,12 @@ function sendRemotePush(subscription, reminder) {
   }));
 }
 
-function removeSchedule(id) {
-  const timer = pushTimers.get(id);
+function removeSchedule(endpoint, id, at) {
+  const key = pushTimerKey(endpoint, id, at);
+  const timer = pushTimers.get(key);
   if (timer) clearTimeout(timer);
-  pushTimers.delete(id);
-  pushSchedules = pushSchedules.filter((item) => item.id !== id);
+  pushTimers.delete(key);
+  pushSchedules = withoutSchedule(pushSchedules, endpoint, id, at);
   writeJson(SCHEDULES_FILE, pushSchedules);
 }
 
@@ -305,5 +307,7 @@ function getAppVersion() {
   }
 }
 
-scheduleRemotePushTimers();
-createServer(START_PORT);
+if (require.main === module) {
+  scheduleRemotePushTimers();
+  createServer(START_PORT);
+}

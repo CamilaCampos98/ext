@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260928.v3";
+const APP_VERSION = "20260928.v4";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -156,6 +156,8 @@ const defaultState = {
 let state = loadState();
 let syncMeta = loadSyncMeta();
 let notificationTimers = [];
+let backgroundPushReady = false;
+let remoteSchedulePromise = Promise.resolve();
 let currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
 let currentRingEndMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
 
@@ -488,6 +490,7 @@ function init() {
   window.addEventListener("online", () => {
     renderSyncCenter();
     refreshActiveSessionNow();
+    restoreBackgroundPush();
   });
   window.addEventListener("offline", renderSyncCenter);
 }
@@ -499,6 +502,7 @@ async function startInitialDataLoad() {
   document.body.classList.remove("is-loading");
   render();
   scheduleCurrentNotifications();
+  restoreBackgroundPush();
   scheduleActiveSessionReadRetry();
   loadFromSheet()
     .then(async (sheetResult) => {
@@ -2077,7 +2081,9 @@ async function requestNotificationPermission() {
 
   const pushReady = "PushManager" in window;
   if (result === "granted") {
-    const pushResult = pushReady ? await subscribeToPushIfConfigured() : { ok: false, message: "Este navegador não expôs PushManager para push remoto." };
+    const pushResult = pushReady ? await subscribeToPushIfConfigured() : { ok: false, message: "Este navegador não oferece push remoto; os avisos só funcionam enquanto o app estiver aberto." };
+    backgroundPushReady = pushResult.ok;
+    updateNotificationState();
     updateNotificationHelp(pushResult.message);
     if (state.activeNapStart) {
       scheduleActiveNapNotifications();
@@ -7326,10 +7332,14 @@ function scheduleUpcomingNotifications() {
     }
   ];
   reminders.push(...tummyReminders);
+  if (pumpingReminder) {
+    schedulePumpingReminder(pumpingReminder);
+    reminders.push(pumpingReminder);
+  }
   if (!hasNapSlot) {
     reminders.splice(0, 3);
   }
-  reminders.forEach((reminder) => {
+  reminders.filter((reminder) => reminder !== pumpingReminder).forEach((reminder) => {
     applyFriendlyReminderCopy(reminder, prediction, night);
     scheduleReminder(reminder, now);
   });
@@ -7571,10 +7581,13 @@ function scheduleReminder(reminder, now = nowMinutes()) {
 
 function nextUpcomingReminder(reminders, now = nowMinutes()) {
   return reminders
-    .map((reminder) => ({
-      ...reminder,
-      delay: minutesUntilToday(reminder.at, now)
-    }))
+    .map((reminder) => {
+      if (reminder.absoluteAt) {
+        const date = new Date(reminder.absoluteAt);
+        return { ...reminder, at: date.getHours() * 60 + date.getMinutes(), delay: (date.getTime() - Date.now()) / 60000 };
+      }
+      return { ...reminder, delay: minutesUntilToday(reminder.at, now) };
+    })
     .filter((reminder) => Number.isFinite(reminder.delay) && reminder.delay > 0 && reminder.delay <= 18 * 60)
     .sort((a, b) => a.delay - b.delay)[0] || null;
 }
@@ -7681,7 +7694,7 @@ function updateNotificationState(label) {
     return;
   }
   const labels = {
-    granted: "Avisos ligados",
+    granted: backgroundPushReady ? "Avisos em 2º plano" : "Só com app aberto",
     denied: "Avisos bloqueados",
     default: "Avisos desligados"
   };
@@ -7727,24 +7740,36 @@ async function ensureServiceWorkerReady() {
   return navigator.serviceWorker.ready.then(() => registration);
 }
 
-async function subscribeToPushIfConfigured() {
+async function restoreBackgroundPush() {
+  if (!canNotify() || !("PushManager" in window) || !("serviceWorker" in navigator)) return;
+  const result = await subscribeToPushIfConfigured(false);
+  backgroundPushReady = result.ok;
+  updateNotificationState();
+  if (result.ok) scheduleCurrentNotifications();
+  else updateNotificationHelp(result.message);
+}
+
+async function subscribeToPushIfConfigured(allowNewSubscription = true) {
   try {
     const keyResponse = await fetch(PUSH_PUBLIC_KEY_ENDPOINT, { cache: "no-store" });
     const keyResult = await keyResponse.json();
     if (!keyResponse.ok || !keyResult.ok || !keyResult.publicKey) {
       return {
         ok: false,
-        message: `${keyResult.error || "Servidor de push remoto indisponivel."} Avisos locais foram ativados neste aparelho enquanto o app puder rodar.`
+        message: `${keyResult.error || "Servidor de push remoto indisponível."} Sem o servidor de push, os avisos não chegam com o app fechado.`
       };
     }
 
     const registration = await ensureServiceWorkerReady();
+    if (!registration?.pushManager) return { ok: false, message: "Este aparelho não oferece push em segundo plano." };
     let subscription = await registration.pushManager.getSubscription();
     if (subscription && !subscriptionUsesKey(subscription, keyResult.publicKey)) {
+      if (!allowNewSubscription) return { ok: false, message: "A assinatura de avisos mudou. Toque em Ativar avisos para renová-la." };
       await subscription.unsubscribe();
       subscription = null;
     }
     if (!subscription) {
+      if (!allowNewSubscription) return { ok: false, message: "Toque em Ativar avisos para permitir notificações com o app fechado." };
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(keyResult.publicKey)
@@ -7757,13 +7782,12 @@ async function subscribeToPushIfConfigured() {
       body: JSON.stringify({ subscription })
     });
 
-    if (!response.ok) {
-      return { ok: false, message: "Permissao OK. O servidor nao aceitou o push remoto, mas os avisos locais foram ativados neste aparelho." };
-    }
+    const result = await response.json();
+    if (!response.ok || !result.ok) return { ok: false, message: "O servidor não aceitou o push. Os avisos só funcionam enquanto o app estiver aberto." };
 
     return { ok: true, message: "Push remoto ativado. O servidor vai enviar os próximos avisos mesmo se o app sair de cena." };
   } catch (error) {
-    return { ok: false, message: "Permissao OK. Push remoto indisponivel agora; avisos locais foram ativados neste aparelho enquanto o app puder rodar." };
+    return { ok: false, message: "Push remoto indisponível agora. Confira se o servidor da Soneca está ligado e se a URL abre pelo Funnel." };
   }
 }
 
@@ -7781,21 +7805,35 @@ async function syncRemoteNotificationSchedule(reminders, now = nowMinutes()) {
 }
 
 async function syncRemoteNotificationScheduleAbsolute(reminders) {
-  if (!canNotify() || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-
-  try {
-    const registration = await ensureServiceWorkerReady();
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) return;
-
-    await fetch(PUSH_SCHEDULE_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subscription, reminders })
-    });
-  } catch {
-    // Avisos locais continuam funcionando mesmo se o agendamento remoto falhar.
-  }
+  if (!canNotify() || !("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  const scheduled = reminders.slice();
+  remoteSchedulePromise = remoteSchedulePromise.catch(() => {}).then(async () => {
+    try {
+      const registration = await ensureServiceWorkerReady();
+      const subscription = await registration?.pushManager?.getSubscription();
+      if (!subscription) {
+        backgroundPushReady = false;
+        updateNotificationState();
+        return false;
+      }
+      const response = await fetch(PUSH_SCHEDULE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription, reminders: scheduled })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Agendamento recusado.");
+      backgroundPushReady = true;
+      updateNotificationState();
+      return true;
+    } catch {
+      backgroundPushReady = false;
+      updateNotificationState();
+      updateNotificationHelp("Avisos em segundo plano indisponíveis. Confira o servidor de push; com o app fechado, lembretes locais não são garantidos.");
+      return false;
+    }
+  });
+  return remoteSchedulePromise;
 }
 
 function dateForClockMinuteToday(targetMinutes) {
@@ -8654,8 +8692,6 @@ function registerServiceWorker() {
     updateNotificationHelp("Não consegui registrar o Service Worker. Avisos e modo offline podem falhar.");
     return null;
   });
-  schedulePumpingReminder(pumpingReminder);
-  if (pumpingReminder) reminders.push(pumpingReminder);
 }
 
 function watchServiceWorkerRegistration(registration) {
