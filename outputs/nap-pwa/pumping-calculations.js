@@ -86,6 +86,13 @@
     };
   }
 
+  function isPlanActive(plan, nowValue = new Date()) {
+    const target = new Date(plan?.targetAt || "");
+    const now = new Date(nowValue);
+    return Boolean(plan?.active) && !Number.isNaN(target.getTime())
+      && !Number.isNaN(now.getTime()) && target > now;
+  }
+
   function suggestedSide(feedings, records, plan) {
     const recentBreast = (feedings || [])
       .filter((item) => item.type === "breast" && ["left", "right", "both"].includes(item.side))
@@ -197,5 +204,5 @@
     return "";
   }
 
-  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, suggestedSide, dailySideTargets, recommendationPause, recommendationAvailability, availableSuggestedSide, nextFeedingForecast };
+  return { estimateFeedingInterval, pumpingTotals, productiveSide, calculatePlan, isPlanActive, suggestedSide, dailySideTargets, recommendationPause, recommendationAvailability, availableSuggestedSide, nextFeedingForecast };
 });

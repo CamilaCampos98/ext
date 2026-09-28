@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260922.v8";
+const APP_VERSION = "20260928.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -373,6 +373,7 @@ const els = {
   pumpingStoredMl: document.querySelector("#pumpingStoredMl"),
   pumpingTotalTarget: document.querySelector("#pumpingTotalTarget"),
   pumpingRemainingMl: document.querySelector("#pumpingRemainingMl"),
+  pumpingRemainingSuffix: document.querySelector("#pumpingRemainingSuffix"),
   pumpingTargetDate: document.querySelector("#pumpingTargetDate"),
   pumpingDailyTarget: document.querySelector("#pumpingDailyTarget"),
   pumpingFormula: document.querySelector("#pumpingFormula"),
@@ -656,12 +657,7 @@ function bindEvents() {
       setHint("Sono noturno nao esta ativo neste aparelho. Atualize e tente novamente.");
       return;
     }
-    if (state.activeNightAwakeStart) {
-      setHint(`Despertar ja registrado em outro aparelho: ${timeLabel(new Date(state.activeNightAwakeStart))}.`);
-      render();
-      return;
-    }
-    openNightTimeSheet("startAwake");
+    openNightTimeSheet(state.activeNightAwakeStart ? "pastAwake" : "startAwake");
   });
   els.endNightAwake.addEventListener("click", async () => {
     toggleStartSheet(false);
@@ -752,6 +748,9 @@ function bindEvents() {
   els.closeFeeding.addEventListener("click", () => toggleFeedingSheet(false));
   els.saveFeeding.addEventListener("click", saveFeeding);
   els.closePumping?.addEventListener("click", () => togglePumpingSheet(false));
+  els.pumpingActive?.addEventListener("change", () => {
+    if (!els.pumpingActive.checked) savePumpingPlan();
+  });
   els.savePumpingPlan?.addEventListener("click", savePumpingPlan);
   els.savePumping?.addEventListener("click", savePumping);
   els.pumpingSideGroup?.addEventListener("click", (event) => {
@@ -1026,11 +1025,12 @@ function openNightTimeSheet(mode) {
     startNight: "Hora de dormir",
     endNight: "Acordou",
     startAwake: "Acordou na madrugada",
+    pastAwake: "Adicionar despertar anterior",
     endAwake: "Voltou a dormir"
   };
   els.nightTimeTitle.textContent = titles[mode] || "Registrar horário";
   els.nightEventTime.value = "";
-  const periodMode = mode === "startAwake";
+  const periodMode = mode === "startAwake" || mode === "pastAwake";
   updateNightTimeFieldLabels(mode);
   setNightEventEndVisible(periodMode);
   els.nightTimeError.textContent = nightTimeHint(mode);
@@ -1057,6 +1057,9 @@ function nightTimeHint(mode) {
   if (mode === "endAwake") {
     return "Informe somente a hora que ela voltou a dormir. Se ficar vazio, uso o horario atual.";
   }
+  if (mode === "pastAwake") {
+    return "Informe o início e o fim do despertar anterior. O timer atual continuará em andamento.";
+  }
   return "";
 }
 
@@ -1066,6 +1069,7 @@ function updateNightTimeFieldLabels(mode) {
     startNight: "Hora que dormiu",
     endNight: "Hora que acordou",
     startAwake: "Acordou em",
+    pastAwake: "Acordou em",
     endAwake: "Voltou a dormir em"
   };
   setLabelText(els.nightEventField, labels[mode] || "Horario");
@@ -1084,7 +1088,7 @@ function setLabelText(label, text) {
 }
 
 async function confirmNightTime() {
-  const periodMode = nightEventMode === "startAwake";
+  const periodMode = nightEventMode === "startAwake" || nightEventMode === "pastAwake";
   const eventAt = periodMode ? null : nightEventTimeValue();
   const awakeRange = periodMode ? nightAwakeRangeValue() : null;
   if (!eventAt && !awakeRange) return;
@@ -1101,6 +1105,8 @@ async function confirmNightTime() {
     } else {
       await startNightAwake(awakeRange.startAt);
     }
+  } else if (nightEventMode === "pastAwake") {
+    if (!await recordEarlierNightAwakePeriod(awakeRange.startAt, awakeRange.endAt)) return;
   } else if (nightEventMode === "endAwake") {
     await endNightAwake(eventAt);
   }
@@ -1134,6 +1140,13 @@ function nightAwakeRangeValue() {
   if (endAt && endAt <= startAt) {
     els.nightTimeError.textContent = "O fim precisa ser depois do inicio.";
     return null;
+  }
+  if (nightEventMode === "pastAwake") {
+    const activeStart = new Date(state.activeNightAwakeStart || "");
+    if (!endAt || Number.isNaN(activeStart.getTime()) || endAt > activeStart) {
+      els.nightTimeError.textContent = "Informe um despertar completo que terminou antes do despertar atual.";
+      return null;
+    }
   }
   return { startAt, endAt };
 }
@@ -1213,7 +1226,30 @@ async function endNightAwake(endedAt = new Date()) {
   recordNightAwakePeriod(startedAt, endedAt);
 }
 
-function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
+async function recordEarlierNightAwakePeriod(startedAt, endedAt) {
+  const nightId = state.activeNightId;
+  const nightStartBeforeRefresh = state.activeNightStart;
+  await refreshBeforeTimerAction();
+  const activeStart = new Date(state.activeNightAwakeStart || "");
+  const nightStart = new Date(state.activeNightStart || "");
+  if (!state.activeNightStart || state.activeNightStart !== nightStartBeforeRefresh
+    || (nightId && state.activeNightId && state.activeNightId !== nightId)
+    || Number.isNaN(activeStart.getTime()) || startedAt < nightStart || endedAt > activeStart) {
+    els.nightTimeError.textContent = "A noite mudou em outro aparelho. Confira os horários e tente novamente.";
+    return false;
+  }
+  const overlaps = normalizeAwakenings(state.activeNightAwakenings || []).some((item) => (
+    startedAt < new Date(item.end) && endedAt > new Date(item.start)
+  ));
+  if (overlaps) {
+    els.nightTimeError.textContent = "Esse horário se sobrepõe a um despertar já registrado.";
+    return false;
+  }
+  recordNightAwakePeriod(startedAt, endedAt, { preserveActive: true });
+  return true;
+}
+
+function recordNightAwakePeriod(startedAt, endedAt = new Date(), options = {}) {
   if (!state.activeNightStart) return;
   // Despertar de madrugada ou manha cedo continua sendo noite.
   // O inicio do dia so muda quando a usuario tocar em "Acordou".
@@ -1227,7 +1263,7 @@ function recordNightAwakePeriod(startedAt, endedAt = new Date()) {
       { start: startedAt.toISOString(), end: endedAt.toISOString() }
     ];
   }
-  state.activeNightAwakeStart = null;
+  if (!options.preserveActive) state.activeNightAwakeStart = null;
   saveState();
   syncActiveSessionToSheet();
   scheduleActiveSessionWriteRetry();
@@ -1600,7 +1636,7 @@ function activeNightAwakeningsUntil(endedAt = new Date()) {
   const latestEnd = latestAwakeningEndDate(awakenings);
   if (!Number.isNaN(awakeStart.getTime())
     && (!hasNightStart || awakeStart >= nightStart)
-    && (Number.isNaN(latestEnd.getTime()) || awakeStart > latestEnd)
+    && (Number.isNaN(latestEnd.getTime()) || awakeStart >= latestEnd)
     && hasLimit
     && limit > awakeStart) {
     awakenings.push({ start: awakeStart.toISOString(), end: limit.toISOString() });
@@ -1650,7 +1686,7 @@ function validNightAwakeStart(awakeStart, awakenings = []) {
   const startedAt = new Date(awakeStart || "");
   if (Number.isNaN(startedAt.getTime())) return null;
   const latestEnd = latestAwakeningEndDate(awakenings);
-  if (!Number.isNaN(latestEnd.getTime()) && startedAt <= latestEnd) return null;
+  if (!Number.isNaN(latestEnd.getTime()) && startedAt < latestEnd) return null;
   return startedAt;
 }
 
@@ -2210,17 +2246,37 @@ function pumpingPlanResult() {
   return PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, new Date());
 }
 
+function pumpingPlanIsActive(at = new Date()) {
+  if (typeof window.PumpingCalculations?.isPlanActive === "function") {
+    return PumpingCalculations.isPlanActive(state.pumpingPlan, at);
+  }
+  const plan = state.pumpingPlan;
+  const target = new Date(plan?.targetAt || "");
+  const now = new Date(at);
+  return Boolean(plan?.active) && !Number.isNaN(target.getTime())
+    && !Number.isNaN(now.getTime()) && target > now;
+}
+
+function deactivateExpiredPumpingPlan() {
+  if (!state.pumpingPlan?.active || pumpingPlanIsActive()) return;
+  state.pumpingPlan = { ...state.pumpingPlan, active: false, updatedAt: new Date().toISOString(), synced: false };
+  saveState();
+  syncPumpingPlanToSheet();
+  scheduleCurrentNotifications();
+}
+
 function renderPumping() {
   if (!els.pumpingSheet || !window.PumpingCalculations) return;
+  deactivateExpiredPumpingPlan();
   const plan = pumpingPlanResult();
-  const active = Boolean(state.pumpingPlan?.active);
+  const active = pumpingPlanIsActive();
   const preferredSide = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
   const availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date());
   const side = PumpingCalculations.availableSuggestedSide(preferredSide, availability);
   const sideTargets = PumpingCalculations.dailySideTargets(plan);
   const todayTotals = pumpingTotalsToday();
   const todayTotal = Math.round(todayTotals.left + todayTotals.right);
-  const dailyTarget = Math.max(0, Math.round(plan.dailyTargetMl));
+  const dailyTarget = active ? Math.max(0, Math.round(plan.dailyTargetMl)) : 0;
   const dailyTargetAchieved = active && dailyTarget > 0 && todayTotal >= dailyTarget;
   const target = new Date(state.pumpingPlan?.targetAt || "");
   const formatSessions = (count) => count ? `${count} registro${count === 1 ? "" : "s"}` : "Nenhum registro";
@@ -2231,9 +2287,10 @@ function renderPumping() {
     els.pumpingHomeProgress.style.width = `${plan.progressPercent}%`;
   }
   els.pumpingStoredMl.textContent = String(Math.round(plan.storedMl));
-  els.pumpingTotalTarget.textContent = `de ${Math.round(plan.targetMl)} ml`;
-  els.pumpingRemainingMl.textContent = `${Math.round(plan.remainingMl)} ml`;
-  els.pumpingProgressRing.style.setProperty("--progress", plan.progressPercent);
+  els.pumpingTotalTarget.textContent = active ? `de ${Math.round(plan.targetMl)} ml` : "ml guardados";
+  els.pumpingRemainingMl.textContent = active ? `${Math.round(plan.remainingMl)} ml` : "Plano inativo";
+  els.pumpingRemainingSuffix.hidden = !active;
+  els.pumpingProgressRing.style.setProperty("--progress", active ? plan.progressPercent : 0);
   els.pumpingTargetDate.textContent = Number.isNaN(target.getTime())
     ? "Configure a data de uso"
     : `Para ${target.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
@@ -2243,17 +2300,17 @@ function renderPumping() {
         ? `Meta de hoje atingida: ${todayTotal} de ${dailyTarget} ml.`
         : `Meta de hoje ainda não atingida: ${todayTotal} de ${dailyTarget} ml · faltam ${Math.max(0, dailyTarget - todayTotal)} ml.`
       : "Meta atingida. O estoque planejado está completo."
-    : "Ative o plano para calcular a meta diária.";
+    : state.pumpingPlan?.active ? "A data de uso passou. O plano não está mais ativo." : "Ative o plano para calcular a meta diária.";
   els.pumpingDailyTarget.classList.toggle("is-achieved", dailyTargetAchieved || (active && !plan.remainingMl));
   els.pumpingFormula.innerHTML = `<small>Como chegamos na meta</small><div><span><b>${plan.coverageHours}h</b> para cobrir</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.feedsNeeded}</b> mamadas</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.mlPerFeeding} ml</b> cada</span><i class="fa-solid fa-equals"></i><span class="total"><b>${plan.targetMl} ml</b> necessários</span></div>`;
   els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml guardados`;
   els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml guardados`;
   els.pumpingLeftSessions.textContent = `Produção principal · ${formatSessions(plan.totals.leftSessions)}`;
   els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
-  renderPumpingSideTarget(els.pumpingLeftTarget, todayTotals.left, sideTargets.left);
-  renderPumpingSideTarget(els.pumpingRightTarget, todayTotals.right, sideTargets.right);
-  renderBreastFill(els.pumpingLeftFill, todayTotals.left, sideTargets.left, "esquerdo");
-  renderBreastFill(els.pumpingRightFill, todayTotals.right, sideTargets.right, "direito");
+  renderPumpingSideTarget(els.pumpingLeftTarget, todayTotals.left, active ? sideTargets.left : 0);
+  renderPumpingSideTarget(els.pumpingRightTarget, todayTotals.right, active ? sideTargets.right : 0);
+  renderBreastFill(els.pumpingLeftFill, todayTotals.left, active ? sideTargets.left : 0, "esquerdo");
+  renderBreastFill(els.pumpingRightFill, todayTotals.right, active ? sideTargets.right : 0, "direito");
   const suggestLeft = active && side === "left";
   const suggestRight = active && side === "right";
   els.pumpingLeftCard.classList.toggle("is-suggested", suggestLeft);
@@ -2294,6 +2351,11 @@ function renderBreastFill(element, amount, target, sideLabel) {
 
 function renderPumpingSideTarget(element, amount, target) {
   if (!element) return;
+  if (!target) {
+    element.textContent = "Sem meta ativa";
+    element.classList.remove("is-achieved");
+    return;
+  }
   const achieved = target > 0 && amount >= target;
   element.textContent = achieved
     ? `Hoje: ${Math.round(amount)} de ${Math.round(target)} ml · atingida`
@@ -2302,7 +2364,7 @@ function renderPumpingSideTarget(element, amount, target) {
 }
 
 function pumpingOpportunityText(side, plan, availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date())) {
-  if (!state.pumpingPlan?.active) return "Ative o plano para receber sugestões.";
+  if (!pumpingPlanIsActive()) return "Ative um plano com data futura para receber sugestões.";
   if (!plan.remainingMl) return "A meta foi atingida. Não é necessário guardar mais leite para este plano.";
   if (availability.globalPause?.reason === "feeding") {
     const fedSide = availability.globalPause.record?.side === "left" ? "esquerdo" : availability.globalPause.record?.side === "right" ? "direito" : "informado";
@@ -2372,8 +2434,10 @@ function renderPrediction(prediction) {
     const awakeMinutes = Number.isNaN(awakeStart.getTime())
       ? 0
       : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
+    const nightStart = new Date(state.activeNightStart);
+    const slept = activeNightSleepMinutesUntil(nightStart, new Date(), activeNightAwakeningsUntil(new Date()));
     if (els.nextWindow) els.nextWindow.textContent = "Acordada na madrugada";
-    if (els.nextHint) els.nextHint.textContent = `Acordada h\u00e1 ${formatRingDuration(awakeMinutes)}. O sono noturno continua quando voltar a dormir.`;
+    if (els.nextHint) els.nextHint.textContent = `Acordada h\u00e1 ${formatRingDuration(awakeMinutes)} · sono efetivo até agora: ${formatRingDuration(slept)}.`;
     return;
   }
 
@@ -2555,9 +2619,10 @@ function renderNightRingCenter(startedAt, now, awakenings, feedings = []) {
 
   if (state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
+    const slept = activeNightSleepMinutesUntil(startedAt, now, awakenings);
     els.dayCenterLabel.textContent = "acordada h\u00e1";
     els.dayCenterTime.textContent = formatRingDuration(minutesSinceDate(awakeStart));
-    els.dayCenterHint.textContent = "sono noturno pausado";
+    els.dayCenterHint.textContent = `sono efetivo ${formatRingDuration(slept)}`;
     return;
   }
 
@@ -2874,9 +2939,11 @@ function renderRingCenter(prediction, today) {
     const awakeMinutes = Number.isNaN(awakeStart.getTime())
       ? 0
       : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
+    const nightStart = new Date(state.activeNightStart);
+    const slept = activeNightSleepMinutesUntil(nightStart, new Date(), activeNightAwakeningsUntil(new Date()));
     els.dayCenterLabel.textContent = "acordada h\u00e1";
     els.dayCenterTime.textContent = formatRingDuration(awakeMinutes);
-    els.dayCenterHint.textContent = "sono noturno continua";
+    els.dayCenterHint.textContent = `sono efetivo ${formatRingDuration(slept)}`;
     return;
   }
 
@@ -3206,7 +3273,8 @@ function renderTimer() {
     els.nightRoutineActionLabel.textContent = nightRoutineIsActive() ? "Cancelar rotina noturna" : "Iniciar rotina noturna";
   }
   els.endNight.disabled = !nightActive;
-  els.startNightAwake.disabled = !nightActive || nightAwake;
+  els.startNightAwake.disabled = !nightActive;
+  els.startNightAwake.querySelector("strong").textContent = nightAwake ? "Despertar anterior" : "Acordou na madrugada";
   els.endNightAwake.disabled = !nightActive || !nightAwake;
   els.resumeNight.disabled = active || nightActive || !lastClosedNightForResume();
   updateStartActionContext();
@@ -3267,7 +3335,7 @@ function updateStartActionContext() {
   const priority = state.activeNapStart
     ? [els.endNap, els.openFeeding, els.openDiaper, els.openTummyTime, els.startNap]
     : state.activeNightStart
-      ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, els.openFeeding, els.openDiaper, els.endNight, els.resumeNight]
+      ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, ...(state.activeNightAwakeStart ? [els.startNightAwake] : []), els.openFeeding, els.openDiaper, els.endNight, els.resumeNight]
       : nightRoutineIsActive()
         ? [els.startNight, els.toggleNightRoutine, els.openFeeding, els.openDiaper, els.startNap, els.openTummyTime, els.openManualNap, els.openManualNight]
         : [els.startNap, els.openFeeding, els.openDiaper, els.toggleNightRoutine, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
@@ -3319,7 +3387,7 @@ function renderAssistantInsight(message, prediction) {
   if (!els.assistantInsight) return;
   const insight = assistantInsightParts(message, prediction);
   let pumpingLine = "";
-  if (state.pumpingPlan?.active && window.PumpingCalculations) {
+  if (pumpingPlanIsActive() && window.PumpingCalculations) {
     const availability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, new Date());
     const preferredSide = PumpingCalculations.suggestedSide(state.feedings, state.pumpings, state.pumpingPlan);
     const availableSide = PumpingCalculations.availableSuggestedSide(preferredSide, availability);
@@ -6755,7 +6823,7 @@ async function deleteTummyTimeFromSheet(id) {
 }
 
 function pumpingOpportunityAt(at = new Date()) {
-  if (!state.pumpingPlan?.active || !window.PumpingCalculations) return null;
+  if (!pumpingPlanIsActive(at) || !window.PumpingCalculations) return null;
   const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at);
   if (!plan.remainingMl || !plan.dailyTargetMl) return null;
   const todayTotals = pumpingTotalsToday();
@@ -6780,7 +6848,7 @@ function pumpingOpportunityAt(at = new Date()) {
 }
 
 function nextPumpingReminder(now = new Date()) {
-  if (!state.pumpingPlan?.active || state.activeNightStart || pumpingOpportunityAt(now)) return null;
+  if (!pumpingPlanIsActive(now) || state.activeNightStart || pumpingOpportunityAt(now)) return null;
   const currentAvailability = PumpingCalculations.recommendationAvailability(state.feedings, state.pumpings, now);
   let maxDelayMinutes = 6 * 60;
   if (currentAvailability.forecast?.minutesUntil > 0) {
@@ -7523,7 +7591,9 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   if (state.activeNightStart && state.activeNightAwakeStart) {
     const awakeStart = new Date(state.activeNightAwakeStart);
     const awakeMinutes = Number.isNaN(awakeStart.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - awakeStart.getTime()) / 60000));
-    return `${babyDisplayName()} acordou na madrugada. Registre a mamada se acontecer e toque em Voltou a dormir quando ela pegar no sono. Acordada h\u00e1 ${formatRingDuration(awakeMinutes)}.`;
+    const nightStart = new Date(state.activeNightStart);
+    const slept = activeNightSleepMinutesUntil(nightStart, new Date(), activeNightAwakeningsUntil(new Date()));
+    return `${babyDisplayName()} acordou na madrugada. Acordada h\u00e1 ${formatRingDuration(awakeMinutes)}; sono efetivo nesta noite: ${formatRingDuration(slept)}. Você pode registrar um despertar anterior sem interromper este timer.`;
   }
 
   if (state.activeNightStart) {
@@ -8968,7 +9038,7 @@ function togglePumpingSheet(open) {
 
 function hydratePumpingForm() {
   const plan = state.pumpingPlan || defaultState.pumpingPlan;
-  els.pumpingActive.checked = Boolean(plan.active);
+  els.pumpingActive.checked = pumpingPlanIsActive();
   els.pumpingTargetAt.value = plan.targetAt ? toDateTimeLocalValue(new Date(plan.targetAt)) : "";
   els.pumpingCoverageHours.value = String(plan.coverageHours || 8);
   els.pumpingMlPerFeeding.value = String(plan.mlPerFeeding || 150);
@@ -8988,7 +9058,7 @@ function savePumpingPlan() {
     els.pumpingError.textContent = "Para ativar, informe uma data futura para usar o leite.";
     return;
   }
-  const wasActive = Boolean(state.pumpingPlan?.active);
+  const wasActive = pumpingPlanIsActive();
   state.pumpingPlan = {
     ...state.pumpingPlan,
     active: Boolean(els.pumpingActive.checked),

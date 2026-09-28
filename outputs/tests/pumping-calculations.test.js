@@ -2,6 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const pumping = require("../nap-pwa/pumping-calculations.js");
 
+test("desativa a meta ao desmarcar o estoque ou passar a data de uso", () => {
+  const targetAt = "2026-09-26T08:00:00-03:00";
+  assert.equal(pumping.isPlanActive({ active: true, targetAt }, "2026-09-26T07:59:00-03:00"), true);
+  assert.equal(pumping.isPlanActive({ active: false, targetAt }, "2026-09-26T07:59:00-03:00"), false);
+  assert.equal(pumping.isPlanActive({ active: true, targetAt }, "2026-09-26T08:00:00-03:00"), false);
+});
+
 test("calcula quatro mamadas e 600 ml para oito horas", () => {
   const now = new Date("2026-09-21T10:00:00-03:00");
   const feedings = [0, 120, 240].map((minutes, index) => ({
