@@ -58,7 +58,7 @@
     return preferredSide === "right" ? "right" : preferredSide === "both" ? "both" : "left";
   }
 
-  function calculatePlan(plan, records, feedings, nowValue = new Date(), uses = []) {
+  function calculatePlan(plan, records, feedings, nowValue = new Date(), uses = [], inventory = null) {
     const intervalMinutes = clamp(plan?.feedingIntervalMinutes || 120, 60, 360);
     const coverageHours = clamp(plan?.coverageHours || 8, 1, 24);
     const mlPerFeeding = clamp(plan?.mlPerFeeding || 150, 10, 500);
@@ -67,8 +67,9 @@
     const totals = pumpingTotals(records, plan?.startedAt);
     const pumpedMl = Math.max(0, Number(plan?.initialStoredMl) || 0) + totals.total;
     const usedMl = pumpingUseTotal(uses, plan?.startedAt);
-    const storedMl = Math.max(0, pumpedMl - usedMl);
-    const remainingMl = Math.max(0, targetMl - storedMl);
+    const storedMl = inventory ? Math.max(0, Number(inventory.now) || 0) : Math.max(0, pumpedMl - usedMl);
+    const usableAtTargetMl = inventory?.target === undefined ? storedMl : Math.max(0, Number(inventory.target) || 0);
+    const remainingMl = Math.max(0, targetMl - usableAtTargetMl);
     const now = new Date(nowValue);
     const targetAt = new Date(plan?.targetAt || "");
     const todayStart = new Date(now);
@@ -84,8 +85,9 @@
       const at = new Date(record.at || "");
       return !Number.isNaN(at.getTime()) && at < todayStart;
     }), plan?.startedAt);
-    const storedBeforeToday = Math.max(0, Number(plan?.initialStoredMl) || 0) + totalsBeforeToday.total - usesBeforeToday;
-    const remainingAtDayStart = Math.max(0, targetMl - storedBeforeToday);
+    const storedBeforeToday = inventory ? Math.max(0, Number(inventory.beforeToday) || 0) : Math.max(0, Number(plan?.initialStoredMl) || 0) + totalsBeforeToday.total - usesBeforeToday;
+    const usableAtTargetBeforeToday = inventory?.beforeTodayTarget === undefined ? storedBeforeToday : Math.max(0, Number(inventory.beforeTodayTarget) || 0);
+    const remainingAtDayStart = Math.max(0, targetMl - usableAtTargetBeforeToday);
     return {
       intervalMinutes,
       coverageHours,
@@ -95,10 +97,11 @@
       pumpedMl,
       usedMl,
       storedMl,
+      usableAtTargetMl,
       remainingMl,
       daysRemaining,
       dailyTargetMl: remainingMl ? Math.ceil(remainingAtDayStart / daysRemaining) : 0,
-      progressPercent: targetMl ? Math.min(100, Math.round((storedMl / targetMl) * 100)) : 0,
+      progressPercent: targetMl ? Math.min(100, Math.round((usableAtTargetMl / targetMl) * 100)) : 0,
       totals
     };
   }

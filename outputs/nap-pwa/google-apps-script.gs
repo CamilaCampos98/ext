@@ -2,6 +2,8 @@ const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
 const PUMPINGS_SHEET_NAME = 'Ordenhas';
 const PUMPING_USES_SHEET_NAME = 'UsoEstoque';
+const PUMPING_MERGES_SHEET_NAME = 'UnificacoesEstoque';
+const PUMPING_DISCARDS_SHEET_NAME = 'DescartesEstoque';
 const PUMPING_PLAN_SHEET_NAME = 'PlanoOrdenha';
 const DIAPERS_SHEET_NAME = 'Fraldas';
 const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
@@ -53,6 +55,14 @@ const PUMPING_HEADERS = [
 
 const PUMPING_USE_HEADERS = [
   'Recebido em', 'ID', 'Bebê', 'Horário do uso', 'Quantidade usada (ml)'
+];
+
+const PUMPING_MERGE_HEADERS = [
+  'Recebido em', 'ID', 'Pote origem', 'Pote destino', 'Unificado em'
+];
+
+const PUMPING_DISCARD_HEADERS = [
+  'Recebido em', 'ID', 'Descartado em', 'Ordenhas descartadas', 'Quantidade (ml)'
 ];
 
 const PUMPING_PLAN_HEADERS = [
@@ -134,6 +144,8 @@ function doGet(e) {
     const response = listPumpingRows(getPumpingSheet());
     response.plan = getPumpingPlan(getPumpingPlanSheet());
     response.uses = listPumpingUseRows(getPumpingUseSheet()).records;
+    response.merges = listPumpingMergeRows(getPumpingMergeSheet()).records;
+    response.discards = listPumpingDiscardRows(getPumpingDiscardSheet()).records;
     return jsonResponse(response);
   }
 
@@ -215,6 +227,22 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendPumpingUses') {
       return jsonResponse(appendMissingPumpingUseRows(getPumpingUseSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendPumpingMerge') {
+      return jsonResponse(appendMissingPumpingMergeRows(getPumpingMergeSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendPumpingMerges') {
+      return jsonResponse(appendMissingPumpingMergeRows(getPumpingMergeSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendPumpingDiscard') {
+      return jsonResponse(appendMissingPumpingDiscardRows(getPumpingDiscardSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendPumpingDiscards') {
+      return jsonResponse(appendMissingPumpingDiscardRows(getPumpingDiscardSheet(), payload.records || []));
     }
 
     if (payload.action === 'setPumpingPlan') {
@@ -339,6 +367,32 @@ function getPumpingUseSheet() {
     sheet.setFrozenRows(1);
   } else {
     ensureSpecificHeaders(sheet, PUMPING_USE_HEADERS);
+  }
+  return sheet;
+}
+
+function getPumpingMergeSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PUMPING_MERGES_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(PUMPING_MERGES_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PUMPING_MERGE_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, PUMPING_MERGE_HEADERS);
+  }
+  return sheet;
+}
+
+function getPumpingDiscardSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PUMPING_DISCARDS_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(PUMPING_DISCARDS_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PUMPING_DISCARD_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, PUMPING_DISCARD_HEADERS);
   }
   return sheet;
 }
@@ -775,6 +829,44 @@ function appendMissingPumpingUseRows(sheet, records) {
   return { ok: true, inserted: inserted, skipped: skipped };
 }
 
+function appendMissingPumpingMergeRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+  records.forEach(function(record) {
+    const id = String(record.id || '');
+    const sourceId = String(record.sourceId || '');
+    const targetId = String(record.targetId || '');
+    if (!id || !sourceId || !targetId || sourceId === targetId) { skipped.push(id); return; }
+    if (existingIds.has(id)) { skipped.push(id); return; }
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push([new Date(), id, sourceId, targetId, toDateTimeString(record.at)]);
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, PUMPING_MERGE_HEADERS.length).setValues(rows);
+  return { ok: true, inserted: inserted, skipped: skipped };
+}
+
+function appendMissingPumpingDiscardRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+  records.forEach(function(record) {
+    const id = String(record.id || '');
+    const sourceIds = Array.isArray(record.sourceIds) ? record.sourceIds.map(String).filter(Boolean) : [];
+    const amount = Math.round(Number(record.amountMl) || 0);
+    if (!id || !sourceIds.length || amount < 1) { skipped.push(id); return; }
+    if (existingIds.has(id)) { skipped.push(id); return; }
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push([new Date(), id, toDateTimeString(record.at), JSON.stringify(sourceIds), amount]);
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, PUMPING_DISCARD_HEADERS.length).setValues(rows);
+  return { ok: true, inserted: inserted, skipped: skipped };
+}
+
 function setPumpingPlan(sheet, payload) {
   const row = [
     'current', payload.active ? 'Sim' : 'Não', toDateTimeString(payload.targetAt), Number(payload.coverageHours || 8),
@@ -1097,6 +1189,28 @@ function listPumpingUseRows(sheet) {
   const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_USE_HEADERS.length).getValues();
   const records = values.filter(function(row) { return row[1]; }).map(function(row) {
     return { receivedAt: toIsoString(row[0]), id: String(row[1]), babyName: row[2] || '', at: toDateTimeString(row[3]), amountMl: Number(row[4] || 0) };
+  });
+  return { ok: true, records: records };
+}
+
+function listPumpingMergeRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, records: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_MERGE_HEADERS.length).getValues();
+  const records = values.filter(function(row) { return row[1]; }).map(function(row) {
+    return { receivedAt: toIsoString(row[0]), id: String(row[1]), sourceId: String(row[2]), targetId: String(row[3]), at: toDateTimeString(row[4]) };
+  });
+  return { ok: true, records: records };
+}
+
+function listPumpingDiscardRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, records: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, PUMPING_DISCARD_HEADERS.length).getValues();
+  const records = values.filter(function(row) { return row[1]; }).map(function(row) {
+    let sourceIds = [];
+    try { sourceIds = JSON.parse(String(row[3] || '[]')); } catch (error) { sourceIds = []; }
+    return { receivedAt: toIsoString(row[0]), id: String(row[1]), at: toDateTimeString(row[2]), sourceIds: sourceIds, amountMl: Number(row[4] || 0) };
   });
   return { ok: true, records: records };
 }

@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=20260928.2">
+    <link rel="stylesheet" href="styles.css?v=20260928.3">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -39,7 +39,7 @@
             <span>Assistente</span>
             <p id="assistantInsight">Registre as sonecas para receber uma sugestão da rotina.</p>
             <footer class="app-version-footer" aria-label="Informações da versão">
-              <span class="app-version-badge" id="appVersion">20260928.v2</span>
+              <span class="app-version-badge" id="appVersion">20260928.v3</span>
             </footer>
             <button class="assistant-details-toggle" id="toggleAssistantDetails" type="button" aria-expanded="false" aria-controls="assistantDetails">
               <span>Como calculei</span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
@@ -83,7 +83,7 @@
           </button>
           <button class="pumping-home-card" id="pumpingHomeCard" type="button" hidden>
             <span class="pumping-home-icon" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span>
-            <span><small>Estoque de leite</small><strong id="pumpingHomeSummary">0 ml guardados</strong></span>
+            <span><small>Estoque de leite</small><strong id="pumpingHomeSummary">0 ml guardados</strong><em class="pumping-home-alert" id="pumpingHomeAlert" hidden></em></span>
             <span class="pumping-home-progress"><i id="pumpingHomeProgress"></i></span>
           </button>
           <div class="hero-meter" aria-label="Pressão de sono estimada">
@@ -290,7 +290,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260928.v2</strong>
+            <strong id="installedAppVersion">20260928.v3</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -739,6 +739,14 @@
           <button class="primary full-width" id="savePumping" type="button">Guardar no estoque</button>
           <p class="fineprint" id="pumpingError"></p>
         </section>
+        <section class="pumping-entry-card stock-pots-section">
+          <div class="section-head compact-head"><div><p class="label">Potes de leite</p><h3>Seu estoque, pote por pote</h3></div></div>
+          <p class="stock-pots-help">Cada ordenha vira um pote e vence 15 dias depois. Arraste pelo desenho um pote sobre outro para unificar apenas os escolhidos.</p>
+          <div class="stock-expired-alert" id="stockExpiredAlert" hidden><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span id="stockExpiredAlertText"></span></div>
+          <div class="stock-pots-list" id="stockPotsList"><p class="sync-empty">Nenhum pote registrado.</p></div>
+          <button class="secondary stock-discard-button" id="discardExpiredStock" type="button" hidden><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Descartar todo o estoque vencido</button>
+          <p class="fineprint" id="stockPotsMessage" role="status"></p>
+        </section>
         <section class="pumping-entry-card">
           <div class="section-head compact-head"><div><p class="label">Saída do estoque</p><h3>Leite utilizado</h3></div></div>
           <p class="pumping-available">Disponível agora: <strong id="pumpingAvailableMl">0 ml</strong></p>
@@ -753,7 +761,8 @@
     </div>
 
     <script src="sleep-calculations.js?v=20260922.7" defer></script>
-    <script src="pumping-calculations.js?v=20260928.2" defer></script>
-    <script src="app.js?v=20260928.2" defer></script>
+    <script src="pumping-calculations.js?v=20260928.3" defer></script>
+    <script src="stock-pots.js?v=20260928.3" defer></script>
+    <script src="app.js?v=20260928.3" defer></script>
   </body>
 </html>

@@ -41,6 +41,25 @@ test("uso parcial aumenta o que ainda falta guardar para a data planejada", () =
   assert.equal(plan.dailyTargetMl, 165);
 });
 
+test("pote vencido reduz o saldo e aumenta a meta restante", () => {
+  const plan = pumping.calculatePlan({
+    targetAt: "2026-09-27T08:00:00-03:00", coverageHours: 8, mlPerFeeding: 150
+  }, [{ at: "2026-09-01T08:00:00-03:00", side: "left", amountMl: 200 }], [],
+  "2026-09-20T10:00:00-03:00", [], { now: 0, beforeToday: 0 });
+  assert.equal(plan.pumpedMl, 200);
+  assert.equal(plan.storedMl, 0);
+  assert.equal(plan.remainingMl, 600);
+});
+
+test("meta para data futura não conta leite que vencerá antes", () => {
+  const plan = pumping.calculatePlan({ targetAt: "2026-10-20T08:00:00-03:00", coverageHours: 8, mlPerFeeding: 150 },
+    [{ at: "2026-09-28T08:00:00-03:00", side: "left", amountMl: 470 }], [],
+    "2026-09-28T10:00:00-03:00", [], { now: 470, beforeToday: 0, target: 0, beforeTodayTarget: 0 });
+  assert.equal(plan.storedMl, 470);
+  assert.equal(plan.usableAtTargetMl, 0);
+  assert.equal(plan.remainingMl, 600);
+});
+
 test("calcula quatro mamadas e 600 ml para oito horas", () => {
   const now = new Date("2026-09-21T10:00:00-03:00");
   const feedings = [0, 120, 240].map((minutes, index) => ({

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260928.v2";
+const APP_VERSION = "20260928.v3";
 const SleepCalculations = window.SonecaSleepCalculations;
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -130,6 +130,8 @@ const defaultState = {
   feedings: [],
   pumpings: [],
   pumpingUses: [],
+  pumpingMerges: [],
+  pumpingDiscards: [],
   pumpingPlan: {
     active: false,
     targetAt: "",
@@ -194,6 +196,7 @@ const els = {
   breastRight: document.querySelector("#breastRight"),
   pumpingHomeCard: document.querySelector("#pumpingHomeCard"),
   pumpingHomeSummary: document.querySelector("#pumpingHomeSummary"),
+  pumpingHomeAlert: document.querySelector("#pumpingHomeAlert"),
   pumpingHomeProgress: document.querySelector("#pumpingHomeProgress"),
   napDetailCard: document.querySelector("#napDetailCard"),
   dayLegend: document.querySelector("#dayLegend"),
@@ -396,6 +399,11 @@ const els = {
   pumpingAmount: document.querySelector("#pumpingAmount"),
   savePumping: document.querySelector("#savePumping"),
   pumpingError: document.querySelector("#pumpingError"),
+  stockPotsList: document.querySelector("#stockPotsList"),
+  stockPotsMessage: document.querySelector("#stockPotsMessage"),
+  stockExpiredAlert: document.querySelector("#stockExpiredAlert"),
+  stockExpiredAlertText: document.querySelector("#stockExpiredAlertText"),
+  discardExpiredStock: document.querySelector("#discardExpiredStock"),
   pumpingAvailableMl: document.querySelector("#pumpingAvailableMl"),
   pumpingUseTime: document.querySelector("#pumpingUseTime"),
   pumpingUseAmount: document.querySelector("#pumpingUseAmount"),
@@ -424,6 +432,11 @@ let selectedFeedSide = "left";
 let feedingSheetSupport = null;
 let pumpingSheetSupport = null;
 let pumpingUseSheetSupport = null;
+let pumpingMergeSheetSupport = null;
+let pumpingDiscardSheetSupport = null;
+let draggingStockPot = null;
+let stockMergeInFlight = false;
+let stockDiscardInFlight = false;
 let selectedPumpingSide = "left";
 let diaperSheetSupport = null;
 let tummyTimeSheetSupport = null;
@@ -761,6 +774,11 @@ function bindEvents() {
   });
   els.savePumpingPlan?.addEventListener("click", savePumpingPlan);
   els.savePumping?.addEventListener("click", savePumping);
+  els.stockPotsList?.addEventListener("pointerdown", startStockPotDrag);
+  els.stockPotsList?.addEventListener("pointermove", moveStockPotDrag);
+  els.stockPotsList?.addEventListener("pointerup", finishStockPotDrag);
+  els.stockPotsList?.addEventListener("pointercancel", cancelStockPotDrag);
+  els.discardExpiredStock?.addEventListener("click", discardExpiredStock);
   els.savePumpingUse?.addEventListener("click", () => savePumpingUse(false));
   els.useAllPumpingStock?.addEventListener("click", () => savePumpingUse(true));
   els.pumpingSideGroup?.addEventListener("click", (event) => {
@@ -2258,7 +2276,25 @@ function calculatePrediction() {
 }
 
 function pumpingPlanResult() {
-  return PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, new Date(), state.pumpingUses);
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const target = new Date(state.pumpingPlan?.targetAt || "");
+  const targetAt = Number.isNaN(target.getTime()) || target <= now ? now : target;
+  return PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, now, state.pumpingUses,
+    { now: stockInventoryAt(now).availableMl, beforeToday: stockInventoryAt(todayStart).availableMl,
+      target: stockInventoryAt(targetAt, now).availableMl, beforeTodayTarget: stockInventoryAt(targetAt, todayStart).availableMl });
+}
+
+function stockInventoryAt(at = new Date(), knownAt = at) {
+  const knownUntil = new Date(knownAt).getTime();
+  const pumpings = state.pumpings.filter((record) => new Date(record.at).getTime() <= knownUntil);
+  const uses = state.pumpingUses.filter((record) => new Date(record.at).getTime() <= knownUntil);
+  const merges = state.pumpingMerges.filter((record) => new Date(record.at).getTime() <= knownUntil);
+  const discards = state.pumpingDiscards.filter((record) => new Date(record.at).getTime() <= knownUntil);
+  const inventory = StockPots.calculate(pumpings, merges, uses, at, discards);
+  const initialMl = Math.max(0, Number(state.pumpingPlan?.initialStoredMl) || 0);
+  return { ...inventory, availableMl: inventory.availableMl + Math.max(0, initialMl - inventory.unallocatedUseMl), undatedMl: Math.max(0, initialMl - inventory.unallocatedUseMl) };
 }
 
 function pumpingPlanIsActive(at = new Date()) {
@@ -2294,15 +2330,21 @@ function renderPumping() {
   const dailyTarget = active ? Math.max(0, Math.round(plan.dailyTargetMl)) : 0;
   const dailyTargetAchieved = active && dailyTarget > 0 && todayTotal >= dailyTarget;
   const target = new Date(state.pumpingPlan?.targetAt || "");
+  const expired = stockInventoryAt().expiredMl;
   const formatSessions = (count) => count ? `${count} registro${count === 1 ? "" : "s"}` : "Nenhum registro";
 
-  els.pumpingHomeCard.hidden = !active;
+  els.pumpingHomeCard.hidden = !active && !expired;
+  els.pumpingHomeCard.classList.toggle("only-warning", !active && Boolean(expired));
+  els.pumpingHomeAlert.hidden = !expired;
+  els.pumpingHomeAlert.textContent = expired ? `${Math.round(expired)} ml vencidos precisam ser descartados.` : "";
   if (active) {
-    els.pumpingHomeSummary.textContent = `${Math.round(plan.storedMl)} de ${Math.round(plan.targetMl)} ml disponíveis · faltam ${Math.round(plan.remainingMl)} ml`;
+    els.pumpingHomeSummary.textContent = `${Math.round(plan.usableAtTargetMl)} de ${Math.round(plan.targetMl)} ml válidos na data · faltam ${Math.round(plan.remainingMl)} ml`;
     els.pumpingHomeProgress.style.width = `${plan.progressPercent}%`;
+  } else if (expired) {
+    els.pumpingHomeSummary.textContent = "Há leite vencido no estoque";
   }
-  els.pumpingStoredMl.textContent = String(Math.round(plan.storedMl));
-  els.pumpingTotalTarget.textContent = active ? `de ${Math.round(plan.targetMl)} ml` : "ml disponíveis";
+  els.pumpingStoredMl.textContent = String(Math.round(active ? plan.usableAtTargetMl : plan.storedMl));
+  els.pumpingTotalTarget.textContent = active ? `de ${Math.round(plan.targetMl)} ml válidos na data` : "ml disponíveis";
   els.pumpingRemainingMl.textContent = active ? `${Math.round(plan.remainingMl)} ml` : "Plano inativo";
   els.pumpingRemainingSuffix.hidden = !active;
   els.pumpingProgressRing.style.setProperty("--progress", active ? plan.progressPercent : 0);
@@ -2334,6 +2376,7 @@ function renderPumping() {
   els.pumpingLeftBadge.hidden = !suggestLeft;
   els.pumpingRightBadge.hidden = !suggestRight;
   els.pumpingOpportunityText.textContent = pumpingOpportunityText(side, plan, availability);
+  renderStockPots();
   renderPumpingHistory();
 }
 
@@ -2436,6 +2479,133 @@ function renderPumpingHistory() {
     const deleteAttribute = used ? "data-delete-pumping-use" : "data-delete-pumping";
     return `<article class="pumping-history-item ${used ? "is-use" : ""}"><span class="pumping-history-side ${side}"><i class="fa-solid fa-${used ? "glass-water" : "droplet"}"></i></span><div><strong>${label}</strong><small>${escapeHtml(date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</small></div><b>${used ? "−" : "+"}${Math.round(record.amountMl)} ml</b><button class="pumping-delete" type="button" ${deleteAttribute}="${escapeHtml(record.id)}" aria-label="Excluir ${used ? "uso" : "ordenha"} do estoque"><i class="fa-solid fa-trash"></i></button></article>`;
   }).join("");
+}
+
+function renderStockPots() {
+  if (!els.stockPotsList || !window.StockPots) return;
+  const inventory = stockInventoryAt();
+  const visible = inventory.pots.filter((pot) => pot.remainingMl > 0 && !pot.discarded);
+  els.stockExpiredAlert.hidden = !inventory.expiredMl;
+  els.stockExpiredAlertText.textContent = inventory.expiredMl ? `${Math.round(inventory.expiredMl)} ml de leite vencido precisam ser descartados.` : "";
+  els.discardExpiredStock.hidden = !inventory.expiredMl;
+  if (!visible.length && !inventory.undatedMl) {
+    els.stockPotsList.innerHTML = '<p class="sync-empty">Nenhum pote com leite no estoque.</p>';
+    return;
+  }
+  const rows = visible.map((pot) => {
+    const expiry = new Date(pot.expiresAt);
+    const fill = Math.max(8, Math.round(pot.remainingMl / pot.amountMl * 100));
+    const status = pot.expired ? "Vencido · precisa ser descartado" : `Vence ${expiry.toLocaleDateString("pt-BR")} às ${expiry.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    return `<article class="stock-pot-card ${pot.expired ? "is-expired" : ""}" data-stock-pot="${escapeHtml(pot.id)}">
+      <span class="stock-pot-grip" data-stock-pot-grip="${escapeHtml(pot.id)}" aria-label="Arrastar pote de ${pot.remainingMl} ml para unificar"><span class="stock-pot-lid"></span><span class="stock-pot-jar" style="--jar-fill:${fill}%"><i class="fa-solid fa-droplet"></i></span></span>
+      <span class="stock-pot-info"><strong>${Math.round(pot.remainingMl)} ml <small>no pote</small></strong><span>${escapeHtml(status)}</span><em>${pot.sourceIds.length > 1 ? `${pot.sourceIds.length} ordenhas unificadas` : `Ordenhado ${new Date(pot.extractedAt).toLocaleDateString("pt-BR")}`}</em></span>
+    </article>`;
+  });
+  if (inventory.undatedMl) rows.push(`<p class="stock-pots-legacy">${Math.round(inventory.undatedMl)} ml de estoque inicial sem data de extração; não é possível calcular sua validade nem unificá-lo.</p>`);
+  els.stockPotsList.innerHTML = rows.join("");
+}
+
+function startStockPotDrag(event) {
+  const grip = event.target.closest("[data-stock-pot-grip]");
+  if (!grip || event.button !== 0) return;
+  const card = grip.closest("[data-stock-pot]");
+  if (!card || card.classList.contains("is-expired")) return;
+  draggingStockPot = { id: card.dataset.stockPot, pointerId: event.pointerId, targetId: null };
+  grip.setPointerCapture(event.pointerId);
+  card.classList.add("is-dragging");
+  event.preventDefault();
+}
+
+function moveStockPotDrag(event) {
+  if (!draggingStockPot || event.pointerId !== draggingStockPot.pointerId) return;
+  const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-stock-pot]");
+  const targetId = hovered && !hovered.classList.contains("is-expired") && hovered.dataset.stockPot !== draggingStockPot.id ? hovered.dataset.stockPot : null;
+  els.stockPotsList.querySelectorAll(".is-drop-target").forEach((card) => card.classList.remove("is-drop-target"));
+  if (targetId) hovered.classList.add("is-drop-target");
+  draggingStockPot.targetId = targetId;
+}
+
+function cancelStockPotDrag() {
+  draggingStockPot = null;
+  els.stockPotsList?.querySelectorAll(".is-dragging, .is-drop-target").forEach((card) => card.classList.remove("is-dragging", "is-drop-target"));
+}
+
+function finishStockPotDrag(event) {
+  if (!draggingStockPot || event.pointerId !== draggingStockPot.pointerId) return;
+  moveStockPotDrag(event);
+  const { id, targetId } = draggingStockPot;
+  cancelStockPotDrag();
+  if (targetId) mergeStockPots(id, targetId);
+}
+
+async function mergeStockPots(sourceId, targetId) {
+  if (stockMergeInFlight) return;
+  stockMergeInFlight = true;
+  els.stockPotsMessage.textContent = "Conferindo os potes...";
+  try {
+    if (SHEETS_WEB_APP_URL) await loadPumpingsFromSheet({ deferRender: true });
+    const pots = stockInventoryAt().pots;
+    const source = pots.find((pot) => pot.id === sourceId || pot.sourceIds.includes(sourceId));
+    const target = pots.find((pot) => pot.id === targetId || pot.sourceIds.includes(targetId));
+    if (!source || !target || source.id === target.id || source.expired || target.expired || !source.remainingMl || !target.remainingMl) {
+      renderPumping();
+      els.stockPotsMessage.textContent = "Os potes mudaram. Sincronize e tente arrastar novamente.";
+      return;
+    }
+    const combinedMl = source.remainingMl + target.remainingMl;
+    const oldestExpiry = new Date(Math.min(source.expiresAt, target.expiresAt));
+    const warning = `Unificar somente estes dois potes? O novo pote terá ${combinedMl} ml e ficará com a validade do mais antigo: ${oldestExpiry.toLocaleString("pt-BR")}.`;
+    if (!window.confirm(warning)) {
+      els.stockPotsMessage.textContent = "Unificação cancelada; os potes continuam separados.";
+      return;
+    }
+    const record = { id: `pump-merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, sourceId: source.id, targetId: target.id, at: new Date().toISOString(), synced: false };
+    state.pumpingMerges.unshift(record);
+    saveState();
+    render();
+    await syncPumpingMergeToSheet(record);
+    const synced = state.pumpingMerges.find((item) => item.id === record.id)?.synced;
+    els.stockPotsMessage.textContent = `${combinedMl} ml unificados. Validade: ${oldestExpiry.toLocaleString("pt-BR")}.${synced ? "" : " Salvo neste aparelho; sincronização pendente."}`;
+  } catch (error) {
+    els.stockPotsMessage.textContent = `Não consegui unificar agora: ${error.message}`;
+  } finally {
+    stockMergeInFlight = false;
+  }
+}
+
+async function discardExpiredStock() {
+  if (stockDiscardInFlight) return;
+  stockDiscardInFlight = true;
+  els.discardExpiredStock.disabled = true;
+  try {
+    if (SHEETS_WEB_APP_URL) await loadPumpingsFromSheet({ deferRender: true });
+    const expiredPots = stockInventoryAt().pots.filter((pot) => pot.expired && !pot.discarded && pot.remainingMl > 0);
+    const amountMl = expiredPots.reduce((sum, pot) => sum + pot.remainingMl, 0);
+    if (!amountMl) {
+      render();
+      els.stockPotsMessage.textContent = "Não há leite vencido para descartar.";
+      return;
+    }
+    if (!window.confirm(`Descartar todos os ${expiredPots.length} potes vencidos (${amountMl} ml)? Eles sairão da lista, mas as ordenhas continuarão no histórico.`)) return;
+    const record = {
+      id: `pump-discard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      at: new Date().toISOString(),
+      sourceIds: expiredPots.flatMap((pot) => pot.sourceIds),
+      amountMl,
+      synced: false
+    };
+    state.pumpingDiscards.unshift(record);
+    saveState();
+    render();
+    await syncPumpingDiscardToSheet(record);
+    const synced = state.pumpingDiscards.find((item) => item.id === record.id)?.synced;
+    els.stockPotsMessage.textContent = `${amountMl} ml vencidos descartados.${synced ? "" : " Salvo neste aparelho; sincronização pendente."}`;
+  } catch (error) {
+    els.stockPotsMessage.textContent = `Não consegui descartar agora: ${error.message}`;
+  } finally {
+    stockDiscardInFlight = false;
+    els.discardExpiredStock.disabled = false;
+  }
 }
 
 function renderPrediction(prediction) {
@@ -5720,6 +5890,8 @@ async function syncPendingAfterInitialLoad() {
     syncPendingTummyTimesToSheet(),
     syncPendingPumpingsToSheet(),
     syncPendingPumpingUsesToSheet(),
+    syncPendingPumpingMergesToSheet(),
+    syncPendingPumpingDiscardsToSheet(),
     syncPumpingPlanToSheet()
   ]);
 }
@@ -6351,6 +6523,10 @@ async function loadPumpingsFromSheet(options = {}) {
     const remotePumpings = result.records.map(sheetRecordToPumping).filter(Boolean);
     pumpingUseSheetSupport = Array.isArray(result.uses);
     const remoteUses = pumpingUseSheetSupport ? result.uses.map(sheetRecordToPumpingUse).filter(Boolean) : [];
+    pumpingMergeSheetSupport = Array.isArray(result.merges);
+    const remoteMerges = pumpingMergeSheetSupport ? result.merges.map(sheetRecordToPumpingMerge).filter(Boolean) : [];
+    pumpingDiscardSheetSupport = Array.isArray(result.discards);
+    const remoteDiscards = pumpingDiscardSheetSupport ? result.discards.map(sheetRecordToPumpingDiscard).filter(Boolean) : [];
     const localPending = state.pumpings.filter((record) => !record.synced);
     const byId = new Map(localPending.map((record) => [String(record.id), record]));
     remotePumpings.forEach((record) => byId.set(String(record.id), record));
@@ -6359,11 +6535,19 @@ async function loadPumpingsFromSheet(options = {}) {
     const usesById = new Map(localUses.map((record) => [String(record.id), record]));
     remoteUses.forEach((record) => usesById.set(String(record.id), record));
     state.pumpingUses = Array.from(usesById.values()).sort((a, b) => new Date(b.at) - new Date(a.at));
+    const localMerges = pumpingMergeSheetSupport ? state.pumpingMerges.filter((record) => !record.synced) : state.pumpingMerges;
+    const mergesById = new Map(localMerges.map((record) => [String(record.id), record]));
+    remoteMerges.forEach((record) => mergesById.set(String(record.id), record));
+    state.pumpingMerges = Array.from(mergesById.values()).sort((a, b) => new Date(a.at) - new Date(b.at));
+    const localDiscards = pumpingDiscardSheetSupport ? state.pumpingDiscards.filter((record) => !record.synced) : state.pumpingDiscards;
+    const discardsById = new Map(localDiscards.map((record) => [String(record.id), record]));
+    remoteDiscards.forEach((record) => discardsById.set(String(record.id), record));
+    state.pumpingDiscards = Array.from(discardsById.values()).sort((a, b) => new Date(b.at) - new Date(a.at));
     if (result.plan && state.pumpingPlan?.synced !== false) {
       state.pumpingPlan = normalizeRemotePumpingPlan(result.plan);
     }
     if (!deferRender) { saveState(); render(); }
-    return { count: remotePumpings.length + remoteUses.length, changed: Boolean(remotePumpings.length || remoteUses.length || result.plan) };
+    return { count: remotePumpings.length + remoteUses.length + remoteMerges.length + remoteDiscards.length, changed: Boolean(remotePumpings.length || remoteUses.length || remoteMerges.length || remoteDiscards.length || result.plan) };
   } catch (error) {
     return { count: 0, changed: false, error: `Nao consegui carregar o estoque: ${error.message}` };
   }
@@ -6381,6 +6565,20 @@ function sheetRecordToPumpingUse(record) {
   const amountMl = Math.round(Number(record.amountMl) || 0);
   if (!record.id || Number.isNaN(at.getTime()) || amountMl < 1) return null;
   return { id: String(record.id), babyName: record.babyName || "", at: at.toISOString(), amountMl, synced: true };
+}
+
+function sheetRecordToPumpingMerge(record) {
+  const at = new Date(record.at || "");
+  if (!record.id || !record.sourceId || !record.targetId || record.sourceId === record.targetId || Number.isNaN(at.getTime())) return null;
+  return { id: String(record.id), sourceId: String(record.sourceId), targetId: String(record.targetId), at: at.toISOString(), synced: true };
+}
+
+function sheetRecordToPumpingDiscard(record) {
+  const at = new Date(record.at || "");
+  const sourceIds = Array.isArray(record.sourceIds) ? record.sourceIds.map(String).filter(Boolean) : [];
+  const amountMl = Math.round(Number(record.amountMl) || 0);
+  if (!record.id || Number.isNaN(at.getTime()) || !sourceIds.length || amountMl < 1) return null;
+  return { id: String(record.id), at: at.toISOString(), sourceIds, amountMl, synced: true };
 }
 
 function isPumpingUseRecord(record) {
@@ -6421,6 +6619,88 @@ async function syncPendingPumpingsToSheet() {
 async function syncPendingPumpingUsesToSheet() {
   const pending = state.pumpingUses.filter((record) => !record.synced);
   if (pending.length) await syncPumpingUsesToSheet(pending);
+}
+
+async function syncPendingPumpingMergesToSheet() {
+  const pending = state.pumpingMerges.filter((record) => !record.synced);
+  if (pending.length) await syncPumpingMergesToSheet(pending);
+}
+
+async function syncPendingPumpingDiscardsToSheet() {
+  const pending = state.pumpingDiscards.filter((record) => !record.synced);
+  if (pending.length) await syncPumpingDiscardsToSheet(pending);
+}
+
+async function syncPumpingDiscardToSheet(record) {
+  await syncPumpingDiscardsToSheet([record]);
+}
+
+async function syncPumpingDiscardsToSheet(records) {
+  if (!SHEETS_WEB_APP_URL || !records.length) return;
+  if (!await ensurePumpingDiscardSheetSupport()) {
+    setHint("Descarte salvo neste aparelho. Atualize e reimplante o Apps Script para sincronizar os potes.");
+    return;
+  }
+  try {
+    const payloadRecords = records.map((record) => ({ ...record, at: toLocalDateTimeValue(new Date(record.at)) }));
+    const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: records.length > 1 ? "bulkAppendPumpingDiscards" : "appendPumpingDiscard", records: payloadRecords, ...payloadRecords[0] }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao descartar potes vencidos.");
+    const ids = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.pumpingDiscards = state.pumpingDiscards.map((record) => ids.has(String(record.id)) ? { ...record, synced: true } : record);
+    saveState();
+  } catch (error) {
+    setHint(`Descarte salvo neste aparelho, mas não sincronizado: ${error.message}`);
+  }
+}
+
+async function ensurePumpingDiscardSheetSupport() {
+  if (pumpingDiscardSheetSupport === true) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    pumpingDiscardSheetSupport = Boolean(result.ok && Array.isArray(result.discards));
+  } catch {
+    pumpingDiscardSheetSupport = false;
+  }
+  return pumpingDiscardSheetSupport;
+}
+
+async function syncPumpingMergeToSheet(record) {
+  await syncPumpingMergesToSheet([record]);
+}
+
+async function syncPumpingMergesToSheet(records) {
+  if (!SHEETS_WEB_APP_URL || !records.length) return;
+  if (!await ensurePumpingMergeSheetSupport()) {
+    setHint("Unificação salva neste aparelho. Atualize e reimplante o Apps Script para sincronizar os potes.");
+    return;
+  }
+  try {
+    const payloadRecords = records.map((record) => ({ ...record, at: toLocalDateTimeValue(new Date(record.at)) }));
+    const response = await fetch(SHEETS_WEB_APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: records.length > 1 ? "bulkAppendPumpingMerges" : "appendPumpingMerge", records: payloadRecords, ...payloadRecords[0] }) });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao unificar potes.");
+    const ids = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.pumpingMerges = state.pumpingMerges.map((record) => ids.has(String(record.id)) ? { ...record, synced: true } : record);
+    saveState();
+  } catch (error) {
+    setHint(`Unificação salva neste aparelho, mas não sincronizada: ${error.message}`);
+  }
+}
+
+async function ensurePumpingMergeSheetSupport() {
+  if (pumpingMergeSheetSupport === true) return true;
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    pumpingMergeSheetSupport = Boolean(result.ok && Array.isArray(result.merges));
+  } catch {
+    pumpingMergeSheetSupport = false;
+  }
+  return pumpingMergeSheetSupport;
 }
 
 async function syncPumpingsToSheet(records) {
@@ -6922,7 +7202,11 @@ async function deleteTummyTimeFromSheet(id) {
 
 function pumpingOpportunityAt(at = new Date()) {
   if (!pumpingPlanIsActive(at) || !window.PumpingCalculations) return null;
-  const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at, state.pumpingUses);
+  const target = new Date(state.pumpingPlan?.targetAt || "");
+  const todayStart = new Date(new Date(at).setHours(0, 0, 0, 0));
+  const plan = PumpingCalculations.calculatePlan(state.pumpingPlan, state.pumpings, state.feedings, at, state.pumpingUses,
+    { now: stockInventoryAt(at).availableMl, beforeToday: stockInventoryAt(todayStart).availableMl,
+      target: stockInventoryAt(target, at).availableMl, beforeTodayTarget: stockInventoryAt(target, todayStart).availableMl });
   if (!plan.remainingMl || !plan.dailyTargetMl) return null;
   const todayTotals = pumpingTotalsToday();
   const todayTotal = todayTotals.left + todayTotals.right;
@@ -8678,6 +8962,16 @@ function loadState() {
       if (!isPumpingUseRecord(record) || Number.isNaN(at.getTime()) || amountMl < 1) return null;
       return { ...record, at: at.toISOString(), amountMl, synced: Boolean(record.synced) };
     }).filter(Boolean).sort((a, b) => new Date(b.at) - new Date(a.at));
+    loaded.pumpingMerges = (loaded.pumpingMerges || []).map((record) => {
+      const at = new Date(record.at || "");
+      if (!record.id || !record.sourceId || !record.targetId || record.sourceId === record.targetId || Number.isNaN(at.getTime())) return null;
+      return { ...record, at: at.toISOString(), synced: Boolean(record.synced) };
+    }).filter(Boolean).sort((a, b) => new Date(a.at) - new Date(b.at));
+    loaded.pumpingDiscards = (loaded.pumpingDiscards || []).map((record) => {
+      const normalized = sheetRecordToPumpingDiscard(record);
+      return normalized ? { ...normalized, synced: Boolean(record.synced) } : null;
+    }).filter(Boolean)
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
     loaded.diapers = dedupeDiapers((loaded.diapers || []).map((diaper) => ({
       ...diaper,
       id: diaper.id || `diaper-legacy-${Math.abs(hashString(diaperIdentity(diaper)))}`,
@@ -8792,7 +9086,7 @@ function markSyncError(message) {
 }
 
 function pendingSyncCount() {
-  const recordCount = [state.naps, state.nights, state.feedings, state.pumpings, state.pumpingUses, state.diapers, state.tummyTimes]
+  const recordCount = [state.naps, state.nights, state.feedings, state.pumpings, state.pumpingUses, state.pumpingMerges, state.pumpingDiscards, state.diapers, state.tummyTimes]
     .reduce((total, records) => total + (records || []).filter((record) => record?.synced !== true).length, 0);
   const diaryCount = Object.values(state.sleepDiary || {}).filter((entry) => entry?.synced === false).length;
   return recordCount + diaryCount;
@@ -8867,7 +9161,7 @@ function renderSyncCenter() {
   els.syncActiveTimer.textContent = currentSharedTimerLabel();
   if (els.syncAlertDot) els.syncAlertDot.hidden = status !== "warning" && status !== "error";
 
-  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-person-breastfeeding", pumping: "fa-droplet", pumpingUse: "fa-glass-water", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
+  const iconByType = { nap: "fa-cloud-moon", night: "fa-moon", feeding: "fa-person-breastfeeding", pumping: "fa-droplet", pumpingUse: "fa-glass-water", pumpingMerge: "fa-jar", pumpingDiscard: "fa-trash-can", diaper: "fa-baby", tummy: "fa-child-reaching", diary: "fa-book", timer: "fa-stopwatch" };
   const visibleChanges = visibleSyncChanges();
   els.syncChangesList.innerHTML = visibleChanges.length
     ? visibleChanges.map((change) => `
@@ -8907,6 +9201,8 @@ function sharedRecordSnapshot() {
   (state.feedings || []).forEach((record) => add("feeding", record.id || feedingIdentity(record), "Mamada recebida", syncSingleTimeDetail(record.at), record.at));
   (state.pumpings || []).forEach((record) => add("pumping", record.id, "Estoque atualizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.pumpingUses || []).forEach((record) => add("pumpingUse", record.id, "Leite utilizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
+  (state.pumpingMerges || []).forEach((record) => add("pumpingMerge", record.id, "Potes unificados", syncSingleTimeDetail(record.at), record.at));
+  (state.pumpingDiscards || []).forEach((record) => add("pumpingDiscard", record.id, "Leite vencido descartado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.diapers || []).forEach((record) => add("diaper", record.id || diaperIdentity(record), "Troca de fralda recebida", syncSingleTimeDetail(record.at), record.at));
   (state.tummyTimes || []).forEach((record) => add("tummy", record.id || tummyTimeIdentity(record), "Tummy time recebido", syncSingleTimeDetail(record.at), record.at));
   Object.entries(state.sleepDiary || {}).forEach(([id, record]) => add("diary", id, "Diário do sono atualizado", "Detalhes da soneca recebidos", record?.updatedAt));
@@ -9217,10 +9513,7 @@ function savePumping() {
 }
 
 function availablePumpingStockAt(at) {
-  const until = new Date(at).getTime();
-  const pumpings = state.pumpings.filter((record) => new Date(record.at).getTime() <= until);
-  const uses = state.pumpingUses.filter((record) => new Date(record.at).getTime() <= until);
-  return PumpingCalculations.calculatePlan(state.pumpingPlan, pumpings, state.feedings, at, uses).storedMl;
+  return stockInventoryAt(at).availableMl;
 }
 
 async function savePumpingUse(useAll) {
@@ -9229,15 +9522,14 @@ async function savePumpingUse(useAll) {
   els.useAllPumpingStock.disabled = true;
   try {
     const at = els.pumpingUseTime.value ? new Date(els.pumpingUseTime.value) : new Date();
-    const planStartedAt = new Date(state.pumpingPlan?.startedAt || 0);
-    if (Number.isNaN(at.getTime()) || at > new Date() || at < planStartedAt) {
-      els.pumpingUseError.textContent = "Informe um horário válido após o início do estoque.";
+    if (Number.isNaN(at.getTime()) || at > new Date()) {
+      els.pumpingUseError.textContent = "Informe um horário válido que não esteja no futuro.";
       return;
     }
     if (SHEETS_WEB_APP_URL) {
       try { await withTimeout(loadPumpingsFromSheet({ deferRender: true }), 3500); } catch { /* mantém os registros locais */ }
     }
-    const availableMl = Math.floor(availablePumpingStockAt(at));
+    const availableMl = Math.floor(Math.min(availablePumpingStockAt(at), availablePumpingStockAt(new Date())));
     const amountMl = useAll ? availableMl : Number(els.pumpingUseAmount.value);
     if (!Number.isInteger(amountMl) || amountMl < 1 || amountMl > availableMl) {
       els.pumpingUseError.textContent = availableMl
