@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=20260928.5">
+    <link rel="stylesheet" href="styles.css?v=20260929.1">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -39,7 +39,7 @@
             <span>Assistente</span>
             <p id="assistantInsight">Registre as sonecas para receber uma sugestão da rotina.</p>
             <footer class="app-version-footer" aria-label="Informações da versão">
-              <span class="app-version-badge" id="appVersion">20260928.v5</span>
+              <span class="app-version-badge" id="appVersion">20260929.v1</span>
             </footer>
             <button class="assistant-details-toggle" id="toggleAssistantDetails" type="button" aria-expanded="false" aria-controls="assistantDetails">
               <span>Como calculei</span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
@@ -291,7 +291,7 @@
         <div class="app-update-card">
           <div>
             <span>Versão instalada</span>
-            <strong id="installedAppVersion">20260928.v5</strong>
+            <strong id="installedAppVersion">20260929.v1</strong>
           </div>
           <p id="appUpdateStatus">Verificando atualização...</p>
           <div class="app-update-actions">
@@ -707,6 +707,7 @@
           <div><h2>Estoque</h2><p>Planeje, registre e acompanhe os ml guardados.</p></div>
           <label class="pumping-switch"><input id="pumpingActive" type="checkbox"><span></span><b>Estoque ativo</b></label>
         </div>
+        <div class="stock-compact-summary" aria-live="polite"><strong id="stockSummaryMl">0 ml disponíveis</strong><span id="stockSummaryDetail">Nenhum pote no estoque</span></div>
         <section class="pumping-hero" id="pumpingPlanSummary">
           <div class="pumping-progress-ring" id="pumpingProgressRing" style="--progress: 0"><span><strong id="pumpingStoredMl">0</strong><small id="pumpingTotalTarget">ml disponíveis</small></span></div>
           <div class="pumping-hero-copy"><span id="pumpingTargetDate">Configure a data de uso</span><strong><b id="pumpingRemainingMl">0 ml</b><span id="pumpingRemainingSuffix"> ainda faltam</span></strong><small id="pumpingDailyTarget">Ative o plano para calcular a meta diária.</small></div>
@@ -742,19 +743,25 @@
         </section>
         <section class="pumping-entry-card stock-pots-section">
           <div class="section-head compact-head"><div><p class="label">Potes de leite</p><h3>Seu estoque, pote por pote</h3></div></div>
-          <p class="stock-pots-help">Cada ordenha vira um pote e vence 15 dias depois. Arraste pelo desenho um pote sobre outro para unificar apenas os escolhidos.</p>
+          <p class="stock-pots-help">Arraste um pote sobre outro para unificar.</p>
           <div class="stock-expired-alert" id="stockExpiredAlert" hidden><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span id="stockExpiredAlertText"></span></div>
           <div class="stock-pots-list" id="stockPotsList"><p class="sync-empty">Nenhum pote registrado.</p></div>
           <button class="secondary stock-discard-button" id="discardExpiredStock" type="button" hidden><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Descartar todo o estoque vencido</button>
           <p class="fineprint" id="stockPotsMessage" role="status"></p>
         </section>
-        <section class="pumping-entry-card">
-          <div class="section-head compact-head"><div><p class="label">Saída do estoque</p><h3>Leite utilizado</h3></div></div>
-          <p class="pumping-available">Disponível agora: <strong id="pumpingAvailableMl">0 ml</strong></p>
-          <label>Horário do uso<input id="pumpingUseTime" type="datetime-local"><small>Se vazio, usa o horário atual.</small></label>
-          <label class="pumping-amount-field">Quantidade utilizada<input id="pumpingUseAmount" type="number" min="1" max="10000" step="1" inputmode="numeric" placeholder="0"><span>ml</span></label>
-          <div class="pumping-use-actions"><button class="primary" id="savePumpingUse" type="button">Registrar uso</button><button class="secondary" id="useAllPumpingStock" type="button">Usei todo o estoque</button></div>
-          <p class="fineprint" id="pumpingUseError" role="status"></p>
+        <section class="pumping-entry-card stock-use-section">
+          <div class="stock-use-heading"><div><p class="label">Saída do estoque</p><h3>Leite utilizado</h3></div><button class="secondary stock-use-open" id="openPumpingUse" type="button" aria-expanded="false" aria-controls="pumpingUsePanel">Usar leite</button></div>
+          <p class="fineprint stock-use-status" id="pumpingUseStatus" role="status"></p>
+          <div class="stock-use-panel" id="pumpingUsePanel" hidden>
+            <p class="pumping-available">Disponível: <strong id="pumpingAvailableMl">0 ml</strong></p>
+            <div class="stock-use-time"><span id="pumpingUseNowLabel">Horário: Agora</span><button type="button" id="changePumpingUseTime" aria-expanded="false" aria-controls="pumpingUseTimeWrap">Alterar</button></div>
+            <label class="stock-use-time-input" id="pumpingUseTimeWrap" hidden>Horário do uso<input id="pumpingUseTime" type="datetime-local"></label>
+            <label class="stock-use-amount-label" for="pumpingUseAmount">Quantidade</label>
+            <div class="stock-use-stepper"><button type="button" data-use-step="-10" aria-label="Diminuir 10 ml">−10</button><div class="stock-use-number"><input id="pumpingUseAmount" type="number" min="1" max="10000" step="1" inputmode="numeric" placeholder="0" aria-label="Quantidade de leite utilizada"><span>ml</span></div><button type="button" data-use-step="10" aria-label="Aumentar 10 ml">+10</button></div>
+            <div class="stock-use-shortcuts" role="group" aria-label="Quantidades rápidas"><button type="button" data-use-amount="30">30 ml</button><button type="button" data-use-amount="60">60 ml</button><button type="button" data-use-amount="90">90 ml</button><button type="button" data-use-amount="120">120 ml</button><button type="button" id="useAllPumpingStock">Tudo</button></div>
+            <button class="primary full-width stock-use-save" id="savePumpingUse" type="button" disabled>Escolha a quantidade</button>
+            <p class="fineprint" id="pumpingUseError" role="status"></p>
+          </div>
         </section>
         <section class="pumping-history-section"><div class="section-head compact-head"><div><p class="label">Histórico</p><h3>Entradas e usos</h3></div></div><div class="pumping-history" id="pumpingHistory"><p class="sync-empty">Nenhuma movimentação no estoque.</p></div></section>
         <p class="fineprint pumping-safety-note">As sugestões indicam oportunidades com base nos registros. Conforto, pega, produção e orientação profissional continuam sendo os critérios principais.</p>
@@ -765,6 +772,6 @@
     <script src="baby-age.js?v=20260928.5" defer></script>
     <script src="pumping-calculations.js?v=20260928.3" defer></script>
     <script src="stock-pots.js?v=20260928.3" defer></script>
-    <script src="app.js?v=20260928.5" defer></script>
+    <script src="app.js?v=20260929.1" defer></script>
   </body>
 </html>

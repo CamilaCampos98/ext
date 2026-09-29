@@ -30,6 +30,15 @@ test("desconta o uso primeiro do pote que vence antes", () => {
   assert.equal(result.availableMl, 40);
 });
 
+test("uso de 70 ml esvazia o pote de 50 ml e deixa 60 ml no de 80 ml", () => {
+  const pumpings = [pot("primeiro", "2026-09-01T10:00:00Z", 50), pot("segundo", "2026-09-03T10:00:00Z", 80)];
+  const uses = [{ at: "2026-09-04T10:00:00Z", amountMl: 70 }];
+  const result = StockPots.calculate(pumpings, [], uses, "2026-09-04T11:00:00Z");
+  assert.equal(result.pots.find((item) => item.id === "primeiro").remainingMl, 0);
+  assert.equal(result.pots.find((item) => item.id === "segundo").remainingMl, 60);
+  assert.equal(result.availableMl, 60);
+});
+
 test("permite unificar depois um terceiro pote sem duplicar leite", () => {
   const pumpings = [pot("a", "2026-09-01T10:00:00Z", 80), pot("b", "2026-09-03T10:00:00Z", 50), pot("c", "2026-09-04T10:00:00Z", 40)];
   const merges = [

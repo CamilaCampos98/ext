@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260928.v5";
+const APP_VERSION = "20260929.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -405,11 +405,19 @@ const els = {
   savePumping: document.querySelector("#savePumping"),
   pumpingError: document.querySelector("#pumpingError"),
   stockPotsList: document.querySelector("#stockPotsList"),
+  stockSummaryMl: document.querySelector("#stockSummaryMl"),
+  stockSummaryDetail: document.querySelector("#stockSummaryDetail"),
   stockPotsMessage: document.querySelector("#stockPotsMessage"),
   stockExpiredAlert: document.querySelector("#stockExpiredAlert"),
   stockExpiredAlertText: document.querySelector("#stockExpiredAlertText"),
   discardExpiredStock: document.querySelector("#discardExpiredStock"),
   pumpingAvailableMl: document.querySelector("#pumpingAvailableMl"),
+  openPumpingUse: document.querySelector("#openPumpingUse"),
+  pumpingUsePanel: document.querySelector("#pumpingUsePanel"),
+  pumpingUseStatus: document.querySelector("#pumpingUseStatus"),
+  pumpingUseNowLabel: document.querySelector("#pumpingUseNowLabel"),
+  changePumpingUseTime: document.querySelector("#changePumpingUseTime"),
+  pumpingUseTimeWrap: document.querySelector("#pumpingUseTimeWrap"),
   pumpingUseTime: document.querySelector("#pumpingUseTime"),
   pumpingUseAmount: document.querySelector("#pumpingUseAmount"),
   savePumpingUse: document.querySelector("#savePumpingUse"),
@@ -440,6 +448,8 @@ let pumpingUseSheetSupport = null;
 let pumpingMergeSheetSupport = null;
 let pumpingDiscardSheetSupport = null;
 let draggingStockPot = null;
+let stockUseAllSelected = false;
+let pumpingUseInFlight = false;
 let stockMergeInFlight = false;
 let stockDiscardInFlight = false;
 let selectedPumpingSide = "left";
@@ -786,8 +796,13 @@ function bindEvents() {
   els.stockPotsList?.addEventListener("pointerup", finishStockPotDrag);
   els.stockPotsList?.addEventListener("pointercancel", cancelStockPotDrag);
   els.discardExpiredStock?.addEventListener("click", discardExpiredStock);
-  els.savePumpingUse?.addEventListener("click", () => savePumpingUse(false));
-  els.useAllPumpingStock?.addEventListener("click", () => savePumpingUse(true));
+  els.openPumpingUse?.addEventListener("click", () => togglePumpingUsePanel(els.pumpingUsePanel.hidden));
+  els.changePumpingUseTime?.addEventListener("click", togglePumpingUseTime);
+  els.pumpingUseTime?.addEventListener("input", renderPumpingUseControls);
+  els.pumpingUsePanel?.addEventListener("click", handlePumpingUseChoice);
+  els.pumpingUseAmount?.addEventListener("input", () => { stockUseAllSelected = false; renderPumpingUseControls(); });
+  els.pumpingUseAmount?.addEventListener("focus", () => setTimeout(() => els.pumpingUseAmount.scrollIntoView({ block: "center", behavior: "smooth" }), 250));
+  els.savePumpingUse?.addEventListener("click", () => savePumpingUse(stockUseAllSelected));
   els.pumpingSideGroup?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pumping-side]");
     if (button) selectPumpingSide(button.dataset.pumpingSide);
@@ -2382,7 +2397,8 @@ function renderPumping() {
   els.pumpingFormula.innerHTML = `<small>Como chegamos na meta</small><div><span><b>${plan.coverageHours}h</b> para cobrir</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.feedsNeeded}</b> mamadas</span><i class="fa-solid fa-arrow-right"></i><span><b>${plan.mlPerFeeding} ml</b> cada</span><i class="fa-solid fa-equals"></i><span class="total"><b>${plan.targetMl} ml</b> necessários</span></div>`;
   els.pumpingLeftMl.textContent = `${Math.round(plan.totals.left)} ml ordenhados`;
   els.pumpingRightMl.textContent = `${Math.round(plan.totals.right)} ml ordenhados`;
-  els.pumpingAvailableMl.textContent = `${Math.round(plan.storedMl)} ml`;
+  els.pumpingAvailableMl.textContent = `${Math.round(stockInventoryAt().availableMl)} ml`;
+  renderPumpingUseControls();
   els.pumpingLeftSessions.textContent = `Produção principal · ${formatSessions(plan.totals.leftSessions)}`;
   els.pumpingRightSessions.textContent = `Produção mais lenta · ${formatSessions(plan.totals.rightSessions)}`;
   renderPumpingSideTarget(els.pumpingLeftTarget, todayTotals.left, active ? sideTargets.left : 0);
@@ -2503,8 +2519,14 @@ function renderPumpingHistory() {
 
 function renderStockPots() {
   if (!els.stockPotsList || !window.StockPots) return;
+  if (draggingStockPot) return;
   const inventory = stockInventoryAt();
-  const visible = inventory.pots.filter((pot) => pot.remainingMl > 0 && !pot.discarded);
+  const visible = inventory.pots.filter((pot) => pot.remainingMl > 0 && !pot.discarded)
+    .sort((a, b) => a.expiresAt - b.expiresAt);
+  const available = visible.filter((pot) => !pot.expired);
+  const nextExpiry = available[0] ? new Date(available[0].expiresAt) : null;
+  els.stockSummaryMl.textContent = `${Math.round(inventory.availableMl)} ml disponíveis`;
+  els.stockSummaryDetail.textContent = `${available.length} ${available.length === 1 ? "pote" : "potes"} · ${nextExpiry ? `próximo vencimento ${nextExpiry.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}` : "sem próximo vencimento"}`;
   els.stockExpiredAlert.hidden = !inventory.expiredMl;
   els.stockExpiredAlertText.textContent = inventory.expiredMl ? `${Math.round(inventory.expiredMl)} ml de leite vencido precisam ser descartados.` : "";
   els.discardExpiredStock.hidden = !inventory.expiredMl;
@@ -2515,10 +2537,10 @@ function renderStockPots() {
   const rows = visible.map((pot) => {
     const expiry = new Date(pot.expiresAt);
     const fill = Math.max(8, Math.round(pot.remainingMl / pot.amountMl * 100));
-    const status = pot.expired ? "Vencido · precisa ser descartado" : `Vence ${expiry.toLocaleDateString("pt-BR")} às ${expiry.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    const status = pot.expired ? "Vencido · descartar" : `Validade ${expiry.toLocaleDateString("pt-BR")} · ${expiry.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     return `<article class="stock-pot-card ${pot.expired ? "is-expired" : ""}" data-stock-pot="${escapeHtml(pot.id)}">
-      <span class="stock-pot-grip" data-stock-pot-grip="${escapeHtml(pot.id)}" aria-label="Arrastar pote de ${pot.remainingMl} ml para unificar"><span class="stock-pot-lid"></span><span class="stock-pot-jar" style="--jar-fill:${fill}%"><i class="fa-solid fa-droplet"></i></span></span>
-      <span class="stock-pot-info"><strong>${Math.round(pot.remainingMl)} ml <small>no pote</small></strong><span>${escapeHtml(status)}</span><em>${pot.sourceIds.length > 1 ? `${pot.sourceIds.length} ordenhas unificadas` : `Ordenhado ${new Date(pot.extractedAt).toLocaleDateString("pt-BR")}`}</em></span>
+      <span class="stock-pot-grip" data-stock-pot-grip="${escapeHtml(pot.id)}" aria-label="Segure e arraste pote de ${pot.remainingMl} ml para unificar"><span class="stock-pot-lid"></span><span class="stock-pot-jar" style="--jar-fill:${fill}%"><i class="fa-solid fa-droplet"></i></span></span>
+      <span class="stock-pot-info"><span class="stock-pot-top"><strong>${Math.round(pot.remainingMl)} ml</strong>${pot.id === available[0]?.id ? '<b class="stock-pot-first">Usar primeiro</b>' : ""}</span><span>${escapeHtml(status)}</span><em>${pot.sourceIds.length > 1 ? `${pot.sourceIds.length} ordenhas neste pote` : "1 ordenha neste pote"}</em></span>
     </article>`;
   });
   if (inventory.undatedMl) rows.push(`<p class="stock-pots-legacy">${Math.round(inventory.undatedMl)} ml de estoque inicial sem data de extração; não é possível calcular sua validade nem unificá-lo.</p>`);
@@ -2530,32 +2552,55 @@ function startStockPotDrag(event) {
   if (!grip || event.button !== 0) return;
   const card = grip.closest("[data-stock-pot]");
   if (!card || card.classList.contains("is-expired")) return;
-  draggingStockPot = { id: card.dataset.stockPot, pointerId: event.pointerId, targetId: null };
+  draggingStockPot = { id: card.dataset.stockPot, pointerId: event.pointerId, targetId: null, active: false,
+    startX: event.clientX, startY: event.clientY, pointerType: event.pointerType, timer: null };
   grip.setPointerCapture(event.pointerId);
-  card.classList.add("is-dragging");
-  event.preventDefault();
+  if (event.pointerType === "touch") {
+    draggingStockPot.timer = setTimeout(() => activateStockPotDrag(), 220);
+  }
+}
+
+function activateStockPotDrag() {
+  if (!draggingStockPot || draggingStockPot.active) return;
+  draggingStockPot.active = true;
+  els.stockPotsList.querySelector(`[data-stock-pot="${CSS.escape(draggingStockPot.id)}"]`)?.classList.add("is-dragging");
+  els.stockPotsList.querySelectorAll(".stock-pot-card:not(.is-expired):not(.is-dragging)")
+    .forEach((card) => card.classList.add("is-can-receive"));
 }
 
 function moveStockPotDrag(event) {
   if (!draggingStockPot || event.pointerId !== draggingStockPot.pointerId) return;
+  const distance = Math.hypot(event.clientX - draggingStockPot.startX, event.clientY - draggingStockPot.startY);
+  if (!draggingStockPot.active) {
+    if (draggingStockPot.pointerType === "touch") {
+      if (distance > 10) cancelStockPotDrag();
+      return;
+    }
+    if (distance < 8) return;
+    activateStockPotDrag();
+  }
+  event.preventDefault();
   const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-stock-pot]");
-  const targetId = hovered && !hovered.classList.contains("is-expired") && hovered.dataset.stockPot !== draggingStockPot.id ? hovered.dataset.stockPot : null;
+  const targetId = hovered && els.stockPotsList.contains(hovered) && !hovered.classList.contains("is-expired") && hovered.dataset.stockPot !== draggingStockPot.id ? hovered.dataset.stockPot : null;
   els.stockPotsList.querySelectorAll(".is-drop-target").forEach((card) => card.classList.remove("is-drop-target"));
   if (targetId) hovered.classList.add("is-drop-target");
   draggingStockPot.targetId = targetId;
 }
 
 function cancelStockPotDrag() {
+  if (draggingStockPot?.timer) clearTimeout(draggingStockPot.timer);
   draggingStockPot = null;
-  els.stockPotsList?.querySelectorAll(".is-dragging, .is-drop-target").forEach((card) => card.classList.remove("is-dragging", "is-drop-target"));
+  els.stockPotsList?.querySelectorAll(".is-dragging, .is-drop-target, .is-can-receive")
+    .forEach((card) => card.classList.remove("is-dragging", "is-drop-target", "is-can-receive"));
 }
 
 function finishStockPotDrag(event) {
   if (!draggingStockPot || event.pointerId !== draggingStockPot.pointerId) return;
-  moveStockPotDrag(event);
-  const { id, targetId } = draggingStockPot;
+  const wasActive = draggingStockPot.active;
+  if (wasActive) moveStockPotDrag(event);
+  const { id, targetId } = draggingStockPot || {};
   cancelStockPotDrag();
-  if (targetId) mergeStockPots(id, targetId);
+  if (wasActive && targetId) mergeStockPots(id, targetId);
 }
 
 async function mergeStockPots(sourceId, targetId) {
@@ -9489,6 +9534,8 @@ function togglePumpingSheet(open) {
     if (els.pumpingTime) els.pumpingTime.value = "";
     if (els.pumpingAmount) els.pumpingAmount.value = "";
     if (els.pumpingError) els.pumpingError.textContent = "";
+    togglePumpingUsePanel(false);
+    els.pumpingUseStatus.textContent = "";
     renderPumping();
   }
   setSheetOpen(els.pumpingSheet, open);
@@ -9573,8 +9620,82 @@ function availablePumpingStockAt(at) {
   return stockInventoryAt(at).availableMl;
 }
 
+function togglePumpingUsePanel(open) {
+  els.pumpingUsePanel.hidden = !open;
+  els.openPumpingUse.setAttribute("aria-expanded", String(open));
+  els.openPumpingUse.textContent = open ? "Fechar" : "Usar leite";
+  if (open) {
+    renderPumpingUseControls();
+    els.pumpingUsePanel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } else {
+    els.pumpingUseTimeWrap.hidden = true;
+    els.changePumpingUseTime.setAttribute("aria-expanded", "false");
+    els.changePumpingUseTime.textContent = "Alterar";
+    els.pumpingUseTime.value = "";
+    els.pumpingUseAmount.value = "";
+    els.pumpingUseError.textContent = "";
+    stockUseAllSelected = false;
+    renderPumpingUseControls();
+  }
+}
+
+function togglePumpingUseTime() {
+  const open = els.pumpingUseTimeWrap.hidden;
+  els.pumpingUseTimeWrap.hidden = !open;
+  els.changePumpingUseTime.setAttribute("aria-expanded", String(open));
+  els.changePumpingUseTime.textContent = open ? "Usar agora" : "Alterar";
+  if (open) {
+    els.pumpingUseTime.value = toDateTimeLocalValue(new Date());
+    els.pumpingUseTime.scrollIntoView({ block: "center", behavior: "smooth" });
+  } else {
+    els.pumpingUseTime.value = "";
+  }
+  renderPumpingUseControls();
+}
+
+function handlePumpingUseChoice(event) {
+  const step = event.target.closest("[data-use-step]");
+  const preset = event.target.closest("[data-use-amount]");
+  const all = event.target.closest("#useAllPumpingStock");
+  if (!step && !preset && !all) return;
+  const available = Math.floor(availablePumpingStockAt(new Date()));
+  if (all) {
+    stockUseAllSelected = true;
+    els.pumpingUseAmount.value = available > 0 ? String(available) : "";
+  } else {
+    stockUseAllSelected = false;
+    const current = Number(els.pumpingUseAmount.value) || 0;
+    const chosen = step ? current + Number(step.dataset.useStep) : Number(preset.dataset.useAmount);
+    els.pumpingUseAmount.value = String(Math.min(available, Math.max(0, chosen))) || "";
+    if (els.pumpingUseAmount.value === "0") els.pumpingUseAmount.value = "";
+  }
+  renderPumpingUseControls();
+}
+
+function renderPumpingUseControls() {
+  if (!els.pumpingUsePanel) return;
+  const available = Math.floor(availablePumpingStockAt(new Date()));
+  if (stockUseAllSelected && !pumpingUseInFlight) els.pumpingUseAmount.value = available > 0 ? String(available) : "";
+  const amount = Number(els.pumpingUseAmount.value);
+  const valid = Number.isInteger(amount) && amount >= 1 && amount <= available;
+  els.pumpingAvailableMl.textContent = `${available} ml`;
+  els.pumpingUseAmount.max = String(available);
+  els.pumpingUseNowLabel.textContent = els.pumpingUseTime.value
+    ? `Horário: ${new Date(els.pumpingUseTime.value).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+    : `Horário: Agora, ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  els.pumpingUsePanel.querySelectorAll("[data-use-amount]").forEach((button) => {
+    button.disabled = Number(button.dataset.useAmount) > available;
+    button.classList.toggle("is-selected", !stockUseAllSelected && valid && amount === Number(button.dataset.useAmount));
+  });
+  els.useAllPumpingStock.disabled = available < 1;
+  els.useAllPumpingStock.classList.toggle("is-selected", stockUseAllSelected && valid);
+  els.savePumpingUse.disabled = !valid || pumpingUseInFlight;
+  els.savePumpingUse.textContent = !valid ? "Escolha a quantidade" : stockUseAllSelected ? "Usar todo o estoque" : `Registrar uso de ${amount} ml`;
+}
+
 async function savePumpingUse(useAll) {
-  if (els.savePumpingUse.disabled) return;
+  if (pumpingUseInFlight || els.savePumpingUse.disabled) return;
+  pumpingUseInFlight = true;
   els.savePumpingUse.disabled = true;
   els.useAllPumpingStock.disabled = true;
   try {
@@ -9610,12 +9731,15 @@ async function savePumpingUse(useAll) {
     scheduleCurrentNotifications();
     els.pumpingUseAmount.value = "";
     els.pumpingUseTime.value = "";
+    stockUseAllSelected = false;
     render();
     const synced = state.pumpingUses.find((item) => item.id === record.id)?.synced;
-    els.pumpingUseError.textContent = `${amountMl} ml utilizados. Disponível agora: ${Math.round(pumpingPlanResult().storedMl)} ml.${synced ? "" : " Salvo neste aparelho; sincronização pendente."}`;
+    els.pumpingUseStatus.textContent = `${amountMl} ml utilizados. Disponível agora: ${Math.round(availablePumpingStockAt(new Date()))} ml.${synced ? "" : " Salvo neste aparelho; sincronização pendente."}`;
+    els.pumpingUseError.textContent = "";
+    togglePumpingUsePanel(false);
   } finally {
-    els.savePumpingUse.disabled = false;
-    els.useAllPumpingStock.disabled = false;
+    pumpingUseInFlight = false;
+    renderPumpingUseControls();
   }
 }
 
@@ -9623,14 +9747,14 @@ async function removePumpingUseRecord(id) {
   const record = state.pumpingUses.find((item) => String(item.id) === String(id));
   if (!record) return;
   if (record.synced && !await deletePumpingUseFromSheet(id)) {
-    els.pumpingUseError.textContent = "Não consegui excluir esse uso da planilha. Tente novamente com internet.";
+    els.pumpingUseStatus.textContent = "Não consegui excluir esse uso da planilha. Tente novamente com internet.";
     return;
   }
   state.pumpingUses = state.pumpingUses.filter((item) => String(item.id) !== String(id));
   saveState();
   scheduleCurrentNotifications();
   render();
-  els.pumpingUseError.textContent = "Uso removido; o leite voltou ao estoque disponível.";
+  els.pumpingUseStatus.textContent = "Uso removido; o leite voltou ao estoque disponível.";
 }
 
 function removePumpingRecord(id) {
