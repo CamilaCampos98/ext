@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260929.v1";
+const APP_VERSION = "20260930.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -14,9 +14,10 @@ const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzOtFFfJHvzj
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
-const ACTIVE_SESSION_POLL_MS = 5000;
-const SHARED_RECORDS_POLL_MS = 20000;
-const ACTIVE_SESSION_REQUEST_TIMEOUT_MS = 8000;
+const ACTIVE_SESSION_POLL_MS = 15000;
+const SHARED_RECORDS_POLL_MS = 30000;
+const ACTIVE_SESSION_REQUEST_TIMEOUT_MS = 20000;
+const SHEET_READ_TIMEOUT_MS = 30000;
 const ACTIVE_SESSION_CLEAR_GRACE_MS = 60000;
 const ACTIVE_SESSION_LOCAL_WRITE_GRACE_MS = 15000;
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -464,6 +465,8 @@ let confirmedSharedSession = null;
 let sharedSessionChecked = false;
 let sharedSessionCheckFailed = false;
 let sharedRecordsPollInFlight = false;
+let sleepRecordsReadPromise = null;
+let pendingRecordsSyncPromise = null;
 let lastActiveSessionWriteAt = 0;
 let pendingLocalActiveSession = null;
 let activeSessionWriteGeneration = 0;
@@ -544,22 +547,27 @@ async function refreshSharedRecordsNow() {
   sharedRecordsPollInFlight = true;
   const beforeRecords = sharedRecordSnapshot();
   try {
-    const [feedingLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
+    const [sleepLoad, feedingLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
+      loadNapsFromSheet({ deferRender: true }),
       loadFeedingsFromSheet({ deferRender: true }),
       loadTummyTimesFromSheet({ deferRender: true }),
       loadPumpingsFromSheet({ deferRender: true })
     ]);
+    const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
     const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
     const loadedTummyTimes = tummyLoad.status === "fulfilled" ? tummyLoad.value : null;
     const loadedPumpings = pumpingLoad.status === "fulfilled" ? pumpingLoad.value : null;
-    if (loadedFeedings?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
+    if (loadedSleep?.changed || loadedFeedings?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
       saveState();
       render();
       const received = receivedSyncChanges(beforeRecords);
       if (received.length) rememberSyncChanges(received);
-      markSyncSuccess(received.length
+      if (loadedSleep?.error) markSyncWarning("Registros de sono não puderam ser conferidos agora.");
+      else markSyncSuccess(received.length
         ? `${received.length} alteração(ões) recebida(s) automaticamente.`
         : "Dados compartilhados conferidos automaticamente.");
+    } else if (loadedSleep?.error) {
+      markSyncWarning("Registros de sono não puderam ser conferidos agora.");
     }
   } finally {
     sharedRecordsPollInFlight = false;
@@ -887,6 +895,21 @@ function bindEvents() {
     const tummyButton = event.target.closest("[data-delete-tummy]");
     if (tummyButton) removeTummyTimeRecord(tummyButton.dataset.deleteTummy);
   });
+}
+
+async function fetchSheetJson(url, timeoutMs = SHEET_READ_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error(`A planilha demorou mais de ${Math.round(timeoutMs / 1000)} segundos para responder.`);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function handleStartActionInfoClick(event) {
@@ -5526,7 +5549,7 @@ async function loadActiveSessionFromSheetOnce() {
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Falha ao carregar timer ativo.");
-    if (!result.activeSessionSupported) return;
+    if (!result.activeSessionSupported) throw new Error("A implantação da planilha não confirma o timer compartilhado.");
     activeSessionSheetSupport = true;
     sharedSessionChecked = true;
     sharedSessionCheckFailed = false;
@@ -5585,6 +5608,7 @@ async function loadActiveSessionFromSheetOnce() {
         detail: closedTimerLabel,
         receivedAt: new Date().toISOString()
       }]);
+      loadNapsFromSheet({ deferRender: true });
     }
     return {
       supported: true,
@@ -5864,7 +5888,7 @@ async function loadFromSheet() {
     setHint(`Google Sheets carregado: ${loadedCount} registro(s) encontrados.`);
   }
 
-  return { loadedCount, errors };
+  return { loadedCount, errors, sleepError: loadedSleep?.error || null };
 }
 
 function clearLocalActiveSessionIfCompleted() {
@@ -5903,21 +5927,26 @@ async function syncSheetDataManually() {
   showActionLoading("Sincronizando dados", "Buscando os registros mais recentes da planilha...");
 
   try {
-    const sheetResult = await loadFromSheet();
-    const activeResult = await loadActiveSessionFromSheet();
-    await syncPendingAfterInitialLoad();
+    const [sheetResult, activeResult] = await Promise.all([loadFromSheet(), loadActiveSessionFromSheet()]);
+    const pendingFinished = await withTimeout(syncPendingAfterInitialLoad(), 8000);
     clearLocalActiveSessionIfCompleted();
     saveState();
     render();
     const received = receivedSyncChanges(beforeRecords);
     if (received.length) rememberSyncChanges(received);
 
-    if (activeResult?.error) {
+    if (sheetResult.sleepError) {
+      setHint("Não consegui confirmar o sono noturno na planilha. Vou tentar novamente automaticamente.");
+      markSyncWarning("Sono noturno não confirmado; tentando novamente.");
+    } else if (activeResult?.error) {
       setHint("Sincronização parcial: os registros chegaram, mas não consegui consultar o timer ativo.");
       markSyncWarning("Registros conferidos, mas o timer compartilhado não respondeu.");
     } else if (sheetResult.errors.length) {
       setHint(`Sincronização parcial. ${sheetResult.errors.join(" ")}`);
       markSyncWarning("Alguns tipos de registro não puderam ser conferidos.");
+    } else if (!pendingFinished && pendingSyncCount()) {
+      setHint("Registros recebidos. O envio dos pendentes continua em segundo plano.");
+      markSyncWarning("Registros recebidos; o envio dos pendentes continua em segundo plano.");
     } else if (activeResult?.session) {
       const sessionLabel = activeResult.session.type === "night" ? "sono noturno" : activeResult.session.type === "routine" ? "rotina noturna" : "soneca";
       setHint(`Sincronização concluída: ${sessionLabel} em andamento carregado de outro aparelho.`);
@@ -5946,8 +5975,9 @@ async function syncSheetDataManually() {
   }
 }
 
-async function syncPendingAfterInitialLoad() {
-  await Promise.allSettled([
+function syncPendingAfterInitialLoad() {
+  if (pendingRecordsSyncPromise) return pendingRecordsSyncPromise;
+  pendingRecordsSyncPromise = Promise.allSettled([
     syncPendingNapsToSheet(),
     syncPendingFeedingsToSheet(),
     syncPendingSleepDiaryToSheet(),
@@ -5958,17 +5988,23 @@ async function syncPendingAfterInitialLoad() {
     syncPendingPumpingMergesToSheet(),
     syncPendingPumpingDiscardsToSheet(),
     syncPumpingPlanToSheet()
-  ]);
+  ]).finally(() => { pendingRecordsSyncPromise = null; });
+  return pendingRecordsSyncPromise;
 }
 
-async function loadNapsFromSheet(options = {}) {
+function loadNapsFromSheet(options = {}) {
+  if (sleepRecordsReadPromise) return sleepRecordsReadPromise;
+  sleepRecordsReadPromise = loadNapsFromSheetOnce(options).finally(() => { sleepRecordsReadPromise = null; });
+  return sleepRecordsReadPromise;
+}
+
+async function loadNapsFromSheetOnce(options = {}) {
   const { deferRender = false } = options;
   if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=list&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url, 20000);
     if (!result.ok) throw new Error(result.error || "Falha ao carregar planilha.");
 
     const remoteNaps = (result.records || [])
@@ -5980,16 +6016,18 @@ async function loadNapsFromSheet(options = {}) {
       .map(sheetRecordToNight)
       .filter(Boolean);
 
-    const hadLocalSynced = state.naps.some((nap) => nap.synced) || state.nights.some((night) => night.synced);
+    const previousSleep = JSON.stringify([state.naps, state.nights]);
 
     mergeNaps(remoteNaps);
     mergeNights(remoteNights);
-    if (!deferRender) {
+    const completedLocalTimer = clearLocalActiveSessionIfCompleted();
+    const changed = completedLocalTimer || previousSleep !== JSON.stringify([state.naps, state.nights]);
+    if (changed || !deferRender) {
       saveState();
       render();
-      setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
+      if (!deferRender) setHint(`Google Sheets carregado: ${remoteNaps.length + remoteNights.length} registro(s) encontrados.`);
     }
-    return { count: remoteNaps.length + remoteNights.length, changed: hadLocalSynced || Boolean(remoteNaps.length || remoteNights.length) };
+    return { count: remoteNaps.length + remoteNights.length, changed };
   } catch (error) {
     const message = `Não consegui carregar o Google Sheets: ${error.message}`;
     if (!deferRender) setHint(message);
@@ -6052,8 +6090,7 @@ async function loadFeedingsFromSheet(options = {}) {
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listFeedings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     if (!result.ok) throw new Error(result.error || "Falha ao carregar mamadas.");
     if (!Array.isArray(result.records)) {
       feedingSheetSupport = false;
@@ -6106,8 +6143,7 @@ async function loadDiapersFromSheet(options = {}) {
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listDiapers&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     if (!result.ok) throw new Error(result.error || "Falha ao carregar fraldas.");
     if (!Array.isArray(result.records)) {
       diaperSheetSupport = false;
@@ -6155,8 +6191,7 @@ async function loadTummyTimesFromSheet(options = {}) {
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listTummyTimes&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     if (!result.ok) throw new Error(result.error || "Falha ao carregar tummy time.");
     if (!Array.isArray(result.records)) {
       tummyTimeSheetSupport = false;
@@ -6204,8 +6239,7 @@ async function loadSleepDiaryFromSheet(options = {}) {
 
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listSleepDiary&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     if (!result.ok) throw new Error(result.error || "Falha ao carregar diário do sono.");
     if (!Array.isArray(result.records)) {
       sleepDiarySheetSupport = false;
@@ -6548,8 +6582,7 @@ async function ensureFeedingSheetSupport(forceRetry = false) {
   if (feedingSheetSupport === true && !forceRetry) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listFeedings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     feedingSheetSupport = Boolean(result.ok && Array.isArray(result.records));
   } catch {
     if (!forceRetry) feedingSheetSupport = false;
@@ -6580,8 +6613,7 @@ async function loadPumpingsFromSheet(options = {}) {
   if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     if (!result.ok || !Array.isArray(result.records)) {
       pumpingSheetSupport = false;
       return { count: 0, changed: false };
@@ -6725,8 +6757,7 @@ async function ensurePumpingDiscardSheetSupport() {
   if (pumpingDiscardSheetSupport === true) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     pumpingDiscardSheetSupport = Boolean(result.ok && Array.isArray(result.discards));
   } catch {
     pumpingDiscardSheetSupport = false;
@@ -6761,8 +6792,7 @@ async function ensurePumpingMergeSheetSupport() {
   if (pumpingMergeSheetSupport === true) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     pumpingMergeSheetSupport = Boolean(result.ok && Array.isArray(result.merges));
   } catch {
     pumpingMergeSheetSupport = false;
@@ -6815,8 +6845,7 @@ async function ensurePumpingUseSheetSupport() {
   if (pumpingUseSheetSupport === true) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     pumpingUseSheetSupport = Boolean(result.ok && Array.isArray(result.uses));
   } catch {
     pumpingUseSheetSupport = false;
@@ -6845,8 +6874,7 @@ async function ensurePumpingSheetSupport(forceRetry = false) {
   if (pumpingSheetSupport === true && !forceRetry) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listPumpings&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     pumpingSheetSupport = Boolean(result.ok && Array.isArray(result.records));
   } catch {
     if (!forceRetry) pumpingSheetSupport = false;
@@ -6936,8 +6964,7 @@ async function ensureDiaperSheetSupport(forceRetry = false) {
   if (diaperSheetSupport === true && !forceRetry) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listDiapers&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     diaperSheetSupport = Boolean(result.ok && Array.isArray(result.records));
   } catch {
     if (!forceRetry) diaperSheetSupport = false;
@@ -7017,8 +7044,7 @@ async function ensureTummyTimeSheetSupport(forceRetry = false) {
   if (tummyTimeSheetSupport === true && !forceRetry) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listTummyTimes&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     tummyTimeSheetSupport = Boolean(result.ok && Array.isArray(result.records));
   } catch {
     if (!forceRetry) tummyTimeSheetSupport = false;
@@ -7097,8 +7123,7 @@ async function ensureSleepDiarySheetSupport(forceRetry = false) {
   if (sleepDiarySheetSupport === true && !forceRetry) return true;
   try {
     const url = `${SHEETS_WEB_APP_URL}?action=listSleepDiary&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`;
-    const response = await fetch(url);
-    const result = await response.json();
+    const result = await fetchSheetJson(url);
     sleepDiarySheetSupport = Boolean(result.ok && Array.isArray(result.records));
   } catch {
     if (!forceRetry) sleepDiarySheetSupport = false;
