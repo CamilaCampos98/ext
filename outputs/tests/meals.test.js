@@ -54,3 +54,50 @@ test("sincronização mantém registro local pendente e incorpora o recebido", (
   assert.equal(client.state.meals[0].water, true);
   assert.equal(client.state.meals[1].synced, false);
 });
+
+test("a concha mostra apenas a alimentação do ciclo atual", () => {
+  const now = Date.now();
+  const client = vm.createContext({
+    state: {
+      activeNightStart: null,
+      meals: [
+        { id: "today", at: new Date(now - 60 * 60 * 1000).toISOString() },
+        { id: "old", at: new Date(now - 24 * 60 * 60 * 1000).toISOString() }
+      ]
+    },
+    CYCLE_START_GRACE_MINUTES: 0,
+    currentCycleStartDate: () => new Date(now - 2 * 60 * 60 * 1000)
+  });
+  vm.runInContext(app.slice(app.indexOf("function mealsToday() {"), app.indexOf("function pumpingIdentity(record) {")), client);
+
+  assert.deepEqual(Array.from(client.mealsToday(), (meal) => meal.id), ["today"]);
+});
+
+test("alimentação pouco antes do sono continua visível na concha noturna", () => {
+  const now = Date.now();
+  const client = vm.createContext({
+    state: {
+      activeNightStart: new Date(now - 30 * 60 * 1000).toISOString(),
+      meals: [{ id: "before-night", at: new Date(now - 60 * 60 * 1000).toISOString() }]
+    },
+    NIGHT_PRE_START_FEEDING_GRACE_MINUTES: 90,
+    currentCycleStartDate: () => new Date(now - 3 * 60 * 60 * 1000)
+  });
+  vm.runInContext(app.slice(app.indexOf("function mealsInActiveNight() {"), app.indexOf("function pumpingsInActiveNight() {")), client);
+
+  assert.deepEqual(Array.from(client.mealsInActiveNight(), (meal) => meal.id), ["before-night"]);
+});
+
+test("o ícone da concha abre os detalhes de alimento, horário e água", () => {
+  const card = { innerHTML: "", hidden: true };
+  const client = vm.createContext({ els: { napDetailCard: card }, timeLabel: () => "10:15" });
+  vm.runInContext(app.slice(app.indexOf("function markerAttributes(marker) {"), app.indexOf("function markerTimeText(label, at, type) {")), client);
+  vm.runInContext(app.slice(app.indexOf("function showMealDetailCard(meal) {"), app.indexOf("function showPumpingDetailCard(record) {")), client);
+  vm.runInContext(app.slice(app.indexOf("function escapeHtml(value) {"), app.indexOf("function clamp(value, min, max) {")), client);
+
+  assert.match(client.markerAttributes({ type: "meal", id: "meal-1" }), /data-meal-id="meal-1"/);
+  client.showMealDetailCard({ at: "2026-09-30T10:15:00", food: "Banana <abóbora>", water: true });
+  assert.equal(card.hidden, false);
+  assert.match(card.innerHTML, /10:15 · Banana &lt;abóbora&gt;/);
+  assert.match(card.innerHTML, /Bebeu água/);
+});

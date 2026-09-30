@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260930.v3";
+const APP_VERSION = "20260930.v4";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -2846,6 +2846,7 @@ function renderDayPlanner(prediction) {
   const today = napsToday();
   const ringNaps = [...today].sort((a, b) => new Date(a.start) - new Date(b.start));
   const feedings = feedingsToday();
+  const meals = mealsToday();
   const pumpings = pumpingsToday();
   const tummyTimes = tummyTimesToday();
   currentRingStartMinutes = safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60);
@@ -2868,6 +2869,11 @@ function renderDayPlanner(prediction) {
       type: "feed",
       at: ringMarkerMinute(new Date(feeding.at)),
       id: feedingIdentity(feeding)
+    })),
+    ...meals.map((meal) => ({
+      type: "meal",
+      at: ringMarkerMinute(new Date(meal.at)),
+      id: meal.id
     })),
     ...pumpings.map((record) => ({
       type: "pumping",
@@ -2916,6 +2922,7 @@ function renderNightPlanner() {
   const nowMinute = dateToDayMinutes(now);
   const awakenings = activeNightAwakeningsUntil(now);
   const feedings = feedingsInActiveNight();
+  const meals = mealsInActiveNight();
   const pumpings = pumpingsInActiveNight();
 
   els.daySegments.innerHTML = [
@@ -2933,6 +2940,11 @@ function renderNightPlanner() {
       type: "feed",
       at: nightFeedingMarkerMinute(new Date(feeding.at), nightStart),
       id: feedingIdentity(feeding)
+    })),
+    ...meals.map((meal) => ({
+      type: "meal",
+      at: nightFeedingMarkerMinute(new Date(meal.at), nightStart),
+      id: meal.id
     })),
     ...pumpings.map((record) => ({
       type: "pumping",
@@ -2998,6 +3010,15 @@ function handleDayMarkerClick(event) {
     const feeding = [...feedingsToday(), ...feedingsInActiveNight()].find((item) => feedingIdentity(item) === feedMarker.dataset.feedingId);
     if (feeding) {
       showFeedingDetailCard(feeding);
+      return;
+    }
+  }
+
+  const mealMarker = event.target.closest(".day-marker-group.meal[data-meal-id]");
+  if (mealMarker) {
+    const meal = [...mealsToday(), ...mealsInActiveNight()].find((item) => item.id === mealMarker.dataset.mealId);
+    if (meal) {
+      showMealDetailCard(meal);
       return;
     }
   }
@@ -3216,6 +3237,17 @@ function showFeedingDetailCard(feeding) {
     <strong>${timeLabel(fedAt)} · ${feedingLabel(feeding)}</strong>
     <small>Lado: ${side || "não informado"}</small>
     ${feeding.pumpOtherSide ? "<small>Retirada simultânea do outro peito permitida.</small>" : ""}
+  `;
+  els.napDetailCard.hidden = false;
+}
+
+function showMealDetailCard(meal) {
+  if (!els.napDetailCard) return;
+  els.napDetailCard.innerHTML = `
+    <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
+    <span>Alimentação</span>
+    <strong>${timeLabel(new Date(meal.at))} · ${escapeHtml(meal.food)}</strong>
+    <small>${meal.water ? "Bebeu água" : "Não bebeu água"}</small>
   `;
   els.napDetailCard.hidden = false;
 }
@@ -8570,6 +8602,16 @@ function feedingsToday() {
   }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
+function mealsToday() {
+  const cycleStart = currentCycleStartDate();
+  const start = new Date(cycleStart.getTime() - CYCLE_START_GRACE_MINUTES * 60000);
+  const end = state.activeNightStart ? new Date(state.activeNightStart) : new Date();
+  return (state.meals || []).filter((meal) => {
+    const eatenAt = new Date(meal.at);
+    return !Number.isNaN(eatenAt.getTime()) && eatenAt >= start && eatenAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
 function pumpingIdentity(record) {
   return String(record?.id || `${record?.at || ""}|${record?.side || "both"}|${record?.amountMl || 0}`);
 }
@@ -8594,6 +8636,19 @@ function feedingsInActiveNight() {
   return state.feedings.filter((feeding) => {
     const fedAt = new Date(feeding.at);
     return !Number.isNaN(fedAt.getTime()) && fedAt >= start && fedAt <= end;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+function mealsInActiveNight() {
+  if (!state.activeNightStart) return [];
+  const nightStart = new Date(state.activeNightStart);
+  const preNightStart = new Date(nightStart.getTime() - NIGHT_PRE_START_FEEDING_GRACE_MINUTES * 60000);
+  const cycleStart = currentCycleStartDate();
+  const start = !Number.isNaN(cycleStart.getTime()) && cycleStart > preNightStart ? cycleStart : preNightStart;
+  const end = new Date();
+  return (state.meals || []).filter((meal) => {
+    const eatenAt = new Date(meal.at);
+    return !Number.isNaN(eatenAt.getTime()) && eatenAt >= start && eatenAt <= end;
   }).sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
@@ -8807,6 +8862,9 @@ function markerAttributes(marker) {
   if (marker.type === "feed") {
     return `data-feeding-id="${marker.id}" role="button" tabindex="0"`;
   }
+  if (marker.type === "meal") {
+    return `data-meal-id="${marker.id}" role="button" tabindex="0"`;
+  }
   if (marker.type === "pumping") {
     return `data-pumping-id="${marker.id}" role="button" tabindex="0"`;
   }
@@ -8828,6 +8886,7 @@ function markerIcon(type) {
     nap: "☁",
     next: "☁",
     feed: "🤱",
+    meal: "🍲",
     pumping: "●",
     "day-start": "☀",
     "day-end": "☾"
@@ -8840,6 +8899,7 @@ function markerIconFa(type) {
     nap: "\uf0c2",
     next: "\uf0c2",
     feed: "\ue53a",
+    meal: "\ue4c6",
     pumping: "\uf043",
     tummy: "\ue59d",
     awake: "\uf186",

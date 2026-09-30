@@ -1069,6 +1069,16 @@ h2 {
   stroke-width: 1.15;
 }
 
+.day-marker-group.meal .marker-orb {
+  fill: var(--marker-shell-fill);
+  stroke: #9fe4ee;
+  stroke-width: 1.15;
+}
+
+.day-marker-group.meal {
+  cursor: pointer;
+}
+
 .day-marker-group.pumping .marker-orb {
   fill: var(--marker-shell-fill);
   stroke: #ef9bd8;
@@ -1136,6 +1146,10 @@ h2 {
 
 .day-marker-group.feed .marker-icon {
   fill: #F8FBFD;
+}
+
+.day-marker-group.meal .marker-icon {
+  fill: #c6f5f8;
 }
 
 .day-marker-group.pumping .marker-icon {
@@ -1221,6 +1235,7 @@ h2 {
   display: block;
   color: var(--ink);
   font-size: 0.86rem;
+  overflow-wrap: anywhere;
 }
 
 .nap-detail-card small {

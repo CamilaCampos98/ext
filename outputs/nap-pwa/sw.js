@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-20260930-v3";
+const CACHE_NAME = "soneca-pwa-20260930-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,12 +11,12 @@ const ASSETS = [
   "./vendor/fontawesome/webfonts/fa-brands-400.ttf",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "./vendor/fontawesome/webfonts/fa-v4compatibility.ttf",
-  "./styles.css?v=20260930.3",
+  "./styles.css?v=20260930.4",
   "./sleep-calculations.js?v=20260922.7",
   "./baby-age.js?v=20260928.5",
   "./pumping-calculations.js?v=20260928.3",
   "./stock-pots.js?v=20260928.3",
-  "./app.js?v=20260930.3",
+  "./app.js?v=20260930.4",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
