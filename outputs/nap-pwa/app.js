@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260930.v1";
+const APP_VERSION = "20260930.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -2262,7 +2262,7 @@ function calculatePrediction() {
   const ageProfile = wakeWindowForAge(age);
   const today = napsToday();
   const recent = state.naps.slice(0, 7);
-  const lastNap = today[0] || recent[0];
+  const lastNap = today[0];
   const sleep24 = sleepInLast24Hours();
   const bedtimeMinutes = safeTimeToMinutes(state.bedtime, 19 * 60 + 30);
   const lastWakeMinutes = effectiveLastWakeMinutes(today);
