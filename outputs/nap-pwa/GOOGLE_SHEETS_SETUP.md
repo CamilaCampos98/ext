@@ -33,3 +33,7 @@ Depois atualize a versão do cache no `index.html` e no `sw.js` se estiver usand
 ## Colunas criadas
 
 O script cria uma aba chamada `Sonecas` com colunas para bebê, idade, início, fim, duração, humor, último despertar, sono 24h, sonecas hoje, próxima janela e sono noturno sugerido.
+
+## Alimentação
+
+Para sincronizar os registros de alimentação entre aparelhos, substitua o código da implantação atual pelo conteúdo atualizado de `google-apps-script.gs` e publique uma **nova versão da mesma implantação** do Web App. A aba `Alimentacao` será criada automaticamente no primeiro acesso. Até o script ser atualizado, o app mantém os novos registros apenas no aparelho e sinaliza que a sincronização está pendente.

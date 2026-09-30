@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260930.v2";
+const APP_VERSION = "20260930.v3";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -10,7 +10,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzOtFFfJHvzjzd8Nt0CPiIDj612hFkNCZs742YamiJj2a0TtkUA0SCmArgDr769lwYcIQ/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwbEjREdgmImwKyg6TD0a0Me5Pw9UxOkjcXqP0-fyRsKwwG798FjsYHiBsgvt-ACpci0A/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -131,6 +131,7 @@ const defaultState = {
   naps: [],
   nights: [],
   feedings: [],
+  meals: [],
   pumpings: [],
   pumpingUses: [],
   pumpingMerges: [],
@@ -246,6 +247,7 @@ const els = {
   openManualNap: document.querySelector("#openManualNap"),
   openManualNight: document.querySelector("#openManualNight"),
   openFeeding: document.querySelector("#openFeeding"),
+  openMeal: document.querySelector("#openMeal"),
   openPumping: document.querySelector("#openPumping"),
   openDiaper: document.querySelector("#openDiaper"),
   openTummyTime: document.querySelector("#openTummyTime"),
@@ -371,6 +373,13 @@ const els = {
   feedingNote: document.querySelector("#feedingNote"),
   saveFeeding: document.querySelector("#saveFeeding"),
   feedingError: document.querySelector("#feedingError"),
+  mealSheet: document.querySelector("#mealSheet"),
+  closeMeal: document.querySelector("#closeMeal"),
+  mealTime: document.querySelector("#mealTime"),
+  mealFood: document.querySelector("#mealFood"),
+  mealWater: document.querySelector("#mealWater"),
+  saveMeal: document.querySelector("#saveMeal"),
+  mealError: document.querySelector("#mealError"),
   pumpingSheet: document.querySelector("#pumpingSheet"),
   closePumping: document.querySelector("#closePumping"),
   pumpingActive: document.querySelector("#pumpingActive"),
@@ -444,6 +453,7 @@ let nightEventMode = "";
 let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
+let mealSheetSupport = null;
 let pumpingSheetSupport = null;
 let pumpingUseSheetSupport = null;
 let pumpingMergeSheetSupport = null;
@@ -547,17 +557,19 @@ async function refreshSharedRecordsNow() {
   sharedRecordsPollInFlight = true;
   const beforeRecords = sharedRecordSnapshot();
   try {
-    const [sleepLoad, feedingLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
+    const [sleepLoad, feedingLoad, mealLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
       loadNapsFromSheet({ deferRender: true }),
       loadFeedingsFromSheet({ deferRender: true }),
+      loadMealsFromSheet({ deferRender: true }),
       loadTummyTimesFromSheet({ deferRender: true }),
       loadPumpingsFromSheet({ deferRender: true })
     ]);
     const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
     const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
+    const loadedMeals = mealLoad.status === "fulfilled" ? mealLoad.value : null;
     const loadedTummyTimes = tummyLoad.status === "fulfilled" ? tummyLoad.value : null;
     const loadedPumpings = pumpingLoad.status === "fulfilled" ? pumpingLoad.value : null;
-    if (loadedSleep?.changed || loadedFeedings?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
+    if (loadedSleep?.changed || loadedFeedings?.changed || loadedMeals?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
       saveState();
       render();
       const received = receivedSyncChanges(beforeRecords);
@@ -731,6 +743,10 @@ function bindEvents() {
     toggleStartSheet(false);
     openFeedingSheet(false);
   });
+  els.openMeal.addEventListener("click", () => {
+    toggleStartSheet(false);
+    openMealSheet();
+  });
   els.openPumping?.addEventListener("click", () => {
     toggleStartSheet(false);
     togglePumpingSheet(true);
@@ -874,6 +890,11 @@ function bindEvents() {
   els.feedingSheet.addEventListener("click", (event) => {
     if (event.target === els.feedingSheet) toggleFeedingSheet(false);
   });
+  els.mealSheet.addEventListener("click", (event) => {
+    if (event.target === els.mealSheet) toggleMealSheet(false);
+  });
+  els.closeMeal.addEventListener("click", () => toggleMealSheet(false));
+  els.saveMeal.addEventListener("click", saveMeal);
   els.pumpingSheet?.addEventListener("click", (event) => {
     if (event.target === els.pumpingSheet) togglePumpingSheet(false);
   });
@@ -890,6 +911,8 @@ function bindEvents() {
     if (button) removeNapRecord(button.dataset.deleteNap);
     const feedingButton = event.target.closest("[data-delete-feeding]");
     if (feedingButton) removeFeedingRecord(feedingButton.dataset.deleteFeeding);
+    const mealButton = event.target.closest("[data-delete-meal]");
+    if (mealButton) removeMealRecord(mealButton.dataset.deleteMeal);
     const diaperButton = event.target.closest("[data-delete-diaper]");
     if (diaperButton) removeDiaperRecord(diaperButton.dataset.deleteDiaper);
     const tummyButton = event.target.closest("[data-delete-tummy]");
@@ -1607,6 +1630,7 @@ function hasDayRecordAfter(date) {
 
   return state.naps.some((nap) => after(nap.start) || after(nap.end))
     || state.feedings.some((feeding) => after(feeding.at))
+    || state.meals.some((meal) => after(meal.at))
     || state.diapers.some((diaper) => after(diaper.at))
     || state.tummyTimes.some((item) => after(item.at));
 }
@@ -1824,6 +1848,17 @@ function addNapRecord(nap, options = {}) {
   if (sync) syncNapToSheet(nap);
 }
 
+function createMealRecord(at, food, water) {
+  return {
+    id: `meal-${at.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    babyName: state.babyName || "",
+    at: at.toISOString(),
+    food,
+    water: Boolean(water),
+    synced: false
+  };
+}
+
 function addNightRecord(night) {
   state.nights.unshift(night);
   state.nights.sort((a, b) => new Date(b.end) - new Date(a.end));
@@ -1846,6 +1881,14 @@ function addFeedingRecord(feeding) {
   syncFeedingToSheet(feeding);
   scheduleCurrentNotifications();
   return true;
+}
+
+function addMealRecord(meal) {
+  state.meals = [meal, ...state.meals]
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+  saveState();
+  syncMealToSheet(meal);
 }
 
 function addDiaperRecord(diaper) {
@@ -1945,6 +1988,23 @@ function removeFeedingRecord(feedingKey) {
   showUndoAction("Mamada excluída", async () => {
     await deleteRequest;
     await restoreFeedingRecord(feeding);
+  });
+}
+
+function removeMealRecord(id) {
+  const meal = state.meals.find((item) => item.id === id);
+  if (!meal) return;
+  state.meals = state.meals.filter((item) => item.id !== id);
+  saveState();
+  const deleteRequest = deleteMealFromSheet(id);
+  render();
+  showUndoAction("Alimentação excluída", async () => {
+    await deleteRequest;
+    const restored = { ...meal, synced: false };
+    state.meals = [restored, ...state.meals].sort((a, b) => new Date(b.at) - new Date(a.at));
+    saveState();
+    render();
+    await syncMealToSheet(restored);
   });
 }
 
@@ -2073,6 +2133,7 @@ function clearHistory() {
   state.naps = [];
   state.nights = [];
   state.feedings = [];
+  state.meals = [];
   state.diapers = [];
   state.tummyTimes = [];
   state.cycleStartAt = null;
@@ -3595,6 +3656,7 @@ function updateStartActionContext() {
     els.startNap,
     els.endNap,
     els.openFeeding,
+    els.openMeal,
     els.openDiaper,
     els.openTummyTime,
     els.startNight,
@@ -3612,12 +3674,12 @@ function updateStartActionContext() {
   });
 
   const priority = state.activeNapStart
-    ? [els.endNap, els.openFeeding, els.openDiaper, els.openTummyTime, els.startNap]
+    ? [els.endNap, els.openFeeding, els.openMeal, els.openDiaper, els.openTummyTime, els.startNap]
     : state.activeNightStart
-      ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, ...(state.activeNightAwakeStart ? [els.startNightAwake] : []), els.openFeeding, els.openDiaper, els.endNight, els.resumeNight]
+      ? [state.activeNightAwakeStart ? els.endNightAwake : els.startNightAwake, ...(state.activeNightAwakeStart ? [els.startNightAwake] : []), els.openFeeding, els.openMeal, els.openDiaper, els.endNight, els.resumeNight]
       : nightRoutineIsActive()
-        ? [els.startNight, els.toggleNightRoutine, els.openFeeding, els.openDiaper, els.startNap, els.openTummyTime, els.openManualNap, els.openManualNight]
-        : [els.startNap, els.openFeeding, els.openDiaper, els.toggleNightRoutine, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
+        ? [els.startNight, els.toggleNightRoutine, els.openFeeding, els.openMeal, els.openDiaper, els.startNap, els.openTummyTime, els.openManualNap, els.openManualNight]
+        : [els.startNap, els.openFeeding, els.openMeal, els.openDiaper, els.toggleNightRoutine, els.startNight, els.openTummyTime, els.openManualNap, els.openManualNight];
 
   priority.filter(Boolean).forEach((button, index) => {
     button.style.order = String(index + 1);
@@ -3847,6 +3909,7 @@ function renderHistory() {
     ...state.naps.map((record) => ({ ...record, type: "nap" })),
     ...state.nights.map((record) => ({ ...record, type: "night" })),
     ...dedupeFeedings(state.feedings).map((record) => ({ ...record, type: "feeding", start: record.at, end: record.at })),
+    ...state.meals.map((record) => ({ ...record, type: "meal", start: record.at, end: record.at })),
     ...dedupeDiapers(state.diapers).map((record) => ({ ...record, type: "diaper", diaperType: record.type, start: record.at, end: record.at })),
     ...dedupeTummyTimes(state.tummyTimes).map((record) => ({ ...record, type: "tummy", start: record.at, end: record.at }))
   ]
@@ -3863,6 +3926,9 @@ function renderHistory() {
     const end = new Date(record.end);
     if (record.type === "feeding") {
       return `<li><div><span>Mamada · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${feedingLabel(record)}</b></div></div><div class="history-actions"><div class="history-mood">${feedingSideLabel(record.side)}</div><button class="delete-nap" data-delete-feeding="${feedingIdentity(record)}" aria-label="Excluir mamada" title="Excluir mamada">×</button></div></li>`;
+    }
+    if (record.type === "meal") {
+      return `<li><div><span>Alimentação · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${escapeHtml(record.food)}</b></div></div><div class="history-actions"><div class="history-mood">${record.water ? "Bebeu água" : "Sem água"}</div><button class="delete-nap" data-delete-meal="${record.id}" aria-label="Excluir alimentação" title="Excluir alimentação">×</button></div></li>`;
     }
     if (record.type === "diaper") {
       return `<li><div><span>Troca de fralda · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${diaperTypeLabel(record.diaperType || record.kind || record.typeValue || record.type)}</b></div></div><div class="history-actions"><div class="history-mood">${diaperHasPoop(record) ? "Com cocô" : "Sem cocô"}</div><button class="delete-nap" data-delete-diaper="${diaperIdentity(record)}" aria-label="Excluir troca" title="Excluir troca">×</button></div></li>`;
@@ -5856,9 +5922,10 @@ function clearLocalActiveSession(message = "") {
 }
 
 async function loadFromSheet() {
-  const [sleepLoad, feedingLoad, diaryLoad, diaperLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
+  const [sleepLoad, feedingLoad, mealLoad, diaryLoad, diaperLoad, tummyLoad, pumpingLoad] = await Promise.allSettled([
     loadNapsFromSheet({ deferRender: true }),
     loadFeedingsFromSheet({ deferRender: true }),
+    loadMealsFromSheet({ deferRender: true }),
     loadSleepDiaryFromSheet({ deferRender: true }),
     loadDiapersFromSheet({ deferRender: true }),
     loadTummyTimesFromSheet({ deferRender: true }),
@@ -5867,16 +5934,17 @@ async function loadFromSheet() {
 
   const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
   const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
+  const loadedMeals = mealLoad.status === "fulfilled" ? mealLoad.value : null;
   const loadedDiary = diaryLoad.status === "fulfilled" ? diaryLoad.value : null;
   const loadedDiapers = diaperLoad.status === "fulfilled" ? diaperLoad.value : null;
   const loadedTummyTimes = tummyLoad.status === "fulfilled" ? tummyLoad.value : null;
   const loadedPumpings = pumpingLoad.status === "fulfilled" ? pumpingLoad.value : null;
-  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedDiary?.count || 0) + (loadedDiapers?.count || 0) + (loadedTummyTimes?.count || 0) + (loadedPumpings?.count || 0);
-  const errors = [loadedSleep, loadedFeedings, loadedDiary, loadedDiapers, loadedTummyTimes, loadedPumpings]
+  const loadedCount = (loadedSleep?.count || 0) + (loadedFeedings?.count || 0) + (loadedMeals?.count || 0) + (loadedDiary?.count || 0) + (loadedDiapers?.count || 0) + (loadedTummyTimes?.count || 0) + (loadedPumpings?.count || 0);
+  const errors = [loadedSleep, loadedFeedings, loadedMeals, loadedDiary, loadedDiapers, loadedTummyTimes, loadedPumpings]
     .filter((result) => result && result.error)
     .map((result) => result.error);
 
-  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedDiary?.changed || loadedDiapers?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
+  if (loadedCount || loadedSleep?.changed || loadedFeedings?.changed || loadedMeals?.changed || loadedDiary?.changed || loadedDiapers?.changed || loadedTummyTimes?.changed || loadedPumpings?.changed) {
     clearLocalActiveSessionIfCompleted();
     saveState();
     render();
@@ -5980,6 +6048,7 @@ function syncPendingAfterInitialLoad() {
   pendingRecordsSyncPromise = Promise.allSettled([
     syncPendingNapsToSheet(),
     syncPendingFeedingsToSheet(),
+    syncPendingMealsToSheet(),
     syncPendingSleepDiaryToSheet(),
     syncPendingDiapersToSheet(),
     syncPendingTummyTimesToSheet(),
@@ -6133,6 +6202,41 @@ function sheetRecordToFeeding(record) {
     pumpOtherSide: feedingPumpOtherSideValue(record.pumpOtherSide),
     note: record.note || "",
     dayStart: normalizeTimeField(record.dayStart),
+    synced: true
+  };
+}
+
+async function loadMealsFromSheet(options = {}) {
+  if (!SHEETS_WEB_APP_URL) return { count: 0, changed: false };
+  try {
+    const result = await fetchSheetJson(`${SHEETS_WEB_APP_URL}?action=listMeals&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`);
+    if (!result.ok || !Array.isArray(result.records)) {
+      mealSheetSupport = false;
+      return { count: 0, changed: false };
+    }
+    mealSheetSupport = true;
+    const previous = mealCollectionSignature(state.meals);
+    mergeMeals(result.records.map(sheetRecordToMeal).filter(Boolean));
+    const changed = previous !== mealCollectionSignature(state.meals);
+    if (!options.deferRender) {
+      saveState();
+      render();
+    }
+    return { count: result.records.length, changed };
+  } catch (error) {
+    return { count: 0, changed: false, error: `Não consegui carregar a alimentação: ${error.message}` };
+  }
+}
+
+function sheetRecordToMeal(record) {
+  const at = new Date(record.at || "");
+  if (!record.id || Number.isNaN(at.getTime())) return null;
+  return {
+    id: String(record.id),
+    babyName: record.babyName || "",
+    at: at.toISOString(),
+    food: String(record.food || "").trim(),
+    water: record.water === true || String(record.water || "").toLowerCase() === "sim",
     synced: true
   };
 }
@@ -6391,6 +6495,14 @@ function mergeFeedings(remoteFeedings) {
   hydrateFeedingOptions();
 }
 
+function mergeMeals(remoteMeals) {
+  const byId = new Map(state.meals.filter((meal) => !meal.synced).map((meal) => [meal.id, meal]));
+  remoteMeals.forEach((meal) => byId.set(meal.id, meal));
+  state.meals = Array.from(byId.values())
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 240);
+}
+
 function mergeDiapers(remoteDiapers) {
   const byId = new Map();
   state.diapers
@@ -6606,6 +6718,70 @@ function sheetPayloadForFeeding(feeding) {
     note: feeding.note || "",
     dayStart: normalizeTimeField(feeding.dayStart || state.dayStart)
   };
+}
+
+async function syncMealToSheet(meal) {
+  if (!SHEETS_WEB_APP_URL || !meal) return;
+  return syncMealsToSheet([meal]);
+}
+
+async function syncPendingMealsToSheet() {
+  const pending = state.meals.filter((meal) => !meal.synced);
+  if (pending.length) await syncMealsToSheet(pending);
+}
+
+async function syncMealsToSheet(meals) {
+  if (!SHEETS_WEB_APP_URL || !meals.length) return;
+  if (mealSheetSupport !== true) {
+    try {
+      const result = await fetchSheetJson(`${SHEETS_WEB_APP_URL}?action=listMeals&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}`);
+      mealSheetSupport = Boolean(result.ok && Array.isArray(result.records));
+    } catch {
+      mealSheetSupport = false;
+    }
+  }
+  if (!mealSheetSupport) {
+    setHint("Alimentação salva neste aparelho. Atualize o Apps Script para sincronizar entre celulares.");
+    return;
+  }
+  const records = meals.map((meal) => ({
+    id: meal.id,
+    babyName: meal.babyName || state.babyName || "Bebê",
+    at: toLocalDateTimeValue(new Date(meal.at)),
+    food: meal.food,
+    water: meal.water
+  }));
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: records.length > 1 ? "bulkAppendMeals" : "appendMeal", records, ...records[0] })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao gravar alimentação.");
+    const syncedIds = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    state.meals = state.meals.map((meal) => syncedIds.has(meal.id) ? { ...meal, synced: true } : meal);
+    saveState();
+    setHint("Alimentação sincronizada com o Google Sheets.");
+    window.setTimeout(refreshSharedRecordsNow, 1200);
+  } catch (error) {
+    setHint(`Alimentação salva neste aparelho, mas não sincronizada: ${error.message}`);
+  }
+}
+
+async function deleteMealFromSheet(id) {
+  if (!SHEETS_WEB_APP_URL || !mealSheetSupport) return;
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "deleteMeal", id })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Falha ao remover alimentação.");
+  } catch (error) {
+    setHint(`Alimentação removida do aparelho, mas não da planilha: ${error.message}`);
+  }
 }
 
 async function loadPumpingsFromSheet(options = {}) {
@@ -9060,6 +9236,18 @@ function loadState() {
       synced: Boolean(feeding.synced)
     })).filter((feeding) => !Number.isNaN(new Date(feeding.at).getTime())))
       .sort((a, b) => new Date(b.at) - new Date(a.at));
+    loaded.meals = (loaded.meals || []).map((meal) => {
+      const at = new Date(meal.at || "");
+      if (!meal.id || Number.isNaN(at.getTime())) return null;
+      return {
+        id: String(meal.id),
+        babyName: meal.babyName || "",
+        at: at.toISOString(),
+        food: String(meal.food || "").trim(),
+        water: Boolean(meal.water),
+        synced: Boolean(meal.synced)
+      };
+    }).filter(Boolean).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
     loaded.pumpingPlan = { ...defaultState.pumpingPlan, ...(loaded.pumpingPlan || {}) };
     loaded.pumpingPlan.active = Boolean(loaded.pumpingPlan.active);
     loaded.pumpingPlan.coverageHours = Math.min(24, Math.max(1, Number(loaded.pumpingPlan.coverageHours) || 8));
@@ -9213,7 +9401,7 @@ function markSyncError(message) {
 }
 
 function pendingSyncCount() {
-  const recordCount = [state.naps, state.nights, state.feedings, state.pumpings, state.pumpingUses, state.pumpingMerges, state.pumpingDiscards, state.diapers, state.tummyTimes]
+  const recordCount = [state.naps, state.nights, state.feedings, state.meals, state.pumpings, state.pumpingUses, state.pumpingMerges, state.pumpingDiscards, state.diapers, state.tummyTimes]
     .reduce((total, records) => total + (records || []).filter((record) => record?.synced !== true).length, 0);
   const diaryCount = Object.values(state.sleepDiary || {}).filter((entry) => entry?.synced === false).length;
   return recordCount + diaryCount;
@@ -9326,6 +9514,7 @@ function sharedRecordSnapshot() {
   (state.naps || []).forEach((record) => add("nap", record.id || napIdentity(record), "Soneca recebida", syncRecordTimeDetail(record.start, record.end), record.start));
   (state.nights || []).forEach((record) => add("night", record.id || napIdentity(record), "Sono noturno recebido", syncRecordTimeDetail(record.start, record.end), record.start));
   (state.feedings || []).forEach((record) => add("feeding", record.id || feedingIdentity(record), "Mamada recebida", syncSingleTimeDetail(record.at), record.at));
+  (state.meals || []).forEach((record) => add("meal", record.id, "Alimentação recebida", `${record.food} · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.pumpings || []).forEach((record) => add("pumping", record.id, "Estoque atualizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.pumpingUses || []).forEach((record) => add("pumpingUse", record.id, "Leite utilizado", `${record.amountMl || 0} ml · ${syncSingleTimeDetail(record.at)}`, record.at));
   (state.pumpingMerges || []).forEach((record) => add("pumpingMerge", record.id, "Potes unificados", syncSingleTimeDetail(record.at), record.at));
@@ -9393,6 +9582,7 @@ function closeAllSheets(exceptSheet = null) {
     els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet,
+    els.mealSheet,
     els.pumpingSheet,
     els.diaperSheet,
     els.tummyTimeSheet
@@ -9426,6 +9616,7 @@ function updateSheetOpenState() {
     els.nightTimeSheet,
     els.manualNapSheet,
     els.feedingSheet,
+    els.mealSheet,
     els.pumpingSheet,
     els.diaperSheet,
     els.tummyTimeSheet
@@ -9549,6 +9740,19 @@ function openFeedingSheet(manual = false) {
 
 function toggleFeedingSheet(open) {
   setSheetOpen(els.feedingSheet, open);
+}
+
+function openMealSheet() {
+  els.mealTime.value = "";
+  els.mealFood.value = "";
+  els.mealWater.checked = false;
+  els.mealError.textContent = "";
+  toggleMealSheet(true);
+  els.mealFood.focus();
+}
+
+function toggleMealSheet(open) {
+  setSheetOpen(els.mealSheet, open);
 }
 
 function togglePumpingSheet(open) {
@@ -9999,6 +10203,26 @@ function applyVerifiedLiviaBirthDate(profile) {
   return true;
 }
 
+function saveMeal() {
+  if (els.saveMeal.disabled) return;
+  const food = els.mealFood.value.trim().replace(/\s+/g, " ");
+  const at = els.mealTime.value ? new Date(els.mealTime.value) : new Date();
+  if (!food) {
+    els.mealError.textContent = "Informe o que ela comeu.";
+    els.mealFood.focus();
+    return;
+  }
+  if (Number.isNaN(at.getTime()) || at > new Date()) {
+    els.mealError.textContent = "Informe um horário válido, que não esteja no futuro.";
+    return;
+  }
+  els.saveMeal.disabled = true;
+  addMealRecord(createMealRecord(at, food, els.mealWater.checked));
+  toggleMealSheet(false);
+  els.saveMeal.disabled = false;
+  render();
+}
+
 function ageMonthsFromBirthDate(value) {
   const normalized = normalizeDateInputValue(value);
   if (!normalized) return Number.isFinite(Number(state.babyAge)) ? clamp(Number(state.babyAge), 0, 36) : 0;
@@ -10143,6 +10367,11 @@ function diaperTypeKey(value) {
   if (hasBomb && hasPoop) return "poop-bomb";
   if (hasPoop) return "poop";
   return "pee";
+}
+
+function mealCollectionSignature(meals = []) {
+  return meals.map((meal) => [meal.id, meal.at, meal.food, meal.water ? "1" : "0", meal.synced ? "1" : "0"].join("|"))
+    .sort().join(";");
 }
 
 function diaperTypeLabel(value) {

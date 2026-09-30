@@ -344,6 +344,8 @@ main {
 .feeding-pump-option strong, .feeding-pump-option small { display: block; }
 .feeding-pump-option strong { color: #edf7ff; font-size: .85rem; }
 .feeding-pump-option small { margin-top: 3px; color: #9fb2cf; line-height: 1.35; }
+.meal-water-option { display: flex; align-items: center; gap: 11px; min-height: 48px; margin: 14px 0; padding: 10px 13px; border: 1px solid rgba(168,216,240,.28); border-radius: 14px; background: rgba(168,216,240,.08); color: #edf7ff; cursor: pointer; }
+.meal-water-option input { width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: #a8d8f0; }
 @media (max-width: 560px) {
   .pumping-title-row { align-items: flex-start; }
   .pumping-switch { grid-template-columns: 42px; justify-items: center; }
@@ -3163,6 +3165,11 @@ select {
   background: rgba(138, 63, 252, 0.13);
 }
 
+.manual-card-button.meal {
+  border-color: rgba(168, 216, 240, 0.32);
+  background: rgba(168, 216, 240, 0.1);
+}
+
 .manual-card-button.diaper {
   border-color: rgba(168, 216, 240, 0.32);
   background: rgba(168, 216, 240, 0.12);
@@ -3181,6 +3188,11 @@ select {
 .manual-card-button.feeding i {
   background: rgba(138, 63, 252, 0.16);
   color: var(--feed);
+}
+
+.manual-card-button.meal i {
+  background: rgba(168, 216, 240, 0.18);
+  color: var(--baby-blue);
 }
 
 .manual-card-button.tummy i {

@@ -1,5 +1,6 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
+const MEALS_SHEET_NAME = 'Alimentacao';
 const PUMPINGS_SHEET_NAME = 'Ordenhas';
 const PUMPING_USES_SHEET_NAME = 'UsoEstoque';
 const PUMPING_MERGES_SHEET_NAME = 'UnificacoesEstoque';
@@ -10,7 +11,7 @@ const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
-const SCRIPT_VERSION = 'stock-feeding-v1';
+const SCRIPT_VERSION = 'stock-feeding-meals-v1';
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const ACTIVE_ROUTINE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
@@ -48,6 +49,8 @@ const FEEDING_HEADERS = [
   'Inicio do dia',
   'Retirar outro peito'
 ];
+
+const MEAL_HEADERS = ['Recebido em', 'ID', 'Bebê', 'Horário', 'Alimento', 'Bebeu água'];
 
 const PUMPING_HEADERS = [
   'Recebido em', 'ID', 'Bebê', 'Idade (meses)', 'Horário', 'Peito', 'Quantidade (ml)', 'Observação'
@@ -140,6 +143,10 @@ function doGet(e) {
     return jsonResponse(listFeedingRows(getFeedingSheet()));
   }
 
+  if (e && e.parameter && e.parameter.action === 'listMeals') {
+    return jsonResponse(listMealRows(getMealSheet()));
+  }
+
   if (e && e.parameter && e.parameter.action === 'listPumpings') {
     const response = listPumpingRows(getPumpingSheet());
     response.plan = getPumpingPlan(getPumpingPlanSheet());
@@ -189,6 +196,10 @@ function doPost(e) {
       return jsonResponse(deleteRowById(getFeedingSheet(), payload.id));
     }
 
+    if (payload.action === 'deleteMeal') {
+      return jsonResponse(deleteRowById(getMealSheet(), payload.id));
+    }
+
     if (payload.action === 'deletePumping') {
       return jsonResponse(deleteRowById(getPumpingSheet(), payload.id));
     }
@@ -211,6 +222,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendFeedings') {
       return jsonResponse(appendMissingFeedingRows(getFeedingSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'appendMeal') {
+      return jsonResponse(appendMissingMealRows(getMealSheet(), [payload]));
+    }
+
+    if (payload.action === 'bulkAppendMeals') {
+      return jsonResponse(appendMissingMealRows(getMealSheet(), payload.records || []));
     }
 
     if (payload.action === 'appendPumping') {
@@ -342,6 +361,19 @@ function getFeedingSheet() {
     ensureSpecificHeaders(sheet, FEEDING_HEADERS);
   }
 
+  return sheet;
+}
+
+function getMealSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(MEALS_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(MEALS_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(MEAL_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, MEAL_HEADERS);
+  }
   return sheet;
 }
 
@@ -795,6 +827,25 @@ function clearActiveSession(sheet, id) {
   return { ok: true, activeSessionSupported: true, cleared: true };
 }
 
+function appendMissingMealRows(sheet, records) {
+  const existingIds = getExistingIds(sheet);
+  const rows = [];
+  const inserted = [];
+  const skipped = [];
+  records.forEach((record) => {
+    const id = String(record.id || '');
+    if (!id || existingIds.has(id)) {
+      skipped.push(id);
+      return;
+    }
+    existingIds.add(id);
+    inserted.push(id);
+    rows.push([new Date(), id, record.babyName || '', toDateTimeString(record.at), record.food || '', Boolean(record.water)]);
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, MEAL_HEADERS.length).setValues(rows);
+  return { ok: true, inserted, skipped };
+}
+
 function appendMissingPumpingRows(sheet, records) {
   const existingIds = getExistingIds(sheet);
   const rows = [];
@@ -1171,6 +1222,19 @@ function listFeedingRows(sheet) {
     }));
 
   return { ok: true, records: records };
+}
+
+function listMealRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, records: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, MEAL_HEADERS.length).getValues();
+  return { ok: true, records: values.filter((row) => row[1]).map((row) => ({
+    id: String(row[1]),
+    babyName: row[2] || '',
+    at: toDateTimeString(row[3]),
+    food: row[4] || '',
+    water: row[5] === true || String(row[5] || '').toLowerCase() === 'sim'
+  })) };
 }
 
 function listPumpingRows(sheet) {
