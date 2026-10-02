@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20260930.v4";
+const APP_VERSION = "20261002.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -3061,11 +3061,11 @@ async function handleNapDetailCardClick(event) {
     return;
   }
 
-  const continueButton = event.target.closest("[data-continue-nap]");
+  const continueButton = event.target.closest("[data-continue-nap], [data-merge-active-nap]");
   if (continueButton) {
     event.preventDefault();
     event.stopPropagation();
-    await continueNapFromRecord(continueButton.dataset.continueNap);
+    await continueNapFromRecord(continueButton.dataset.continueNap || continueButton.dataset.mergeActiveNap);
     return;
   }
 
@@ -3105,9 +3105,9 @@ function showNapDetailCard(nap, index) {
       <i class="fa-solid fa-check"></i>
       Salvar horarios
     </button>
-    <button class="nap-detail-action" type="button" data-continue-nap="${napIdentity(nap)}">
+    <button class="nap-detail-action" type="button" ${state.activeNapStart ? `data-merge-active-nap="${napIdentity(nap)}"` : `data-continue-nap="${napIdentity(nap)}"`}>
       <i class="fa-solid fa-play"></i>
-      Continuar timer
+      ${state.activeNapStart ? "Juntar à soneca ativa" : "Continuar timer"}
     </button>
   `;
   els.napDetailCard.hidden = false;
@@ -3115,14 +3115,13 @@ function showNapDetailCard(nap, index) {
 
 async function saveNapDetailEdits(napKey) {
   await refreshBeforeTimerAction();
-  if (state.activeNapStart || state.activeNightStart) {
-    showNapEditError(napKey, "Encerre o timer ativo antes de editar.");
-    return;
-  }
-
   const nap = state.naps.find((item) => napIdentity(item) === napKey);
   if (!nap) {
     hideNapDetailCard();
+    return;
+  }
+  if (state.activeNapStart && String(nap.id || stableNapId(nap)) === String(state.activeNapResumeId)) {
+    showNapEditError(napKey, "Esta soneca já está ativa. Corrija os horários depois de encerrá-la.");
     return;
   }
 
@@ -3146,7 +3145,17 @@ async function saveNapDetailEdits(napKey) {
     return;
   }
 
-  const updatedNap = createNapRecord(startedAt, endedAt, nap.mood, { id: nap.id || stableNapId(nap) });
+  const activeStart = state.activeNapStart || state.activeNightStart;
+  if (activeStart && endedAt > new Date(activeStart)) {
+    showNapEditError(napKey, "O fim da soneca precisa ser antes do sono ativo.");
+    return;
+  }
+
+  const updatedNap = createNapRecord(startedAt, endedAt, nap.mood, {
+    id: nap.id || stableNapId(nap),
+    awakeDuration: napAwakeMinutesFromRecord(nap),
+    goalDuration: nap.goalDuration
+  });
   updatedNap.babyName = nap.babyName || state.babyName || "";
   updatedNap.babyAge = Number.isFinite(Number(nap.babyAge)) ? Number(nap.babyAge) : currentBabyAgeMonths();
   updatedNap.dayStart = nap.dayStart || state.dayStart;
@@ -3159,8 +3168,7 @@ async function saveNapDetailEdits(napKey) {
   render();
   setHint("Soneca corrigida. Atualizando Google Sheets...");
 
-  if (nap.id) await deleteNapFromSheet(nap.id, { silent: true });
-  syncNapToSheet(updatedNap);
+  await syncNapToSheet(updatedNap);
 }
 
 function showNapEditError(napKey, message) {
@@ -3177,8 +3185,8 @@ function napDetailField(kind, napKey) {
 
 async function continueNapFromRecord(napKey) {
   await refreshBeforeTimerAction();
-  if (state.activeNapStart || state.activeNightStart) {
-    setHint("Ja existe um sono em andamento.");
+  if (state.activeNightStart) {
+    setHint("Não é possível juntar uma soneca ao sono noturno ativo.");
     return;
   }
 
@@ -3190,27 +3198,85 @@ async function continueNapFromRecord(napKey) {
 
   const startedAt = new Date(nap.start);
   const endedAt = new Date(nap.end);
-  if (Number.isNaN(startedAt.getTime())) return;
+  const nextStart = state.activeNapStart ? new Date(state.activeNapStart) : new Date();
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())
+    || Number.isNaN(nextStart.getTime()) || startedAt >= endedAt || endedAt > nextStart) {
+    showNapEditError(napKey, "Confira os horários: a soneca anterior precisa terminar antes do timer atual.");
+    return;
+  }
+  if (!SHEETS_WEB_APP_URL) {
+    showNapEditError(napKey, "Não foi possível conferir a planilha. Tente novamente com conexão.");
+    return;
+  }
 
-  const resumedId = nap.id || stableNapId(nap);
-  const awakeGapMinutes = Number.isNaN(endedAt.getTime())
-    ? 0
-    : Math.max(0, Math.round((Date.now() - endedAt.getTime()) / 60000));
-  state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
-  state.activeNapStart = startedAt.toISOString();
-  state.activeNapResumeId = resumedId;
-  state.activeNapAwakeMinutes = (Number(nap.awakeDuration) || 0) + awakeGapMinutes;
-  state.activeNapGoalDuration = Number(nap.goalDuration) || 0;
-  if (!state.activeNapGoalDuration) state.activeNapGoalDuration = activeNapGoalMinutes();
-  if (nap.id) await deleteNapFromSheet(nap.id, { silent: true });
-  clearNotificationTimers();
-  hideNapDetailCard();
-  saveState();
-  await syncActiveSessionToSheet({ allowReopen: true });
-  scheduleActiveSessionWriteRetry();
-  scheduleActiveNapNotifications();
-  setHint(`Timer retomado na mesma soneca. Vou descontar ${formatDuration(state.activeNapAwakeMinutes)} acordada entre os ciclos.`);
-  render();
+  const resumedId = newNapId(startedAt);
+  const awakeGapMinutes = Math.max(0, Math.round((nextStart - endedAt) / 60000));
+  const awakeMinutes = napAwakeMinutesFromRecord(nap) + awakeGapMinutes
+    + (state.activeNapStart ? activeNapAwakeMinutes() : 0);
+  const goalDuration = Number(state.activeNapGoalDuration) || Number(nap.goalDuration) || activeNapGoalMinutes();
+  const previousActiveId = state.activeNapResumeId;
+  const payload = {
+    token: SHEETS_SHARED_TOKEN,
+    action: "setActiveSession",
+    id: resumedId,
+    type: "nap",
+    start: toLocalDateTimeValue(startedAt),
+    babyName: state.babyName || "",
+    babyAge: currentBabyAgeMonths(),
+    napAwakeMinutes: awakeMinutes,
+    napGoalDuration: goalDuration,
+    awakenings: [{ napGoalDuration: goalDuration }]
+  };
+
+  showActionLoading("Juntando sonecas", "Confirmando o timer compartilhado antes de remover o registro anterior...");
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!result.ok || result.session?.id !== resumedId
+      || activeSessionSignature(result.session) !== activeSessionSignature(payload)) {
+      throw new Error(result.error || "O timer compartilhado não confirmou a união.");
+    }
+
+    activeSessionWriteGeneration += 1;
+    pendingLocalActiveSession = null;
+    confirmedSharedSession = { ...result.session };
+    sharedSessionChecked = true;
+    sharedSessionCheckFailed = false;
+    if (previousActiveId) rememberClosedActiveSession(previousActiveId);
+    state.activeNapStart = startedAt.toISOString();
+    state.activeNapResumeId = resumedId;
+    state.activeNapAwakeMinutes = awakeMinutes;
+    state.activeNapGoalDuration = goalDuration;
+    clearNotificationTimers();
+    hideNapDetailCard();
+    saveState();
+
+    const deleted = await deleteNapFromSheet(nap.id || stableNapId(nap), { silent: true });
+    if (deleted?.ok) {
+      state.naps = state.naps.filter((item) => napIdentity(item) !== napKey);
+      saveState();
+      setHint(`Sonecas unidas. ${formatDuration(awakeMinutes)} acordada entre os ciclos; timer mantido ativo.`);
+    } else {
+      setHint("Timer unido, mas o registro anterior ainda precisa ser removido da planilha. Tente sincronizar novamente.");
+    }
+    scheduleActiveNapNotifications();
+    render();
+  } catch (error) {
+    showNapEditError(napKey, `Não consegui juntar as sonecas: ${error.message}`);
+  } finally {
+    hideActionLoading();
+  }
+}
+
+function napAwakeMinutesFromRecord(nap) {
+  const explicit = Number(nap.awakeDuration);
+  if (Number.isFinite(explicit) && explicit >= 0) return Math.round(explicit);
+  const gross = Math.max(0, Math.round((new Date(nap.end) - new Date(nap.start)) / 60000));
+  return Math.max(0, gross - safeDuration(nap));
 }
 
 function showNightDetailCard() {
@@ -5801,9 +5867,11 @@ function applyRemoteActiveSession(session) {
   if (sameNap) {
     const remoteAwakeMinutes = normalizeNapAwakeMinutes(session.napAwakeMinutes);
     const remoteGoalDuration = activeSessionNapGoalDuration(session) || state.activeNapGoalDuration;
-    const napMetadataChanged = state.activeNapAwakeMinutes !== remoteAwakeMinutes
+    const napMetadataChanged = state.activeNapStart !== startedAt.toISOString()
+      || state.activeNapAwakeMinutes !== remoteAwakeMinutes
       || state.activeNapGoalDuration !== remoteGoalDuration;
     if (napMetadataChanged) {
+      state.activeNapStart = startedAt.toISOString();
       state.activeNapAwakeMinutes = remoteAwakeMinutes;
       state.activeNapGoalDuration = remoteGoalDuration;
       saveState();
@@ -7417,7 +7485,7 @@ function helpTypesLabel(value) {
 }
 
 async function deleteNapFromSheet(id, options = {}) {
-  if (!SHEETS_WEB_APP_URL || !id) return;
+  if (!SHEETS_WEB_APP_URL || !id) return { ok: false };
 
   try {
     const response = await fetch(SHEETS_WEB_APP_URL, {
@@ -7432,8 +7500,10 @@ async function deleteNapFromSheet(id, options = {}) {
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Falha ao remover.");
     if (!options.silent) setHint("Soneca removida do aparelho e do Google Sheets.");
+    return { ok: true, deleted: Boolean(result.deleted) };
   } catch (error) {
     if (!options.silent) setHint(`Soneca removida do aparelho, mas não foi removida do Google Sheets: ${error.message}`);
+    return { ok: false, error };
   }
 }
 

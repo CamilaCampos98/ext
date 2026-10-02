@@ -1,4 +1,4 @@
-const CACHE_NAME = "soneca-pwa-20260930-v4";
+const CACHE_NAME = "soneca-pwa-20261002-v1";
 const ASSETS = [
   "./",
   "./index.html",
