@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261002.v1";
+const APP_VERSION = "20261002.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -590,14 +590,22 @@ async function refreshBeforeNightAwakeAction() {
   await refreshBeforeTimerAction();
 }
 
-async function refreshBeforeTimerAction() {
+async function refreshBeforeTimerAction(options = {}) {
   showActionLoading("Conferindo timer", "Consultando sonecas e sono noturno na planilha...");
   try {
-    await withTimeout(loadActiveSessionFromSheet(), 2500);
+    const activeSessionResult = options.requireActiveSession
+      ? await loadActiveSessionFromSheet()
+      : await withTimeout(loadActiveSessionFromSheet(), 2500);
+    if (options.requireActiveSession && SHEETS_WEB_APP_URL
+      && (!activeSessionResult?.supported || activeSessionResult.error)) {
+      setHint("Não consegui conferir a pausa da soneca na planilha. Tente encerrar novamente após a sincronização.");
+      return { ok: false };
+    }
     if (state.activeNapStart || state.activeNightStart) {
       await withTimeout(loadNapsFromSheet({ deferRender: true }), 3500);
       clearLocalActiveSessionIfCompleted();
     }
+    return { ok: true };
   } finally {
     hideActionLoading();
   }
@@ -1463,7 +1471,8 @@ async function completeNightSleep(endedAt = new Date()) {
 
 async function completeNap(mood) {
   const localNapId = state.activeNapResumeId;
-  await refreshBeforeTimerAction();
+  const refreshResult = await refreshBeforeTimerAction({ requireActiveSession: true });
+  if (!refreshResult?.ok) return;
   if (!state.activeNapStart) {
     toggleMoodSheet(false);
     setHint("Essa soneca ja foi encerrada em outro aparelho.");
