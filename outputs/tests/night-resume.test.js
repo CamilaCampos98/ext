@@ -16,6 +16,14 @@ const remoteSource = source.slice(
   source.indexOf("function activeNightConflictsWithCurrentCycle(session) {"),
   source.indexOf("function activeSessionStartDate(session) {")
 );
+const activeReadSource = source.slice(
+  source.indexOf("async function loadActiveSessionFromSheetOnce() {"),
+  source.indexOf("async function completeActiveSessionInSheet(nap) {")
+);
+const resumedRecordSource = source.slice(
+  source.indexOf("function nightSessionResumesCompletedRecord(session, record) {"),
+  source.indexOf("function activeSessionStartDate(session) {")
+);
 
 function setup(deleteSucceeds = true, syncRejects = false) {
   const events = [];
@@ -156,4 +164,52 @@ test("outro aparelho aceita a noite reaberta e troca a soneca ativa pelo timer n
   assert.equal(state.activeNightId, "night-today");
   assert.equal(state.cycleStartAt, "2026-10-02T09:30:00.000Z");
   assert.deepEqual(state.nights.map((night) => night.id), ["night-yesterday"]);
+});
+
+test("não regrava a noite encerrada nem fecha a sessão quando ela foi reaberta", async () => {
+  const actions = [];
+  const session = {
+    id: "night-today",
+    type: "night",
+    start: "2026-10-02T21:53:00.000Z",
+    awakenings: [{ start: "2026-10-03T10:00:00.000Z", end: "2026-10-03T10:33:00.000Z" }]
+  };
+  const completed = {
+    id: "night-today",
+    type: "night",
+    start: "2026-10-02T21:53:00.000Z",
+    end: "2026-10-03T10:00:00.000Z"
+  };
+  const context = {
+    SHEETS_WEB_APP_URL: "https://example.invalid/exec",
+    SHEETS_SHARED_TOKEN: "test",
+    ACTIVE_SESSION_REQUEST_TIMEOUT_MS: 1000,
+    activeSessionPollInFlight: false,
+    activeSessionSheetSupport: null,
+    sharedSessionChecked: false,
+    sharedSessionCheckFailed: false,
+    confirmedSharedSession: null,
+    AbortController,
+    fetch: async () => ({ json: async () => ({ ok: true, activeSessionSupported: true, session }) }),
+    completedSessionRecord: () => completed,
+    activeSessionStartDate: (item) => new Date(item.start),
+    normalizeAwakenings: (items) => items,
+    forgetClosedActiveSession: () => actions.push("forget"),
+    isStaleActiveSession: () => false,
+    wasRecentlyClosedActiveSession: () => false,
+    activeNightConflictsWithCurrentCycle: () => false,
+    syncNapsToSheet: async () => actions.push("resave"),
+    clearActiveSessionFromSheet: async () => actions.push("clear"),
+    applyRemoteActiveSession: () => actions.push("apply"),
+    renderSyncCenter: () => {},
+    Date,
+    setTimeout,
+    clearTimeout
+  };
+  vm.createContext(context);
+  vm.runInContext(`${resumedRecordSource}\n${activeReadSource}`, context);
+
+  const result = await context.loadActiveSessionFromSheetOnce();
+  assert.equal(result.applied, true);
+  assert.deepEqual(actions, ["forget", "apply"]);
 });

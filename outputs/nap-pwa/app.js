@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261003.v1";
+const APP_VERSION = "20261003.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -5752,13 +5752,15 @@ async function loadActiveSessionFromSheetOnce() {
 
     if (result.session) {
       const locallyCompleted = completedSessionRecord(result.session.id);
-      if (locallyCompleted) {
+      const reopensCompletedNight = nightSessionResumesCompletedRecord(result.session, locallyCompleted);
+      if (locallyCompleted && !reopensCompletedNight) {
         confirmedSharedSession = null;
         await syncNapsToSheet([locallyCompleted], "Confirmando a soneca concluída no Google Sheets...");
         rememberClosedActiveSession(result.session.id);
         await clearActiveSessionFromSheet(result.session.id);
         return { supported: true, session: null, reconciledCompleted: true };
       }
+      if (reopensCompletedNight) forgetClosedActiveSession(result.session.id);
       if (isStaleActiveSession(result.session)) {
         confirmedSharedSession = null;
         clearActiveSessionFromSheet(result.session.id);
@@ -6018,6 +6020,20 @@ function nightSessionResumesCurrentCycle(session) {
     return Math.abs(awakeStart - cycleStart) <= 2 * 60000
       && awakeEnd > cycleStart
       && awakeEnd <= new Date();
+  });
+}
+
+function nightSessionResumesCompletedRecord(session, record) {
+  if (session?.type !== "night" || record?.type !== "night") return false;
+  const sessionStart = activeSessionStartDate(session);
+  const recordedStart = new Date(record.start);
+  const recordedEnd = new Date(record.end);
+  if (Number.isNaN(sessionStart.getTime()) || Number.isNaN(recordedStart.getTime()) || Number.isNaN(recordedEnd.getTime())) return false;
+  if (Math.abs(sessionStart - recordedStart) > 2 * 60000) return false;
+  return normalizeAwakenings(session.awakenings || []).some((awake) => {
+    const awakeStart = new Date(awake.start);
+    const awakeEnd = new Date(awake.end);
+    return Math.abs(awakeStart - recordedEnd) <= 2 * 60000 && awakeEnd > recordedEnd;
   });
 }
 
