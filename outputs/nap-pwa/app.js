@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261002.v2";
+const APP_VERSION = "20261003.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -1568,19 +1568,42 @@ async function resumeClosedNightSleep() {
   }
 
   const nightId = night.id || newNightId(nightStart);
-  const awakenings = normalizeAwakenings(night.awakenings || []);
+  const resumedAt = new Date();
+  const awakenings = mergeAwakenings(
+    night.awakenings || [],
+    nightEnd < resumedAt ? [{ start: nightEnd.toISOString(), end: resumedAt.toISOString() }] : []
+  );
+
+  const deleted = await deleteNapFromSheet(nightId, { silent: true });
+  if (!deleted?.ok || !deleted.deleted) {
+    setHint("Não consegui reabrir a noite na planilha. O registro anterior foi preservado; tente novamente.");
+    return;
+  }
 
   state.nights = state.nights.filter((item) => napIdentity(item) !== napIdentity(night));
   state.activeNightStart = nightStart.toISOString();
   state.activeNightId = nightId;
   state.activeNightAwakeStart = null;
-  state.activeNightAwakenings = normalizeAwakenings(awakenings);
+  state.activeNightAwakenings = awakenings;
+  const previousNight = state.nights
+    .slice()
+    .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+  state.cycleStartAt = previousNight?.end || null;
   forgetClosedActiveSession(nightId);
   saveState();
-  await deleteNapFromSheet(nightId, { silent: true });
   await syncActiveSessionToSheet({ allowReopen: true });
+  if (!state.activeNightStart) {
+    state.nights.unshift(night);
+    state.cycleStartAt = nightEnd.toISOString();
+    rememberClosedActiveSession(nightId);
+    saveState();
+    await syncNightToSheet(night);
+    setHint("A planilha não confirmou a reabertura. Mantive o registro da noite anterior.");
+    render();
+    return;
+  }
   scheduleActiveSessionWriteRetry();
-  setHint("Sono noturno reaberto. A contagem continuou sem descontar tempo acordada.");
+  setHint("Sono noturno reaberto. O intervalo acordada até voltar a dormir será descontado.");
   render();
 }
 
@@ -5858,6 +5881,13 @@ function applyRemoteActiveSession(session) {
     syncActiveSessionToSheet();
     return;
   }
+  if (type === "night" && nightSessionResumesCurrentCycle(session)) {
+    state.nights = state.nights.filter((night) => String(night.id || napIdentity(night)) !== String(session.id));
+    const previousNight = state.nights
+      .filter((night) => new Date(night.end) <= startedAt)
+      .sort((a, b) => new Date(b.end) - new Date(a.end))[0];
+    state.cycleStartAt = previousNight?.end || null;
+  }
   const sameNap = type === "nap" && state.activeNapStart && state.activeNapResumeId === session.id;
   const sameNight = type === "night" && state.activeNightStart && state.activeNightId === session.id;
   const sameRoutine = type === "routine" && nightRoutineIsActive() && state.nightRoutineId === session.id;
@@ -5973,7 +6003,22 @@ function activeNightConflictsWithCurrentCycle(session) {
   return !Number.isNaN(startedAt.getTime())
     && !Number.isNaN(cycleStart.getTime())
     && cycleStart <= new Date()
-    && cycleStart > startedAt;
+    && cycleStart > startedAt
+    && !nightSessionResumesCurrentCycle(session);
+}
+
+function nightSessionResumesCurrentCycle(session) {
+  if (session?.type !== "night") return false;
+  const startedAt = activeSessionStartDate(session);
+  const cycleStart = new Date(state.cycleStartAt || "");
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(cycleStart.getTime()) || cycleStart <= startedAt) return false;
+  return normalizeAwakenings(session.awakenings || []).some((awake) => {
+    const awakeStart = new Date(awake.start);
+    const awakeEnd = new Date(awake.end);
+    return Math.abs(awakeStart - cycleStart) <= 2 * 60000
+      && awakeEnd > cycleStart
+      && awakeEnd <= new Date();
+  });
 }
 
 function activeSessionStartDate(session) {
