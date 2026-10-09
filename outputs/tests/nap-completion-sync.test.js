@@ -97,3 +97,46 @@ test("não encerra sem conferir a sessão compartilhada", async () => {
   assert.equal(state.activeNapResumeId, "merged");
   assert.match(hints[0], /conferir a pausa/);
 });
+
+test("atualiza a previsão ao encerrar antes de aguardar a planilha", async () => {
+  let resolveSync;
+  const sync = new Promise((resolve) => { resolveSync = resolve; });
+  const events = [];
+  const state = {
+    activeNapStart: "2026-10-09T20:15:00-03:00",
+    activeNapResumeId: "evening",
+    activeNapAwakeMinutes: 0,
+    activeNapGoalDuration: 30
+  };
+  const context = {
+    state,
+    Date: class extends Date {
+      constructor(...args) { super(...(args.length ? args : ["2026-10-09T20:45:00-03:00"])); }
+    },
+    refreshBeforeTimerAction: async () => ({ ok: true }),
+    newNapId: () => "evening",
+    createNapRecord: () => ({ id: "evening", duration: 30 }),
+    activeNapAwakeMinutes: () => 0,
+    rememberClosedActiveSession: () => {},
+    clearNotificationTimers: () => {},
+    saveState: () => {},
+    addNapRecord: () => events.push("nap saved"),
+    completeActiveSessionInSheet: async () => {
+      events.push("sync started");
+      await sync;
+    },
+    toggleMoodSheet: () => {},
+    scheduleUpcomingNotifications: () => events.push("notifications recalculated"),
+    render: () => events.push("prediction rendered")
+  };
+  vm.createContext(context);
+  vm.runInContext(completionSource, context);
+
+  const completion = context.completeNap("");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["nap saved", "notifications recalculated", "prediction rendered", "sync started"]);
+
+  resolveSync();
+  await completion;
+  assert.equal(events.at(-1), "prediction rendered");
+});

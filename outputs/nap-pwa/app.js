@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261003.v2";
+const APP_VERSION = "20261009.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -1502,9 +1502,10 @@ async function completeNap(mood) {
   clearNotificationTimers();
   saveState();
   addNapRecord(nap, { sync: false });
-  await completeActiveSessionInSheet(nap);
   toggleMoodSheet(false);
   scheduleUpcomingNotifications();
+  render();
+  await completeActiveSessionInSheet(nap);
   render();
 }
 
@@ -2841,16 +2842,16 @@ function renderPrediction(prediction) {
   }
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
-    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    const delay = minutesUntilNightRoutine(night);
     if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Rotina noturna em ${formatDuration(delay)}` : "Rotina noturna agora";
-    if (els.nextHint) els.nextHint.textContent = `Próxima janela não cabe bem antes da noite. Inicie a rotina por volta de ${minutesToTime(night.start)} para tentar dormir perto de ${minutesToTime(night.sleepTime)}.`;
+    if (els.nextHint) els.nextHint.textContent = `Observe sinais ${minutesToTime(night.observeStart)} · rotina ${minutesToTime(night.start)}–${minutesToTime(night.routineEnd)} · sono ${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}.`;
     return;
   }
 
   if (shouldSkipNextNapForNight(prediction, night, today)) {
-    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    const delay = minutesUntilNightRoutine(night);
     if (els.nextWindow) els.nextWindow.textContent = delay > 0 ? `Rotina noturna em ${formatDuration(delay)}` : "Rotina noturna agora";
-    if (els.nextHint) els.nextHint.textContent = `A próxima soneca ficaria muito perto da noite. Melhor iniciar a rotina por volta de ${minutesToTime(night.start)} e mirar sono perto de ${minutesToTime(night.sleepTime)}.`;
+    if (els.nextHint) els.nextHint.textContent = `Observe sinais ${minutesToTime(night.observeStart)} · rotina ${minutesToTime(night.start)}–${minutesToTime(night.routineEnd)} · sono ${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}.`;
     return;
   }
 
@@ -3448,18 +3449,18 @@ function renderRingCenter(prediction, today) {
   }
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
-    const delay = minutesUntilTodayOrNow(night.start, now);
+    const delay = minutesUntilNightRoutine(night, now);
     els.dayCenterLabel.textContent = "rotina noturna em";
     els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
-    els.dayCenterHint.textContent = `${minutesToTime(night.start)} · dormir perto de ${minutesToTime(night.sleepTime)}`;
+    els.dayCenterHint.textContent = `sinais ${minutesToTime(night.observeStart)} · rotina ${minutesToTime(night.start)} · sono ${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}`;
     return;
   }
 
   if (shouldSkipNextNapForNight(prediction, night, today)) {
-    const delay = minutesUntilTodayOrNow(night.start, now);
+    const delay = minutesUntilNightRoutine(night, now);
     els.dayCenterLabel.textContent = "rotina noturna em";
     els.dayCenterTime.textContent = delay > 0 ? formatDuration(delay) : "agora";
-    els.dayCenterHint.textContent = `${minutesToTime(night.start)} · dormir perto de ${minutesToTime(night.sleepTime)}`;
+    els.dayCenterHint.textContent = `sinais ${minutesToTime(night.observeStart)} · rotina ${minutesToTime(night.start)} · sono ${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}`;
     return;
   }
 
@@ -3498,7 +3499,7 @@ function renderRingDayLabels(night) {
   }
   if (els.ringDayEnd) {
     els.ringDayEnd.querySelector("strong").textContent = dayEnd;
-    els.ringDayEnd.setAttribute("title", `Início sugerido da rotina noturna. Alvo de dormir: ${minutesToTime(night.sleepTime || night.start)}.`);
+    els.ringDayEnd.setAttribute("title", `Observe sinais ${minutesToTime(night.observeStart)}. Rotina ${minutesToTime(night.start)}–${minutesToTime(night.routineEnd)}. Sono provável ${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}.`);
   }
 }
 
@@ -3570,8 +3571,40 @@ function layoutRingMarkers(markers) {
   });
 }
 
+function recentWakeAfterSimilarNaps(lastNap, ageProfile) {
+  const duration = safeDuration(lastNap);
+  const currentStart = new Date(lastNap.start).getTime();
+  if (!Number.isFinite(currentStart)) return null;
+
+  const sleepStarts = [
+    ...state.naps.map((nap) => new Date(nap.start).getTime()),
+    ...state.nights.map((night) => new Date(night.start).getTime())
+  ].filter(Number.isFinite).sort((a, b) => a - b);
+  const samples = state.naps
+    .map((nap) => {
+      const end = new Date(nap.end).getTime();
+      const difference = Math.abs(safeDuration(nap) - duration);
+      if (!Number.isFinite(end) || end >= currentStart || difference > 20) return null;
+      const nextStart = sleepStarts.find((start) => start > end);
+      const minutes = Math.round((nextStart - end) / 60000);
+      if (!Number.isFinite(minutes) || minutes < 35 || minutes > Math.min(360, ageProfile.max + 90)) return null;
+      const daysAgo = Math.max(0, (currentStart - end) / 86400000);
+      const weight = (1 - difference / 40) / (1 + daysAgo / 7);
+      return { minutes, weight, end };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.end - a.end)
+    .slice(0, 10);
+  if (!samples.length) return null;
+  const totalWeight = samples.reduce((sum, sample) => sum + sample.weight, 0);
+  return {
+    minutes: Math.round(samples.reduce((sum, sample) => sum + sample.minutes * sample.weight, 0) / totalWeight),
+    samples: samples.length
+  };
+}
+
 function calculateNightSuggestion(prediction) {
-  const profile = prediction.profile;
+  const profile = wakeWindowForAge(currentBabyAgeMonths());
   const today = napsToday();
   const lastNap = today[0];
   const lastWake = effectiveLastWakeMinutes(today);
@@ -3584,56 +3617,82 @@ function calculateNightSuggestion(prediction) {
     return {
       start: routineStart,
       sleepTime,
+      observeStart: routineStart,
+      routineEnd: routineStart,
+      sleepStart: sleepTime,
+      sleepEnd: sleepTime,
       desiredSleepTime: plannedBedtime,
       reason: `Rotina iniciada às ${minutesToTime(routineStart)}; alvo de dormir após cerca de ${formatDuration(EVENING_ROUTINE_MINUTES)}, perto de ${minutesToTime(sleepTime)}.`
     };
   }
 
-  const finalWakeWindow = clamp(profile.target + 35, profile.min + 20, profile.max + 35);
+  if (!lastNap) {
+    const routineStart = plannedBedtime - EVENING_ROUTINE_MINUTES;
+    return {
+      start: routineStart,
+      observeStart: routineStart - 10,
+      routineEnd: routineStart + 15,
+      sleepTime: plannedBedtime,
+      sleepStart: plannedBedtime - 15,
+      sleepEnd: plannedBedtime + 15,
+      desiredSleepTime: plannedBedtime,
+      reason: `Sem soneca concluída neste ciclo. Observe sinais perto de ${minutesToTime(routineStart - 10)}, inicie a rotina perto de ${minutesToTime(routineStart)} e considere sono entre ${minutesToTime(plannedBedtime - 15)} e ${minutesToTime(plannedBedtime + 15)}.`
+    };
+  }
+
+  const duration = safeDuration(lastNap);
   const napSleepToday = today.reduce((sum, nap) => sum + safeDuration(nap), 0);
-  const expectedNaps = plannedNapCount();
+  const previousWake = wakeWindowUsedForNap(lastNap);
+  const history = recentWakeAfterSimilarNaps(lastNap, profile);
+  let targetWindow = profile.target + 40;
+  if (duration < 10) targetWindow -= 100;
+  else if (duration < 20) targetWindow -= 85;
+  else if (duration <= 40) targetWindow -= 70;
+  else if (duration < 60) targetWindow -= 40;
+  else if (duration > 100) targetWindow += 10;
 
-  let adjustment = 0;
-  if (lastNap && lastNap.duration < 35) adjustment -= 25;
-  if (napSleepToday < 90 && currentBabyAgeMonths() >= 4) adjustment -= 20;
-  if (today.length > expectedNaps) adjustment -= 15;
-  if (today.length < expectedNaps && nowMinutes() > 15 * 60) adjustment -= 10;
-
-  let sleepTime = lastWake + finalWakeWindow + adjustment;
-  const earliestSleep = plannedBedtime - 30;
-  const latestSleep = plannedBedtime + 75;
-  sleepTime = clamp(sleepTime, earliestSleep, latestSleep);
-
-  if (Math.abs(sleepTime - plannedBedtime) <= 20) {
-    sleepTime = plannedBedtime;
+  if (history) {
+    const historyWeight = Math.min(0.45, 0.2 + history.samples * 0.06);
+    targetWindow = Math.round(targetWindow * (1 - historyWeight) + history.minutes * historyWeight);
   }
 
-  const currentMinutes = nowMinutes();
-  const originalSleepTime = sleepTime;
-  let routineStart = normalizeDayMinutes(sleepTime - EVENING_ROUTINE_MINUTES);
-  let recalculatedAfterDelay = false;
+  const fatigueAdjustment = previousWake > profile.max
+    ? Math.min(10, Math.round((previousWake - profile.max) / 10))
+    : 0;
+  const mood = String(sleepDiaryEntry(napIdentity(lastNap)).wakeMood || lastNap.mood || "").toLowerCase();
+  targetWindow -= fatigueAdjustment;
+  if (["upset", "crying", "bad", "mau humorado"].includes(mood)) targetWindow -= 10;
+  if (["happy", "calm", "good", "bem humorado"].includes(mood)) targetWindow += 5;
+  if (napSleepToday < 60 && currentBabyAgeMonths() >= 4) targetWindow -= 5;
+  if (latestNightAwakeMinutes() >= 60) targetWindow -= 5;
 
-  if (currentMinutes >= 16 * 60) {
-    if (sleepTime <= currentMinutes) {
-      sleepTime = normalizeDayMinutes(currentMinutes + 30);
-      routineStart = currentMinutes;
-      recalculatedAfterDelay = true;
-    } else if (routineStart < currentMinutes) {
-      routineStart = currentMinutes;
-      recalculatedAfterDelay = true;
-    }
+  const minimumRoutineWake = currentBabyAgeMonths() <= 2 ? 45 : 60;
+  targetWindow = clamp(targetWindow, minimumRoutineWake + 30, profile.max + 45);
+  let sleepTime = Math.max(plannedBedtime - 30, lastWake + targetWindow);
+  const routineDuration = duration <= 40 ? 40 : EVENING_ROUTINE_MINUTES;
+  let routineStart = Math.max(lastWake + minimumRoutineWake, sleepTime - routineDuration);
+  let currentMinutes = nowMinutes();
+  if (currentMinutes + 12 * 60 < lastWake) currentMinutes += 24 * 60;
+  if (currentMinutes >= 16 * 60 && routineStart < currentMinutes) {
+    routineStart = Math.max(currentMinutes, lastWake + minimumRoutineWake);
+    sleepTime = Math.max(sleepTime, routineStart + 30);
   }
-  const desiredLabel = minutesToTime(plannedBedtime);
-  const sleepLabel = minutesToTime(sleepTime);
 
-  const baseReason = lastNap
-    ? `Rotina calculada pelo último despertar (${minutesToTime(lastWake)}), ${today.length} soneca${today.length === 1 ? "" : "s"} e ${formatDuration(napSleepToday)} de sono diurno. Alvo cadastrado para dormir: ${desiredLabel}; melhor tentativa hoje: perto de ${sleepLabel}.`
-    : `Rotina calculada pelo início do dia (${state.dayStart || state.lastWake}). Alvo cadastrado para dormir: ${desiredLabel}; melhor tentativa hoje: perto de ${sleepLabel}.`;
-  const reason = recalculatedAfterDelay
-    ? `A sugestão anterior (${minutesToTime(originalSleepTime)}) já ficou para trás. Recalculei a partir de agora e do último despertar: inicie a rotina agora e tente dormir perto de ${sleepLabel}. ${baseReason}`
-    : baseReason;
+  const observeStart = Math.max(lastWake + Math.max(35, minimumRoutineWake - 10), routineStart - 5);
+  const routineEnd = Math.min(routineStart + 15, sleepTime - 20);
+  const sleepStart = sleepTime - 15;
+  const sleepEnd = sleepTime + 15;
+  const historyReason = history ? ` O histórico recente de ${history.samples} soneca${history.samples === 1 ? "" : "s"} de duração semelhante também influenciou a janela.` : "";
+  const fatigueReason = fatigueAdjustment ? ` A vigília longa anterior antecipou a janela em ${fatigueAdjustment}min, sem apagar o novo despertar.` : "";
+  const reason = `Última soneca de ${formatDuration(duration)} encerrada às ${minutesToTime(lastWake)}. Observe sinais perto de ${minutesToTime(observeStart)}; rotina entre ${minutesToTime(routineStart)} e ${minutesToTime(routineEnd)}; sono provável entre ${minutesToTime(sleepStart)} e ${minutesToTime(sleepEnd)}.${fatigueReason}${historyReason}`;
 
-  return { start: routineStart, sleepTime, desiredSleepTime: plannedBedtime, reason };
+  return { start: routineStart, observeStart, routineEnd, sleepTime, sleepStart, sleepEnd, desiredSleepTime: plannedBedtime, reason };
+}
+
+function minutesUntilNightRoutine(night, now = nowMinutes()) {
+  const lastWake = effectiveLastWakeMinutes();
+  const current = now + (now + 12 * 60 < lastWake ? 24 * 60 : 0);
+  return Math.max(0, night.start - current);
 }
 
 function shouldSkipNextNapForNight(prediction, night, today = napsToday()) {
@@ -3903,7 +3962,7 @@ function assistantInsightParts(message, prediction) {
   return {
     now: text || "Acompanhe a próxima janela calculada.",
     why: isNightFocused && night
-      ? `Rotina sugerida ${minutesToTime(night.start)}; alvo de dormir perto de ${minutesToTime(night.sleepTime)}.`
+      ? night.reason
       : "A leitura usa o último despertar, duração das sonecas e padrão recente.",
     attention: /perto da rotina|muito perto|sem forçar|alerta/i.test(text)
       ? "Evite forçar sono se ela ainda estiver ativa; mantenha estímulo baixo."
@@ -4011,8 +4070,9 @@ function assistantCalculationDetails(prediction, daySleep, nightSleep, goals) {
     reasons = ["A janela calculada passou, mas ainda há uma soneca prevista e a rotina noturna está distante.", ...reasons];
   } else if (!shouldSuggestNapBeforeNight(prediction, today)) {
     decisionItems = [
-      { label: "Próxima ação", value: `Rotina às ${minutesToTime(night.start)}` },
-      { label: "Sono noturno", value: `Perto de ${minutesToTime(night.sleepTime)}` }
+      { label: "Observar sinais", value: minutesToTime(night.observeStart) },
+      { label: "Iniciar rotina", value: `${minutesToTime(night.start)}–${minutesToTime(night.routineEnd)}` },
+      { label: "Sono provável", value: `${minutesToTime(night.sleepStart)}–${minutesToTime(night.sleepEnd)}` }
     ];
     reasons = ["Não há transição segura para outra soneca antes do sono noturno.", ...reasons];
   }
@@ -8003,7 +8063,7 @@ function scheduleReminder(reminder, now = nowMinutes()) {
     return;
   }
 
-  const delayMinutes = minutesUntilToday(reminder.at, now);
+  const delayMinutes = minutesUntilPlannedTime(reminder.at, now);
   if (!Number.isFinite(delayMinutes)) return;
 
   if (delayMinutes <= 0 || delayMinutes > 18 * 60) return;
@@ -8020,7 +8080,7 @@ function nextUpcomingReminder(reminders, now = nowMinutes()) {
         const date = new Date(reminder.absoluteAt);
         return { ...reminder, at: date.getHours() * 60 + date.getMinutes(), delay: (date.getTime() - Date.now()) / 60000 };
       }
-      return { ...reminder, delay: minutesUntilToday(reminder.at, now) };
+      return { ...reminder, delay: minutesUntilPlannedTime(reminder.at, now) };
     })
     .filter((reminder) => Number.isFinite(reminder.delay) && reminder.delay > 0 && reminder.delay <= 18 * 60)
     .sort((a, b) => a.delay - b.delay)[0] || null;
@@ -8036,6 +8096,14 @@ function minutesUntilReminder(targetMinutes, now = nowMinutes()) {
 function minutesUntilToday(targetMinutes, now = nowMinutes()) {
   if (!Number.isFinite(Number(targetMinutes))) return NaN;
   const diff = normalizeDayMinutes(targetMinutes) - normalizeDayMinutes(now);
+  return diff > 0 ? diff : NaN;
+}
+
+function minutesUntilPlannedTime(targetMinutes, now = nowMinutes()) {
+  if (!Number.isFinite(Number(targetMinutes))) return NaN;
+  if (targetMinutes < 24 * 60) return minutesUntilToday(targetMinutes, now);
+  const current = now < 12 * 60 ? now + 24 * 60 : now;
+  const diff = targetMinutes - current;
   return diff > 0 ? diff : NaN;
 }
 
@@ -8484,10 +8552,10 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   }
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
-    const delay = minutesUntilTodayOrNow(night.start, nowMinutes());
+    const delay = minutesUntilNightRoutine(night);
     return delay > 0
-      ? `Não cabe outra soneca com transição segura antes da noite. Comece a rotina por volta de ${minutesToTime(night.start)} e tente dormir perto de ${minutesToTime(night.sleepTime)}.`
-      : `Não sugiro outra soneca agora. Inicie ou mantenha a rotina noturna e tente dormir perto de ${minutesToTime(night.sleepTime)}.`;
+      ? `Não cabe outra soneca com transição segura antes da noite. Observe sinais perto de ${minutesToTime(night.observeStart)}, inicie a rotina entre ${minutesToTime(night.start)} e ${minutesToTime(night.routineEnd)} e espere sono entre ${minutesToTime(night.sleepStart)} e ${minutesToTime(night.sleepEnd)}.`
+      : `Não sugiro outra soneca agora. Inicie ou mantenha a rotina noturna; o sono é provável entre ${minutesToTime(night.sleepStart)} e ${minutesToTime(night.sleepEnd)}.`;
   }
 
   const recoveryInsight = nightRecoveryAssistantInsight(daySleep, nightSleep, goals, prediction, today);
