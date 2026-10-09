@@ -50,3 +50,42 @@ test("uma soneca curta do ciclo atual ainda ajusta a próxima janela", () => {
   assert.equal(prediction.targetWindow, 130);
   assert.equal(prediction.adjustmentReasons.length, 1);
 });
+
+function plannedMarkers({ suggested = true, now = 16 * 60, nightStart = 18 * 60 + 5 } = {}) {
+  const source = appSource.slice(
+    appSource.indexOf("function plannedNapMarkers(prediction, today, night) {"),
+    appSource.indexOf("function plannedNapOverlapsCompleted(")
+  );
+  const context = {
+    state: { activeNapStart: null, activeNightStart: null },
+    NIGHT_ROUTINE_NAP_CUTOFF_MINUTES: 60,
+    NIGHT_ROUTINE_TRANSITION_MINUTES: 30,
+    nightRoutineIsActive: () => false,
+    minutesBetweenClock: (start, end) => end - start,
+    nowMinutes: () => now,
+    lateRescueNapPlan: () => null,
+    plannedNapCount: () => 5,
+    shouldSuggestNapBeforeNight: () => suggested,
+    shouldSkipNextNapForNight: () => false
+  };
+  vm.createContext(context);
+  vm.runInContext(source, context);
+  const result = context.plannedNapMarkers(
+    { start: 16 * 60 + 30, end: 17 * 60 },
+    [{}, {}],
+    { start: nightStart }
+  );
+  return Array.from(result);
+}
+
+test("concha não mostra soneca perto demais da rotina noturna", () => {
+  const markers = plannedMarkers();
+
+  assert.ok(markers.length > 0, "mantém soneca anterior que ainda cabe");
+  assert.ok(markers.every((marker) => marker.end <= 17 * 60 + 35));
+  assert.ok(markers.every((marker) => marker.target < 17 * 60 + 45));
+});
+
+test("concha não desenha quinta soneca quando o assistente prioriza a noite", () => {
+  assert.equal(plannedMarkers({ suggested: false }).length, 0);
+});

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261009.v1";
+const APP_VERSION = "20261009.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -3516,6 +3516,7 @@ function plannedNapMarkers(prediction, today, night) {
       target: Math.round((rescueNap.start + rescueNap.end) / 2)
     }];
   }
+  if (!state.activeNapStart && !shouldSuggestNapBeforeNight(prediction, today)) return [];
 
   const done = today.length + (state.activeNapStart ? 1 : 0);
   const total = Math.max(plannedNapCount(), done + (shouldSuggestNapBeforeNight(prediction, today) ? 1 : 0));
@@ -3528,16 +3529,18 @@ function plannedNapMarkers(prediction, today, night) {
   const now = nowMinutes();
   let start = state.activeNapStart ? now + 45 : prediction.start;
   const dayEnd = night.start;
+  const latestNapEnd = dayEnd - NIGHT_ROUTINE_TRANSITION_MINUTES;
+  const latestNapStart = latestNapEnd - 15;
   const available = Math.max(remaining * 36, minutesBetweenClock(start, dayEnd) - 24);
   const step = remaining <= 1 ? 0 : available / remaining;
 
   for (let index = 0; index < remaining; index += 1) {
     const windowStart = index === 0 && !state.activeNapStart ? start : start + Math.round(step * index);
-    const clampedStart = clampClockWithinDay(windowStart, dayEnd - 30);
-    const windowEnd = Math.min(clampedStart + 30, dayEnd - 8);
-    const target = Math.round((clampedStart + windowEnd) / 2);
-    if (windowEnd <= clampedStart || target >= dayEnd) continue;
-    markers.push({ start: clampedStart, end: windowEnd, target });
+    if (windowStart > latestNapStart) continue;
+    const windowEnd = Math.min(windowStart + 30, latestNapEnd);
+    if (windowEnd - windowStart < 15) continue;
+    markers.push({ start: windowStart, end: windowEnd,
+      target: Math.round((windowStart + windowEnd) / 2) });
   }
 
   return markers;
