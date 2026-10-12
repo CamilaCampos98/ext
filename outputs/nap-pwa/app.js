@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261009.v2";
+const APP_VERSION = "20261012.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
@@ -2396,9 +2396,18 @@ function calculatePrediction() {
     adjustmentReasons.push("Noite fragmentada: janela reduzida em 15min.");
   }
 
+  const minimumAdjustment = profile.custom ? -20 : -35;
+  if (adjustment < minimumAdjustment) {
+    adjustment = minimumAdjustment;
+    adjustmentReasons.push(`A soma dos ajustes foi limitada a ${-minimumAdjustment}min de antecipação.`);
+  }
+
   const minWindow = clamp(profile.min + adjustment, 35, 430);
   const targetWindow = clamp(profile.target + adjustment, minWindow, 450);
-  let maxWindow = clamp(profile.max + adjustment, targetWindow, 480);
+  let maxWindow = clamp(Math.max(
+    profile.max + adjustment,
+    profile.custom && Number.isFinite(profile.recentUpper) ? profile.recentUpper + 10 : targetWindow
+  ), targetWindow, 480);
 
   const latestBeforeBed = bedtimeMinutes - 120;
   if (lastWakeMinutes + maxWindow > latestBeforeBed && bedtimeMinutes > lastWakeMinutes) {
@@ -2836,8 +2845,8 @@ function renderPrediction(prediction) {
   const night = calculateNightSuggestion(prediction);
   if (shouldKeepLateNapVisible(prediction, today, night)) {
     const name = state.babyName || "bebê";
-    if (els.nextWindow) els.nextWindow.textContent = "Janela aberta";
-    if (els.nextHint) els.nextHint.textContent = `${name} passou da janela calculada. Tente a soneca agora e recalcule o restante do dia quando ela acordar.`;
+    if (els.nextWindow) els.nextWindow.textContent = "Janela estimada passou";
+    if (els.nextHint) els.nextHint.textContent = `${name} passou do horário estimado. Observe os sinais de sono; a próxima previsão será recalculada quando ela acordar.`;
     return;
   }
 
@@ -3443,8 +3452,8 @@ function renderRingCenter(prediction, today) {
   const night = calculateNightSuggestion(prediction);
   if (shouldKeepLateNapVisible(prediction, today, night)) {
     els.dayCenterLabel.textContent = nextNapName;
-    els.dayCenterTime.textContent = "janela aberta";
-    els.dayCenterHint.textContent = `${name} passou da janela · tente agora`;
+    els.dayCenterTime.textContent = "reavaliando";
+    els.dayCenterHint.textContent = `${name} passou do horário estimado · observe sinais`;
     return;
   }
 
@@ -4067,7 +4076,7 @@ function assistantCalculationDetails(prediction, daySleep, nightSleep, goals) {
     ];
   } else if (shouldKeepLateNapVisible(prediction, today, night)) {
     decisionItems = [
-      { label: "Próxima ação", value: "Tentar soneca agora" },
+      { label: "Próxima ação", value: "Observar sinais de sono" },
       { label: "Janela calculada", value: `${minutesToTime(prediction.start)}–${minutesToTime(prediction.end)}` }
     ];
     reasons = ["A janela calculada passou, mas ainda há uma soneca prevista e a rotina noturna está distante.", ...reasons];
@@ -8408,13 +8417,19 @@ function customWakeWindowProfile(baseProfile, today = napsToday()) {
   const samples = wakeWindowSamplesByNapIndex(nextIndex);
   if (!samples.length) return { ...baseProfile, custom: false, samples: 0 };
 
-  const average = Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length);
-  const spread = samples.length >= 3 ? 20 : 15;
+  const weights = samples.map((_, index) => 0.72 ** index);
+  const weightedAverage = Math.round(samples.reduce((sum, value, index) => sum + value * weights[index], 0) /
+    weights.reduce((sum, weight) => sum + weight, 0));
+  const confidence = Math.min(1, samples.length / 3);
+  const target = Math.round(baseProfile.target * (1 - confidence) + weightedAverage * confidence);
+  const sorted = samples.slice().sort((a, b) => a - b);
+  const recentUpper = sorted[Math.ceil(sorted.length * 0.75) - 1];
   return {
     ...baseProfile,
-    min: clamp(average - spread, Math.max(30, baseProfile.min - 35), baseProfile.max + 30),
-    target: clamp(average, Math.max(35, baseProfile.min - 20), baseProfile.max + 40),
-    max: clamp(average + spread, baseProfile.min, baseProfile.max + 60),
+    min: clamp(target - 25, Math.max(30, baseProfile.min - 25), baseProfile.max + 30),
+    target: clamp(target, Math.max(35, baseProfile.min - 20), baseProfile.max + 40),
+    max: clamp(Math.max(target + 35, recentUpper + 15), baseProfile.min, baseProfile.max + 60),
+    recentUpper,
     custom: true,
     samples: samples.length
   };
@@ -8436,6 +8451,8 @@ function wakeWindowSamplesByNapIndex(napIndex) {
     const ordered = naps.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
     const nap = ordered[napIndex - 1];
     if (!nap) return;
+    const startedAt = new Date(nap.start).getTime();
+    if (startedAt < Date.now() - 14 * 24 * 60 * 60 * 1000) return;
     let windowMinutes = null;
     if (napIndex === 1) {
       const dayStart = safeTimeToMinutes(nap.dayStart || state.dayStart || DEFAULT_DAY_START, 7 * 60);
@@ -8446,10 +8463,10 @@ function wakeWindowSamplesByNapIndex(napIndex) {
       if (!previous) return;
       windowMinutes = Math.round((new Date(nap.start) - new Date(previous.end)) / 60000);
     }
-    if (windowMinutes >= 35 && windowMinutes <= 360) samples.push(windowMinutes);
+    if (windowMinutes >= 35 && windowMinutes <= 360) samples.push({ minutes: windowMinutes, startedAt });
   });
 
-  return samples.slice(-10);
+  return samples.sort((a, b) => b.startedAt - a.startedAt).slice(0, 7).map((sample) => sample.minutes);
 }
 
 function sleepInLast24Hours() {
@@ -8551,7 +8568,7 @@ function assistantSuggestion(prediction, daySleep, nightSleep, goals) {
   }
 
   if (shouldKeepLateNapVisible(prediction, today, night)) {
-    return `A janela da ${ordinalFeminine(today.length + 1)} soneca passou, mas a noite ainda está distante. Tente a soneca agora e recalcule o restante do dia quando ${babyDisplayName()} acordar.`;
+    return `O horário estimado da ${ordinalFeminine(today.length + 1)} soneca passou, mas a noite ainda está distante. Observe os sinais de sono; a próxima previsão será recalculada quando ${babyDisplayName()} acordar.`;
   }
 
   if (!shouldSuggestNapBeforeNight(prediction, today)) {
