@@ -346,6 +346,36 @@ main {
 .feeding-pump-option small { margin-top: 3px; color: #9fb2cf; line-height: 1.35; }
 .meal-water-option { display: flex; align-items: center; gap: 11px; min-height: 48px; margin: 14px 0; padding: 10px 13px; border: 1px solid rgba(168,216,240,.28); border-radius: 14px; background: rgba(168,216,240,.08); color: #edf7ff; cursor: pointer; }
 .meal-water-option input { width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: #a8d8f0; }
+.meal-profile { margin-top: 20px; }
+.meal-profile-card { margin-top: 9px; border: 1px solid var(--line); border-radius: 15px; background: rgba(168,216,240,.06); overflow: hidden; }
+.meal-profile-card > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; color: var(--ink); cursor: pointer; list-style: none; }
+.meal-profile-card > summary::-webkit-details-marker { display: none; }
+.meal-profile-card > summary::after { content: "⌄"; color: var(--muted); }
+.meal-profile-card[open] > summary::after { transform: rotate(180deg); }
+.meal-profile-card > summary small { color: var(--muted); font-size: .72rem; font-weight: 500; }
+.meal-profile-content { padding: 0 16px 16px; }
+.meal-active-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0 18px; }
+.meal-active-grid label, .meal-rotation-row > label:first-child { display: flex; align-items: center; gap: 8px; }
+.meal-active-grid input, .meal-rotation-row input { width: 18px; min-width: 18px; height: 18px; min-height: 18px; }
+.meal-rule-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
+.meal-rotation-row { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
+.meal-effects-details { margin-top: 10px; }
+.meal-effects-details > summary { color: var(--ink); cursor: pointer; }
+.weekly-ingredients-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.weekly-ingredients textarea { width: 100%; min-width: 0; min-height: 72px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(12, 18, 44, 0.76); color: var(--ink); font: inherit; resize: vertical; }
+.weekly-ingredients button { margin-top: 10px; }
+.weekly-effects { display: grid; gap: 7px; margin: 12px 0; }
+.weekly-effect-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(125px, 170px); align-items: center; gap: 10px; padding: 7px 10px; border-radius: 9px; background: rgba(168,216,240,.06); }
+.weekly-effect-row span { overflow-wrap: anywhere; color: var(--ink); }
+.weekly-effect-row select { min-width: 0; min-height: 38px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #151f43; color: var(--ink); }
+.meal-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 8px; }
+.meal-menu-heading strong { color: var(--ink); }
+.meal-menu-heading button { padding: 6px 0; }
+.meal-suggestions { display: grid; gap: 8px; }
+.meal-suggestion { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid rgba(168,216,240,.28); border-radius: 12px; background: rgba(168,216,240,.08); color: var(--ink); font-size: .9rem; cursor: pointer; }
+.meal-suggestion input { width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 1px 0 0; accent-color: #a8d8f0; }
+#mealOtherField[hidden] { display: none; }
+@media (max-width: 560px) { .weekly-ingredients-grid, .meal-active-grid, .meal-rotation-row { grid-template-columns: 1fr; } .meal-rule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .meal-profile-card > summary { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 560px) {
   .pumping-title-row { align-items: flex-start; }
   .pumping-switch { grid-template-columns: 42px; justify-items: center; }

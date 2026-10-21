@@ -1,6 +1,8 @@
 const SHEET_NAME = 'Sonecas';
 const FEEDINGS_SHEET_NAME = 'Mamadas';
 const MEALS_SHEET_NAME = 'Alimentacao';
+const WEEKLY_INGREDIENTS_SHEET_NAME = 'IngredientesSemana';
+const MEAL_RULES_SHEET_NAME = 'RegrasCardapio';
 const PUMPINGS_SHEET_NAME = 'Ordenhas';
 const PUMPING_USES_SHEET_NAME = 'UsoEstoque';
 const PUMPING_MERGES_SHEET_NAME = 'UnificacoesEstoque';
@@ -11,7 +13,7 @@ const TUMMY_TIMES_SHEET_NAME = 'TummyTime';
 const SLEEP_DIARY_SHEET_NAME = 'DiarioSono';
 const ACTIVE_SESSION_SHEET_NAME = 'Ativo';
 const SHARED_TOKEN = 'sonecas';
-const SCRIPT_VERSION = 'stock-feeding-meals-v1';
+const SCRIPT_VERSION = 'weekly-meal-menu-20261021-v4';
 const ACTIVE_NAP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ACTIVE_NIGHT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
 const ACTIVE_ROUTINE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
@@ -50,7 +52,9 @@ const FEEDING_HEADERS = [
   'Retirar outro peito'
 ];
 
-const MEAL_HEADERS = ['Recebido em', 'ID', 'Bebê', 'Horário', 'Alimento', 'Bebeu água'];
+const MEAL_HEADERS = ['Recebido em', 'ID', 'Bebê', 'Horário', 'Alimento', 'Bebeu água', 'Refeição'];
+const WEEKLY_INGREDIENTS_HEADERS = ['Semana', 'Bebê', 'Proteínas', 'Grãos e tubérculos', 'Feijões e leguminosas', 'Legumes', 'Atualizado em', 'Frutas', 'Classificação intestinal', 'Vegetais verdes'];
+const MEAL_RULES_HEADERS = ['Bebê', 'Regras (JSON)', 'Atualizado em'];
 
 const PUMPING_HEADERS = [
   'Recebido em', 'ID', 'Bebê', 'Idade (meses)', 'Horário', 'Peito', 'Quantidade (ml)', 'Observação'
@@ -147,6 +151,16 @@ function doGet(e) {
     return jsonResponse(listMealRows(getMealSheet()));
   }
 
+  if (e && e.parameter && e.parameter.action === 'weeklyIngredients') {
+    if (SHARED_TOKEN && token !== SHARED_TOKEN) return jsonResponse({ ok: false, error: 'Token inválido.' });
+    return jsonResponse(getWeeklyIngredients(getWeeklyIngredientsSheet(), e.parameter.weekStart, e.parameter.babyName));
+  }
+
+  if (e && e.parameter && e.parameter.action === 'mealRules') {
+    if (SHARED_TOKEN && token !== SHARED_TOKEN) return jsonResponse({ ok: false, error: 'Token inválido.' });
+    return jsonResponse(getMealRules(getMealRulesSheet(), e.parameter.babyName));
+  }
+
   if (e && e.parameter && e.parameter.action === 'listPumpings') {
     const response = listPumpingRows(getPumpingSheet());
     response.plan = getPumpingPlan(getPumpingPlanSheet());
@@ -230,6 +244,14 @@ function doPost(e) {
 
     if (payload.action === 'bulkAppendMeals') {
       return jsonResponse(appendMissingMealRows(getMealSheet(), payload.records || []));
+    }
+
+    if (payload.action === 'saveWeeklyIngredients') {
+      return jsonResponse(saveWeeklyIngredients(getWeeklyIngredientsSheet(), payload));
+    }
+
+    if (payload.action === 'saveMealRules') {
+      return jsonResponse(saveMealRules(getMealRulesSheet(), payload));
     }
 
     if (payload.action === 'appendPumping') {
@@ -375,6 +397,150 @@ function getMealSheet() {
     ensureSpecificHeaders(sheet, MEAL_HEADERS);
   }
   return sheet;
+}
+
+function getWeeklyIngredientsSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(WEEKLY_INGREDIENTS_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(WEEKLY_INGREDIENTS_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(WEEKLY_INGREDIENTS_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, WEEKLY_INGREDIENTS_HEADERS);
+  }
+  return sheet;
+}
+
+function getMealRulesSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(MEAL_RULES_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(MEAL_RULES_SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(MEAL_RULES_HEADERS);
+    sheet.setFrozenRows(1);
+  } else {
+    ensureSpecificHeaders(sheet, MEAL_RULES_HEADERS);
+  }
+  return sheet;
+}
+
+function mealRulesRow(sheet, babyName) {
+  const count = sheet.getLastRow() - 1;
+  if (count < 1) return { rowNumber: 0, values: null };
+  const rows = sheet.getRange(2, 1, count, MEAL_RULES_HEADERS.length).getValues();
+  const index = rows.findIndex((row) => String(row[0]).toLowerCase() === babyName.toLowerCase());
+  return index < 0 ? { rowNumber: 0, values: null } : { rowNumber: index + 2, values: rows[index] };
+}
+
+function getMealRules(sheet, babyName) {
+  const baby = String(babyName || '').trim() || 'Bebê';
+  const found = mealRulesRow(sheet, baby);
+  if (!found.values) return { ok: true, rules: null };
+  try {
+    return { ok: true, rules: { ...JSON.parse(String(found.values[1] || '{}')), updatedAt: String(found.values[2] || '') } };
+  } catch (error) {
+    return { ok: false, error: 'Regras salvas inválidas.' };
+  }
+}
+
+function saveMealRules(sheet, payload) {
+  const baby = String(payload.babyName || '').trim() || 'Bebê';
+  if (baby.length > 80) return { ok: false, error: 'Nome inválido.' };
+  const rules = payload.rules || {};
+  const types = ['morningSnack', 'lunch', 'afternoonSnack', 'dinner'];
+  const groups = ['vegetables', 'proteins', 'greens', 'grains', 'beans', 'fruits'];
+  if (!rules.activeTypes || !rules.counts || types.some((type) => typeof rules.activeTypes[type] !== 'boolean')
+    || groups.some((group) => !Number.isInteger(rules.counts[group]) || rules.counts[group] < 0 || rules.counts[group] > 5)
+    || typeof rules.rotateEffects !== 'boolean' || !['loosen', 'bind'].includes(rules.mondayEffect)) {
+    return { ok: false, error: 'Regras inválidas.' };
+  }
+  const stored = {
+    activeTypes: Object.fromEntries(types.map((type) => [type, rules.activeTypes[type]])),
+    counts: Object.fromEntries(groups.map((group) => [group, rules.counts[group]])),
+    rotateEffects: rules.rotateEffects,
+    mondayEffect: rules.mondayEffect
+  };
+  const row = [baby, JSON.stringify(stored), new Date().toISOString()];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const found = mealRulesRow(sheet, baby);
+    if (found.rowNumber) sheet.getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
+    else sheet.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return getMealRules(sheet, baby);
+}
+
+function weeklyIngredientsRow(sheet, weekStart, babyName) {
+  const count = sheet.getLastRow() - 1;
+  if (count < 1) return { rowNumber: 0, values: null };
+  const rows = sheet.getRange(2, 1, count, WEEKLY_INGREDIENTS_HEADERS.length).getValues();
+  const index = rows.findIndex((row) => [weekStart, `W${weekStart}`].includes(String(row[0])) && String(row[1]).toLowerCase() === babyName.toLowerCase());
+  return index < 0 ? { rowNumber: 0, values: null } : { rowNumber: index + 2, values: rows[index] };
+}
+
+function getWeeklyIngredients(sheet, weekStart, babyName) {
+  const week = String(weekStart || '').trim();
+  const baby = String(babyName || '').trim() || 'Bebê';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) return { ok: false, error: 'Semana inválida.' };
+  const found = weeklyIngredientsRow(sheet, week, baby);
+  if (!found.values) return { ok: true, plan: null };
+  const row = found.values;
+  return { ok: true, plan: {
+    weekStart: week, babyName: baby,
+    proteins: String(row[2] || '').split('\n').filter(Boolean),
+    grains: String(row[3] || '').split('\n').filter(Boolean),
+    beans: String(row[4] || '').split('\n').filter(Boolean),
+    vegetables: String(row[5] || '').split('\n').filter(Boolean),
+    updatedAt: String(row[6] || ''),
+    fruits: String(row[7] || '').split('\n').filter(Boolean),
+    effects: parseWeeklyIngredientEffects(row[8]),
+    greens: String(row[9] || '').split('\n').filter(Boolean)
+  } };
+}
+
+function parseWeeklyIngredientEffects(value) {
+  try {
+    const parsed = JSON.parse(String(value || '{}'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const effects = {};
+    Object.keys(parsed).forEach((key) => {
+      if (key.length <= 50 && ['bind', 'loosen', 'neutral'].includes(parsed[key])) effects[key] = parsed[key];
+    });
+    return effects;
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveWeeklyIngredients(sheet, payload) {
+  const week = String(payload.weekStart || '').trim();
+  const baby = String(payload.babyName || '').trim() || 'Bebê';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week) || baby.length > 80)
+    return { ok: false, error: 'Semana ou nome inválido.' };
+  const groups = ['proteins', 'grains', 'beans', 'vegetables', 'fruits', 'greens'].map((key) => {
+    const items = Array.isArray(payload[key]) ? payload[key] : [];
+    if (items.length > 20 || items.some((item) => typeof item !== 'string' || !item.trim() || item.trim().length > 50))
+      throw new Error('Cada grupo aceita até 20 ingredientes de até 50 caracteres.');
+    return items.map((item) => item.trim()).join('\n');
+  });
+  const effects = parseWeeklyIngredientEffects(JSON.stringify(payload.effects || {}));
+  const updatedAt = new Date().toISOString();
+  // O prefixo evita que o Sheets converta a chave da semana em data automaticamente.
+  const row = [`W${week}`, baby, ...groups.slice(0, 4), updatedAt, groups[4], JSON.stringify(effects), groups[5]];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const found = weeklyIngredientsRow(sheet, week, baby);
+    if (found.rowNumber) sheet.getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
+    else sheet.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return getWeeklyIngredients(sheet, week, baby);
 }
 
 function getPumpingSheet() {
@@ -840,7 +1006,8 @@ function appendMissingMealRows(sheet, records) {
     }
     existingIds.add(id);
     inserted.push(id);
-    rows.push([new Date(), id, record.babyName || '', toDateTimeString(record.at), record.food || '', Boolean(record.water)]);
+    const mealType = ['morningSnack', 'lunch', 'afternoonSnack', 'dinner'].includes(record.mealType) ? record.mealType : '';
+    rows.push([new Date(), id, record.babyName || '', toDateTimeString(record.at), record.food || '', Boolean(record.water), mealType]);
   });
   if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, MEAL_HEADERS.length).setValues(rows);
   return { ok: true, inserted, skipped };
@@ -1233,7 +1400,8 @@ function listMealRows(sheet) {
     babyName: row[2] || '',
     at: toDateTimeString(row[3]),
     food: row[4] || '',
-    water: row[5] === true || String(row[5] || '').toLowerCase() === 'sim'
+    water: row[5] === true || String(row[5] || '').toLowerCase() === 'sim',
+    mealType: row[6] || ''
   })) };
 }
 

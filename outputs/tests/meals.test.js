@@ -23,7 +23,7 @@ function makeSheet() {
 
 test("salva alimento, horário e água sem duplicar o mesmo registro", () => {
   const sheet = makeSheet();
-  const meal = { id: "meal-1", babyName: "Lívia", at: "2026-09-30T10:15:00", food: "Banana e abóbora", water: true };
+  const meal = { id: "meal-1", babyName: "Lívia", at: "2026-09-30T10:15:00", food: "Banana e abóbora", water: true, mealType: "lunch" };
   const first = context.appendMissingMealRows(sheet, [meal]);
   const second = context.appendMissingMealRows(sheet, [meal]);
   const loaded = context.listMealRows(sheet);
@@ -33,6 +33,7 @@ test("salva alimento, horário e água sem duplicar o mesmo registro", () => {
   assert.equal(sheet.rows.length, 2);
   assert.equal(loaded.records[0].food, "Banana e abóbora");
   assert.equal(loaded.records[0].water, true);
+  assert.equal(loaded.records[0].mealType, "lunch");
   assert.equal(loaded.records[0].at, "2026-09-30T10:15:00");
 });
 
@@ -90,7 +91,7 @@ test("alimentação pouco antes do sono continua visível na concha noturna", ()
 
 test("o ícone da concha abre os detalhes de alimento, horário e água", () => {
   const card = { innerHTML: "", hidden: true };
-  const client = vm.createContext({ els: { napDetailCard: card }, timeLabel: () => "10:15" });
+  const client = vm.createContext({ els: { napDetailCard: card }, timeLabel: () => "10:15", mealTypeLabel: () => "Alimentação" });
   vm.runInContext(app.slice(app.indexOf("function markerAttributes(marker) {"), app.indexOf("function markerTimeText(label, at, type) {")), client);
   vm.runInContext(app.slice(app.indexOf("function showMealDetailCard(meal) {"), app.indexOf("function showPumpingDetailCard(record) {")), client);
   vm.runInContext(app.slice(app.indexOf("function escapeHtml(value) {"), app.indexOf("function clamp(value, min, max) {")), client);

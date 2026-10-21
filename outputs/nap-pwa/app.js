@@ -1,8 +1,9 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261012.v1";
+const APP_VERSION = "20261021.v4";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
+const MealMenu = window.SonecaMealMenu;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -132,6 +133,8 @@ const defaultState = {
   nights: [],
   feedings: [],
   meals: [],
+  mealRules: null,
+  weeklyIngredients: null,
   pumpings: [],
   pumpingUses: [],
   pumpingMerges: [],
@@ -339,6 +342,32 @@ const els = {
   currentWeek: document.querySelector("#currentWeek"),
   nextWeek: document.querySelector("#nextWeek"),
   profilePanel: document.querySelector("#profilePanel"),
+  mealRulesSummary: document.querySelector("#mealRulesSummary"),
+  mealRulesStatus: document.querySelector("#mealRulesStatus"),
+  mealActiveMorningSnack: document.querySelector("#mealActiveMorningSnack"),
+  mealActiveLunch: document.querySelector("#mealActiveLunch"),
+  mealActiveAfternoonSnack: document.querySelector("#mealActiveAfternoonSnack"),
+  mealActiveDinner: document.querySelector("#mealActiveDinner"),
+  mealCountVegetables: document.querySelector("#mealCountVegetables"),
+  mealCountProteins: document.querySelector("#mealCountProteins"),
+  mealCountGreens: document.querySelector("#mealCountGreens"),
+  mealCountGrains: document.querySelector("#mealCountGrains"),
+  mealCountBeans: document.querySelector("#mealCountBeans"),
+  mealCountFruits: document.querySelector("#mealCountFruits"),
+  mealRotateEffects: document.querySelector("#mealRotateEffects"),
+  mealMondayEffect: document.querySelector("#mealMondayEffect"),
+  saveMealRules: document.querySelector("#saveMealRules"),
+  weeklyIngredientsDetails: document.querySelector("#weeklyIngredientsDetails"),
+  weeklyIngredientsWeek: document.querySelector("#weeklyIngredientsWeek"),
+  weeklyFruits: document.querySelector("#weeklyFruits"),
+  weeklyProteins: document.querySelector("#weeklyProteins"),
+  weeklyGrains: document.querySelector("#weeklyGrains"),
+  weeklyBeans: document.querySelector("#weeklyBeans"),
+  weeklyVegetables: document.querySelector("#weeklyVegetables"),
+  weeklyGreens: document.querySelector("#weeklyGreens"),
+  weeklyIngredientEffects: document.querySelector("#weeklyIngredientEffects"),
+  saveWeeklyIngredients: document.querySelector("#saveWeeklyIngredients"),
+  weeklyIngredientsStatus: document.querySelector("#weeklyIngredientsStatus"),
   profileSheetMount: document.querySelector("#profileSheetMount"),
   installHelp: document.querySelector("#installHelp"),
   installSheet: document.querySelector("#installSheet"),
@@ -376,7 +405,13 @@ const els = {
   mealSheet: document.querySelector("#mealSheet"),
   closeMeal: document.querySelector("#closeMeal"),
   mealTime: document.querySelector("#mealTime"),
+  mealType: document.querySelector("#mealType"),
+  mealSuggestionsTitle: document.querySelector("#mealSuggestionsTitle"),
   mealFood: document.querySelector("#mealFood"),
+  mealSuggestions: document.querySelector("#mealSuggestions"),
+  mealSuggestionsHint: document.querySelector("#mealSuggestionsHint"),
+  mealOtherField: document.querySelector("#mealOtherField"),
+  editWeeklyIngredients: document.querySelector("#editWeeklyIngredients"),
   mealWater: document.querySelector("#mealWater"),
   saveMeal: document.querySelector("#saveMeal"),
   mealError: document.querySelector("#mealError"),
@@ -454,6 +489,10 @@ let reportWeekStart = startOfWeek(new Date());
 let selectedFeedSide = "left";
 let feedingSheetSupport = null;
 let mealSheetSupport = null;
+let weeklyIngredientsEditing = false;
+let weeklyIngredientsSyncPromise = null;
+let mealRulesEditing = false;
+let mealRulesSyncPromise = null;
 let pumpingSheetSupport = null;
 let pumpingUseSheetSupport = null;
 let pumpingMergeSheetSupport = null;
@@ -564,6 +603,8 @@ async function refreshSharedRecordsNow() {
       loadTummyTimesFromSheet({ deferRender: true }),
       loadPumpingsFromSheet({ deferRender: true })
     ]);
+    await Promise.all([loadWeeklyIngredientsFromSheet(), loadMealRulesFromSheet()]);
+    await Promise.all([syncWeeklyIngredientsToSheet(), syncMealRulesToSheet()]);
     const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
     const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
     const loadedMeals = mealLoad.status === "fulfilled" ? mealLoad.value : null;
@@ -636,6 +677,9 @@ function hydrateForm() {
   els.bedtime.value = state.bedtime;
   els.plannedNapCount.value = String(state.plannedNapCount || defaultState.plannedNapCount);
   hydrateFeedingOptions();
+  renderMealRules();
+  renderWeeklyIngredients();
+  renderMealTypeOptions();
   if (!els.historyDate.value) {
     els.historyDate.value = dateInputValue(new Date());
   }
@@ -903,6 +947,43 @@ function bindEvents() {
   });
   els.closeMeal.addEventListener("click", () => toggleMealSheet(false));
   els.saveMeal.addEventListener("click", saveMeal);
+  els.mealTime.addEventListener("change", renderMealSuggestions);
+  els.mealType.addEventListener("change", renderMealSuggestions);
+  els.mealSuggestions.addEventListener("change", () => {
+    els.mealOtherField.hidden = selectedMealOption() !== "other";
+    if (!els.mealOtherField.hidden) els.mealFood.focus();
+  });
+  els.editWeeklyIngredients.addEventListener("click", () => {
+    toggleMealSheet(false);
+    toggleProfileSheet(true);
+    els.weeklyIngredientsDetails.open = true;
+    document.querySelector(".weekly-ingredients")?.scrollIntoView({ block: "center" });
+  });
+  els.saveWeeklyIngredients.addEventListener("click", saveWeeklyIngredientsFromForm);
+  els.saveMealRules.addEventListener("click", saveMealRulesFromForm);
+  mealRulesControls().forEach((field) => {
+    field.addEventListener("input", () => {
+      mealRulesEditing = true;
+      els.mealRulesStatus.textContent = "Alterações não salvas.";
+    });
+    field.addEventListener("change", () => {
+      mealRulesEditing = true;
+      els.mealRulesStatus.textContent = "Alterações não salvas.";
+    });
+  });
+  els.mealRotateEffects.addEventListener("change", () => {
+    els.mealMondayEffect.disabled = !els.mealRotateEffects.checked;
+  });
+  [els.weeklyFruits, els.weeklyProteins, els.weeklyVegetables, els.weeklyGreens, els.weeklyGrains, els.weeklyBeans]
+    .forEach((field) => field.addEventListener("input", () => {
+      weeklyIngredientsEditing = true;
+      els.weeklyIngredientsStatus.textContent = "Alterações não salvas.";
+      renderWeeklyIngredientEffects();
+    }));
+  els.weeklyIngredientEffects.addEventListener("change", () => {
+    weeklyIngredientsEditing = true;
+    els.weeklyIngredientsStatus.textContent = "Alterações não salvas.";
+  });
   els.pumpingSheet?.addEventListener("click", (event) => {
     if (event.target === els.pumpingSheet) togglePumpingSheet(false);
   });
@@ -1881,13 +1962,14 @@ function addNapRecord(nap, options = {}) {
   if (sync) syncNapToSheet(nap);
 }
 
-function createMealRecord(at, food, water) {
+function createMealRecord(at, food, water, mealType = "") {
   return {
     id: `meal-${at.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
     babyName: state.babyName || "",
     at: at.toISOString(),
     food,
     water: Boolean(water),
+    mealType,
     synced: false
   };
 }
@@ -3353,7 +3435,7 @@ function showMealDetailCard(meal) {
   if (!els.napDetailCard) return;
   els.napDetailCard.innerHTML = `
     <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
-    <span>Alimentação</span>
+    <span>${mealTypeLabel(meal.mealType)}</span>
     <strong>${timeLabel(new Date(meal.at))} · ${escapeHtml(meal.food)}</strong>
     <small>${meal.water ? "Bebeu água" : "Não bebeu água"}</small>
   `;
@@ -4130,7 +4212,7 @@ function renderHistory() {
       return `<li><div><span>Mamada · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${feedingLabel(record)}</b></div></div><div class="history-actions"><div class="history-mood">${feedingSideLabel(record.side)}</div><button class="delete-nap" data-delete-feeding="${feedingIdentity(record)}" aria-label="Excluir mamada" title="Excluir mamada">×</button></div></li>`;
     }
     if (record.type === "meal") {
-      return `<li><div><span>Alimentação · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${escapeHtml(record.food)}</b></div></div><div class="history-actions"><div class="history-mood">${record.water ? "Bebeu água" : "Sem água"}</div><button class="delete-nap" data-delete-meal="${record.id}" aria-label="Excluir alimentação" title="Excluir alimentação">×</button></div></li>`;
+      return `<li><div><span>${mealTypeLabel(record.mealType)} · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${escapeHtml(record.food)}</b></div></div><div class="history-actions"><div class="history-mood">${record.water ? "Bebeu água" : "Sem água"}</div><button class="delete-nap" data-delete-meal="${record.id}" aria-label="Excluir alimentação" title="Excluir alimentação">×</button></div></li>`;
     }
     if (record.type === "diaper") {
       return `<li><div><span>Troca de fralda · ${dateLabel(start)}</span><div class="history-times"><b>${timeLabel(start)}</b><b>${diaperTypeLabel(record.diaperType || record.kind || record.typeValue || record.type)}</b></div></div><div class="history-actions"><div class="history-mood">${diaperHasPoop(record) ? "Com cocô" : "Sem cocô"}</div><button class="delete-nap" data-delete-diaper="${diaperIdentity(record)}" aria-label="Excluir troca" title="Excluir troca">×</button></div></li>`;
@@ -6173,6 +6255,7 @@ async function loadFromSheet() {
     loadTummyTimesFromSheet({ deferRender: true }),
     loadPumpingsFromSheet({ deferRender: true })
   ]);
+  await Promise.all([loadWeeklyIngredientsFromSheet(), loadMealRulesFromSheet()]);
 
   const loadedSleep = sleepLoad.status === "fulfilled" ? sleepLoad.value : null;
   const loadedFeedings = feedingLoad.status === "fulfilled" ? feedingLoad.value : null;
@@ -6298,7 +6381,9 @@ function syncPendingAfterInitialLoad() {
     syncPendingPumpingUsesToSheet(),
     syncPendingPumpingMergesToSheet(),
     syncPendingPumpingDiscardsToSheet(),
-    syncPumpingPlanToSheet()
+    syncPumpingPlanToSheet(),
+    syncWeeklyIngredientsToSheet(),
+    syncMealRulesToSheet()
   ]).finally(() => { pendingRecordsSyncPromise = null; });
   return pendingRecordsSyncPromise;
 }
@@ -6479,6 +6564,7 @@ function sheetRecordToMeal(record) {
     at: at.toISOString(),
     food: String(record.food || "").trim(),
     water: record.water === true || String(record.water || "").toLowerCase() === "sim",
+    mealType: record.mealType || "",
     synced: true
   };
 }
@@ -6991,7 +7077,8 @@ async function syncMealsToSheet(meals) {
     babyName: meal.babyName || state.babyName || "Bebê",
     at: toLocalDateTimeValue(new Date(meal.at)),
     food: meal.food,
-    water: meal.water
+    water: meal.water,
+    mealType: meal.mealType || ""
   }));
   try {
     const response = await fetch(SHEETS_WEB_APP_URL, {
@@ -9469,6 +9556,12 @@ function loadState() {
       ? new Date(loaded.nightRoutineStartedAt).toISOString()
       : null;
     loaded.feedingOptions = { ...defaultState.feedingOptions, ...(loaded.feedingOptions || {}) };
+    loaded.weeklyIngredients = loaded.weeklyIngredients?.weekStart
+      ? { ...MealMenu.normalize(loaded.weeklyIngredients), babyName: loaded.weeklyIngredients.babyName || loaded.babyName || "Bebê", synced: Boolean(loaded.weeklyIngredients.synced) }
+      : null;
+    loaded.mealRules = loaded.mealRules
+      ? { ...MealMenu.normalizeRules(loaded.mealRules), updatedAt: loaded.mealRules.updatedAt || "", synced: Boolean(loaded.mealRules.synced) }
+      : null;
     loaded.sleepDiary = normalizeSleepDiary(loaded.sleepDiary);
     loaded.activeNightAwakenings = normalizeAwakenings(loaded.activeNightAwakenings || []);
     loaded.babyBirthDate = normalizeDateInputValue(loaded.babyBirthDate);
@@ -9533,6 +9626,7 @@ function loadState() {
         at: at.toISOString(),
         food: String(meal.food || "").trim(),
         water: Boolean(meal.water),
+        mealType: meal.mealType || "",
         synced: Boolean(meal.synced)
       };
     }).filter(Boolean).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 240);
@@ -9931,6 +10025,10 @@ function toggleInstallSheet(open) {
 
 function toggleProfileSheet(open) {
   setSheetOpen(els.profileSheet, open);
+  if (open) {
+    renderMealRules();
+    renderWeeklyIngredients();
+  }
 }
 
 function toggleHistorySheet(open) {
@@ -10032,11 +10130,306 @@ function toggleFeedingSheet(open) {
 
 function openMealSheet() {
   els.mealTime.value = "";
+  els.mealType.value = new Date().getHours() < 11 ? "morningSnack" : "lunch";
+  renderMealTypeOptions();
   els.mealFood.value = "";
   els.mealWater.checked = false;
   els.mealError.textContent = "";
+  renderMealSuggestions();
   toggleMealSheet(true);
-  els.mealFood.focus();
+  els.mealSuggestions.querySelector("input:checked")?.focus();
+}
+
+function mealRulesControls() {
+  return [els.mealActiveMorningSnack, els.mealActiveLunch, els.mealActiveAfternoonSnack, els.mealActiveDinner,
+    els.mealCountVegetables, els.mealCountProteins, els.mealCountGreens, els.mealCountGrains,
+    els.mealCountBeans, els.mealCountFruits, els.mealRotateEffects, els.mealMondayEffect];
+}
+
+function currentMealRules() {
+  return MealMenu.normalizeRules(state.mealRules);
+}
+
+function renderMealTypeOptions() {
+  const rules = currentMealRules();
+  [...els.mealType.options].forEach((option) => { option.disabled = !rules.activeTypes[option.value]; });
+  if (!rules.activeTypes[els.mealType.value]) {
+    els.mealType.value = [...els.mealType.options].find((option) => !option.disabled)?.value || "";
+  }
+}
+
+function renderMealRules() {
+  const rules = currentMealRules();
+  const enabled = MealMenu.mealTypes.filter((type) => rules.activeTypes[type]);
+  els.mealRulesSummary.textContent = enabled.map(mealTypeLabel).join(" · ") || "Nenhuma refeição ativa";
+  if (mealRulesEditing) return;
+  [[els.mealActiveMorningSnack, "morningSnack"], [els.mealActiveLunch, "lunch"],
+    [els.mealActiveAfternoonSnack, "afternoonSnack"], [els.mealActiveDinner, "dinner"]]
+    .forEach(([field, type]) => { field.checked = rules.activeTypes[type]; });
+  [[els.mealCountVegetables, "vegetables"], [els.mealCountProteins, "proteins"],
+    [els.mealCountGreens, "greens"], [els.mealCountGrains, "grains"],
+    [els.mealCountBeans, "beans"], [els.mealCountFruits, "fruits"]]
+    .forEach(([field, group]) => { field.value = String(rules.counts[group]); });
+  els.mealRotateEffects.checked = rules.rotateEffects;
+  els.mealMondayEffect.value = rules.mondayEffect;
+  els.mealMondayEffect.disabled = !rules.rotateEffects;
+  els.mealRulesStatus.textContent = state.mealRules
+    ? state.mealRules.synced ? "Regras sincronizadas entre aparelhos." : "Regras salvas neste aparelho; aguardando sincronização."
+    : "Usando as regras iniciais. Salve para compartilhar entre aparelhos.";
+}
+
+function mealRulesFromForm() {
+  return {
+    activeTypes: {
+      morningSnack: els.mealActiveMorningSnack.checked, lunch: els.mealActiveLunch.checked,
+      afternoonSnack: els.mealActiveAfternoonSnack.checked, dinner: els.mealActiveDinner.checked
+    },
+    counts: {
+      vegetables: Number(els.mealCountVegetables.value), proteins: Number(els.mealCountProteins.value),
+      greens: Number(els.mealCountGreens.value), grains: Number(els.mealCountGrains.value),
+      beans: Number(els.mealCountBeans.value), fruits: Number(els.mealCountFruits.value)
+    },
+    rotateEffects: els.mealRotateEffects.checked,
+    mondayEffect: els.mealMondayEffect.value
+  };
+}
+
+function saveMealRulesFromForm() {
+  const fields = [els.mealCountVegetables, els.mealCountProteins, els.mealCountGreens,
+    els.mealCountGrains, els.mealCountBeans, els.mealCountFruits];
+  if (fields.some((field) => field.value === "" || !Number.isInteger(Number(field.value)) || Number(field.value) < 0 || Number(field.value) > 5)) {
+    els.mealRulesStatus.textContent = "Use quantidades inteiras de 0 a 5.";
+    return;
+  }
+  const rules = mealRulesFromForm();
+  if (!Object.values(rules.activeTypes).some(Boolean)) {
+    els.mealRulesStatus.textContent = "Ative ao menos uma refeição.";
+    return;
+  }
+  if ((rules.activeTypes.morningSnack || rules.activeTypes.afternoonSnack) && !rules.counts.fruits) {
+    els.mealRulesStatus.textContent = "Defina ao menos uma fruta por lanche ativo.";
+    return;
+  }
+  if ((rules.activeTypes.lunch || rules.activeTypes.dinner)
+    && ![rules.counts.vegetables, rules.counts.proteins, rules.counts.greens, rules.counts.grains, rules.counts.beans].some(Boolean)) {
+    els.mealRulesStatus.textContent = "Defina ao menos um ingrediente para almoço e jantar.";
+    return;
+  }
+  state.mealRules = { ...MealMenu.normalizeRules(rules), updatedAt: new Date().toISOString(), synced: false };
+  mealRulesEditing = false;
+  saveState();
+  renderMealRules();
+  renderMealTypeOptions();
+  if (els.mealSheet.getAttribute("aria-hidden") === "false") renderMealSuggestions();
+  syncMealRulesToSheet();
+}
+
+async function loadMealRulesFromSheet() {
+  if (!SHEETS_WEB_APP_URL) return;
+  const babyName = state.babyName || "Bebê";
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=mealRules&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}&babyName=${encodeURIComponent(babyName)}`;
+    const result = await fetchSheetJson(url);
+    if (!result.ok || !("rules" in result)) throw new Error(result.error || "Atualize o Apps Script para compartilhar as regras.");
+    if (state.mealRules && !state.mealRules.synced) return;
+    const remote = result.rules ? { ...MealMenu.normalizeRules(result.rules), updatedAt: result.rules.updatedAt || "", synced: true } : null;
+    if (JSON.stringify(state.mealRules) === JSON.stringify(remote)) return;
+    state.mealRules = remote;
+    saveState();
+    if (!mealRulesEditing) renderMealRules();
+    renderMealTypeOptions();
+    if (els.mealSheet.getAttribute("aria-hidden") === "false") renderMealSuggestions();
+  } catch (error) {
+    els.mealRulesStatus.textContent = `Não foi possível conferir as regras na planilha: ${error.message}`;
+  }
+}
+
+async function syncMealRulesToSheet() {
+  const rules = state.mealRules;
+  if (!SHEETS_WEB_APP_URL || !rules || rules.synced) return;
+  if (mealRulesSyncPromise) return mealRulesSyncPromise;
+  mealRulesSyncPromise = sendMealRulesToSheet(rules).finally(() => {
+    mealRulesSyncPromise = null;
+    if (state.mealRules && !state.mealRules.synced && state.mealRules.updatedAt !== rules.updatedAt) syncMealRulesToSheet();
+  });
+  return mealRulesSyncPromise;
+}
+
+async function sendMealRulesToSheet(rules) {
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "saveMealRules", babyName: state.babyName || "Bebê", rules })
+    });
+    const result = await response.json();
+    if (!result.ok || !result.rules) throw new Error(result.error || "Atualize o Apps Script para compartilhar as regras.");
+    if (state.mealRules?.updatedAt === rules.updatedAt) {
+      state.mealRules = { ...MealMenu.normalizeRules(result.rules), updatedAt: result.rules.updatedAt || "", synced: true };
+      saveState();
+      if (!mealRulesEditing) renderMealRules();
+    }
+  } catch (error) {
+    els.mealRulesStatus.textContent = `Regras salvas neste aparelho, mas não sincronizadas: ${error.message}`;
+  }
+}
+
+function currentWeeklyIngredients() {
+  return state.weeklyIngredients?.weekStart === MealMenu.weekStart(new Date())
+    ? state.weeklyIngredients : null;
+}
+
+function renderWeeklyIngredients() {
+  const week = MealMenu.weekStart(new Date());
+  const end = new Date(`${week}T12:00:00`);
+  end.setDate(end.getDate() + 6);
+  els.weeklyIngredientsWeek.textContent = `Semana de ${new Date(`${week}T12:00:00`).toLocaleDateString("pt-BR")} a ${end.toLocaleDateString("pt-BR")}`;
+  if (weeklyIngredientsEditing) return;
+  const plan = currentWeeklyIngredients();
+  [[els.weeklyFruits, "fruits"], [els.weeklyProteins, "proteins"],
+    [els.weeklyVegetables, "vegetables"], [els.weeklyGreens, "greens"],
+    [els.weeklyGrains, "grains"], [els.weeklyBeans, "beans"]]
+    .forEach(([field, group]) => { field.value = (plan?.[group] || []).join(", "); });
+  renderWeeklyIngredientEffects(false);
+  els.weeklyIngredientsStatus.textContent = plan
+    ? plan.synced ? "Ingredientes sincronizados entre aparelhos." : "Ingredientes salvos neste aparelho; aguardando sincronização."
+    : "Nenhum ingrediente cadastrado nesta semana.";
+}
+
+function weeklyIngredientsFromForm() {
+  return {
+    fruits: MealMenu.ingredients(els.weeklyFruits.value),
+    proteins: MealMenu.ingredients(els.weeklyProteins.value),
+    grains: MealMenu.ingredients(els.weeklyGrains.value),
+    beans: MealMenu.ingredients(els.weeklyBeans.value),
+    vegetables: MealMenu.ingredients(els.weeklyVegetables.value),
+    greens: MealMenu.ingredients(els.weeklyGreens.value)
+  };
+}
+
+function ingredientEffectsFromForm() {
+  const effects = {};
+  els.weeklyIngredientEffects.querySelectorAll("select[data-ingredient-key]").forEach((select) => {
+    effects[select.dataset.ingredientKey] = select.value;
+  });
+  return effects;
+}
+
+function renderWeeklyIngredientEffects(keepCurrent = true) {
+  const selected = { ...currentWeeklyIngredients()?.effects, ...(keepCurrent ? ingredientEffectsFromForm() : {}) };
+  const groups = weeklyIngredientsFromForm();
+  const visible = [groups.fruits, groups.proteins, groups.vegetables, groups.greens, groups.grains, groups.beans].flat();
+  const names = [...new Set(visible.map((name) => MealMenu.ingredientKey(name)))];
+  els.weeklyIngredientEffects.innerHTML = names.map((key) => {
+    const label = visible.find((name) => MealMenu.ingredientKey(name) === key);
+    const effect = selected[key] || "neutral";
+    const safeKey = escapeHtml(key).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    const safeLabel = escapeHtml(label).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    return `<label class="weekly-effect-row"><span>${escapeHtml(label)}</span><select data-ingredient-key="${safeKey}" aria-label="Efeito intestinal de ${safeLabel}"><option value="neutral"${effect === "neutral" ? " selected" : ""}>Neutro</option><option value="bind"${effect === "bind" ? " selected" : ""}>Prende</option><option value="loosen"${effect === "loosen" ? " selected" : ""}>Solta</option></select></label>`;
+  }).join("");
+}
+
+function mealTypeLabel(value) {
+  return { morningSnack: "Lanche da manhã", lunch: "Almoço", afternoonSnack: "Lanche da tarde", dinner: "Jantar" }[value] || "Alimentação";
+}
+
+function selectedMealOption() {
+  return els.mealSuggestions.querySelector('input[name="mealSuggestion"]:checked')?.value || "";
+}
+
+function renderMealSuggestions() {
+  const at = els.mealTime.value ? new Date(els.mealTime.value) : new Date();
+  const mealType = els.mealType.value;
+  const rules = currentMealRules();
+  els.mealSuggestionsTitle.textContent = `Sugestões para ${mealTypeLabel(mealType).toLowerCase()}`;
+  const suggestions = Number.isNaN(at.getTime()) ? [] : MealMenu.suggestions(state.weeklyIngredients, at, mealType, rules);
+  els.mealSuggestions.innerHTML = suggestions.map((food, index) =>
+    `<label class="meal-suggestion"><input type="radio" name="mealSuggestion" value="${index}"><span>${escapeHtml(food)}</span></label>`
+  ).join("") + '<label class="meal-suggestion"><input type="radio" name="mealSuggestion" value="other"><span>Outros — escrever o que comeu</span></label>';
+  if (!suggestions.length) els.mealSuggestions.querySelector('input[value="other"]').checked = true;
+  els.mealOtherField.hidden = suggestions.length > 0;
+  const rotation = suggestions.length && rules.rotateEffects ? `Nesta data, a ordem prioriza o que você marcou como “${MealMenu.preferredEffect(at, rules) === "loosen" ? "solta" : "prende"}”, quando disponível. ` : "";
+  const plan = MealMenu.normalize(state.weeklyIngredients);
+  const missing = [];
+  [["vegetables", "legumes"], ["proteins", "proteínas"], ["greens", "vegetais verdes"],
+    ["grains", "grãos/tubérculos"], ["beans", "feijões/leguminosas"]]
+    .forEach(([group, label]) => {
+      if (rules.counts[group] > plan[group].length) missing.push(`${rules.counts[group]} ${label}`);
+    });
+  els.mealSuggestionsHint.textContent = rotation + (suggestions.length === 3 ? "Escolha uma opção ou escreva em Outros."
+    : suggestions.length ? "Há poucas combinações possíveis nesta semana; cadastre mais ingredientes para ver três opções."
+      : mealType === "morningSnack" || mealType === "afternoonSnack" ? `Cadastre ${rules.counts.fruits} fruta(s) da semana para receber sugestões de lanche.`
+        : `Para sugerir ${mealType === "dinner" ? "o jantar" : "o almoço"}, cadastre ${missing.join(", ") || "ingredientes para a semana escolhida"}.`);
+}
+
+function saveWeeklyIngredientsFromForm() {
+  const weekStart = MealMenu.weekStart(new Date());
+  const plan = {
+    weekStart, babyName: state.babyName || "Bebê", updatedAt: new Date().toISOString(), synced: false,
+    ...weeklyIngredientsFromForm(),
+    effects: ingredientEffectsFromForm()
+  };
+  if (![plan.fruits, plan.proteins, plan.vegetables, plan.greens, plan.grains, plan.beans].some((items) => items.length)) {
+    els.weeklyIngredientsStatus.textContent = "Informe ao menos um ingrediente.";
+    return;
+  }
+  state.weeklyIngredients = plan;
+  weeklyIngredientsEditing = false;
+  saveState();
+  renderWeeklyIngredients();
+  if (els.mealSheet.getAttribute("aria-hidden") === "false") renderMealSuggestions();
+  syncWeeklyIngredientsToSheet();
+}
+
+async function loadWeeklyIngredientsFromSheet() {
+  if (!SHEETS_WEB_APP_URL) return;
+  const weekStart = MealMenu.weekStart(new Date());
+  const babyName = state.babyName || "Bebê";
+  try {
+    const url = `${SHEETS_WEB_APP_URL}?action=weeklyIngredients&token=${encodeURIComponent(SHEETS_SHARED_TOKEN)}&weekStart=${encodeURIComponent(weekStart)}&babyName=${encodeURIComponent(babyName)}`;
+    const result = await fetchSheetJson(url);
+    if (!result.ok || !("plan" in result)) throw new Error(result.error || "Atualize o Apps Script para compartilhar os ingredientes.");
+    if (state.weeklyIngredients?.weekStart === weekStart && !state.weeklyIngredients.synced) return;
+    const remotePlan = result.plan ? { ...MealMenu.normalize(result.plan), babyName, synced: true } : null;
+    if (JSON.stringify(state.weeklyIngredients) === JSON.stringify(remotePlan)) return;
+    state.weeklyIngredients = remotePlan;
+    saveState();
+    if (!weeklyIngredientsEditing) renderWeeklyIngredients();
+    if (els.mealSheet.getAttribute("aria-hidden") === "false") renderMealSuggestions();
+  } catch (error) {
+    els.weeklyIngredientsStatus.textContent = `Não foi possível conferir os ingredientes na planilha: ${error.message}`;
+  }
+}
+
+async function syncWeeklyIngredientsToSheet() {
+  const plan = currentWeeklyIngredients();
+  if (!SHEETS_WEB_APP_URL || !plan || plan.synced) return;
+  if (weeklyIngredientsSyncPromise) return weeklyIngredientsSyncPromise;
+  weeklyIngredientsSyncPromise = sendWeeklyIngredientsToSheet(plan).finally(() => {
+    weeklyIngredientsSyncPromise = null;
+    if (currentWeeklyIngredients() && !currentWeeklyIngredients().synced && currentWeeklyIngredients().updatedAt !== plan.updatedAt) {
+      syncWeeklyIngredientsToSheet();
+    }
+  });
+  return weeklyIngredientsSyncPromise;
+}
+
+async function sendWeeklyIngredientsToSheet(plan) {
+  const revision = plan.updatedAt;
+  try {
+    const response = await fetch(SHEETS_WEB_APP_URL, {
+      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: SHEETS_SHARED_TOKEN, action: "saveWeeklyIngredients", ...plan })
+    });
+    const result = await response.json();
+    if (!result.ok || !result.plan) throw new Error(result.error || "Atualize o Apps Script para compartilhar os ingredientes.");
+    if (state.weeklyIngredients?.updatedAt === revision) {
+      state.weeklyIngredients = { ...MealMenu.normalize(result.plan), babyName: plan.babyName, synced: true };
+      saveState();
+      if (!weeklyIngredientsEditing) renderWeeklyIngredients();
+    }
+  } catch (error) {
+    els.weeklyIngredientsStatus.textContent = `Salvo neste aparelho, mas não sincronizado: ${error.message}`;
+  }
 }
 
 function toggleMealSheet(open) {
@@ -10493,11 +10886,14 @@ function applyVerifiedLiviaBirthDate(profile) {
 
 function saveMeal() {
   if (els.saveMeal.disabled) return;
-  const food = els.mealFood.value.trim().replace(/\s+/g, " ");
+  const choice = selectedMealOption();
+  const suggestions = MealMenu.suggestions(state.weeklyIngredients, els.mealTime.value ? new Date(els.mealTime.value) : new Date(), els.mealType.value, currentMealRules());
+  const food = choice === "other" ? els.mealFood.value.trim().replace(/\s+/g, " ")
+    : choice === "" ? "" : suggestions[Number(choice)] || "";
   const at = els.mealTime.value ? new Date(els.mealTime.value) : new Date();
   if (!food) {
-    els.mealError.textContent = "Informe o que ela comeu.";
-    els.mealFood.focus();
+    els.mealError.textContent = choice ? "Informe o que ela comeu." : "Escolha uma opção ou marque Outros.";
+    if (choice === "other") els.mealFood.focus();
     return;
   }
   if (Number.isNaN(at.getTime()) || at > new Date()) {
@@ -10505,7 +10901,7 @@ function saveMeal() {
     return;
   }
   els.saveMeal.disabled = true;
-  addMealRecord(createMealRecord(at, food, els.mealWater.checked));
+  addMealRecord(createMealRecord(at, food, els.mealWater.checked, els.mealType.value));
   toggleMealSheet(false);
   els.saveMeal.disabled = false;
   render();
@@ -10658,7 +11054,7 @@ function diaperTypeKey(value) {
 }
 
 function mealCollectionSignature(meals = []) {
-  return meals.map((meal) => [meal.id, meal.at, meal.food, meal.water ? "1" : "0", meal.synced ? "1" : "0"].join("|"))
+  return meals.map((meal) => [meal.id, meal.at, meal.food, meal.water ? "1" : "0", meal.mealType || "", meal.synced ? "1" : "0"].join("|"))
     .sort().join(";");
 }
 

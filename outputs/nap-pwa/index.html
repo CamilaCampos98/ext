@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=20260930.4">
+    <link rel="stylesheet" href="styles.css?v=20261021.v4">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -171,6 +171,56 @@
               <label><input id="feedFormulaEnabled" type="checkbox"> Fórmula</label>
             </div>
           </div>
+          <section class="meal-profile" aria-label="Cardápio">
+            <p class="label">Cardápio</p>
+            <details class="meal-profile-card" id="mealRulesDetails">
+              <summary><strong>Regras das refeições</strong><small id="mealRulesSummary"></small></summary>
+              <div class="meal-profile-content">
+                <p class="fineprint">Quais refeições devem aparecer nas sugestões?</p>
+                <div class="meal-active-grid">
+                  <label><input id="mealActiveMorningSnack" type="checkbox"> Lanche da manhã</label>
+                  <label><input id="mealActiveLunch" type="checkbox"> Almoço</label>
+                  <label><input id="mealActiveAfternoonSnack" type="checkbox"> Lanche da tarde</label>
+                  <label><input id="mealActiveDinner" type="checkbox"> Jantar</label>
+                </div>
+                <p class="fineprint">Quantidade de ingredientes diferentes em cada prato principal (almoço e jantar), não tamanho da porção:</p>
+                <div class="meal-rule-grid">
+                  <label>Legumes<input id="mealCountVegetables" type="number" min="0" max="5" step="1"></label>
+                  <label>Proteínas<input id="mealCountProteins" type="number" min="0" max="5" step="1"></label>
+                  <label>Vegetais verdes<input id="mealCountGreens" type="number" min="0" max="5" step="1"></label>
+                  <label>Grãos/tubérculos<input id="mealCountGrains" type="number" min="0" max="5" step="1"></label>
+                  <label>Feijões/leguminosas<input id="mealCountBeans" type="number" min="0" max="5" step="1"></label>
+                  <label>Frutas por lanche<input id="mealCountFruits" type="number" min="0" max="5" step="1"></label>
+                </div>
+                <div class="meal-rotation-row">
+                  <label><input id="mealRotateEffects" type="checkbox"> Alternar prioridade “prende/solta” por dia</label>
+                  <label>Começar a semana priorizando<select id="mealMondayEffect"><option value="loosen">Solta</option><option value="bind">Prende</option></select></label>
+                </div>
+                <button class="primary" id="saveMealRules" type="button">Salvar regras</button>
+                <p class="fineprint" id="mealRulesStatus" role="status"></p>
+              </div>
+            </details>
+            <details class="meal-profile-card weekly-ingredients" id="weeklyIngredientsDetails">
+              <summary><strong>Ingredientes da semana</strong><small id="weeklyIngredientsWeek"></small></summary>
+              <div class="meal-profile-content">
+                <div class="weekly-ingredients-grid">
+                  <label>Frutas<textarea id="weeklyFruits" rows="2" placeholder="Ex.: pera, mamão"></textarea></label>
+                  <label>Proteínas<textarea id="weeklyProteins" rows="2" placeholder="Ex.: frango, ovo"></textarea></label>
+                  <label>Legumes<textarea id="weeklyVegetables" rows="2" placeholder="Ex.: abóbora, cenoura, chuchu"></textarea></label>
+                  <label>Vegetais verdes<textarea id="weeklyGreens" rows="2" placeholder="Ex.: couve, brócolis"></textarea></label>
+                  <label>Grãos/tubérculos<textarea id="weeklyGrains" rows="2" placeholder="Opcional, conforme a regra"></textarea></label>
+                  <label>Feijões/leguminosas<textarea id="weeklyBeans" rows="2" placeholder="Opcional, conforme a regra"></textarea></label>
+                </div>
+                <p class="fineprint">Separe os ingredientes por vírgula ou linha.</p>
+                <details class="meal-effects-details" id="mealEffectsDetails"><summary>Classificar “prende/solta”</summary>
+                  <div class="weekly-effects" id="weeklyIngredientEffects"></div>
+                  <p class="fineprint">Classificação feita por você para ordenar sugestões, não como orientação médica.</p>
+                </details>
+                <button class="primary" id="saveWeeklyIngredients" type="button">Salvar ingredientes da semana</button>
+                <p class="fineprint" id="weeklyIngredientsStatus" role="status"></p>
+              </div>
+            </details>
+          </section>
           <div class="insight-grid">
             <div>
               <span>Janela usada</span>
@@ -675,9 +725,15 @@
           <input id="mealTime" type="datetime-local">
           <small>Se ficar vazio, usa o horário atual.</small>
         </label>
-        <label for="mealFood">
-          Alimento
-          <input id="mealFood" type="text" maxlength="160" autocomplete="off" placeholder="Ex.: banana e abóbora">
+        <label for="mealType">Refeição
+          <select id="mealType"><option value="morningSnack">Lanche da manhã</option><option value="lunch">Almoço</option><option value="afternoonSnack">Lanche da tarde</option><option value="dinner">Jantar</option></select>
+        </label>
+        <div class="meal-menu-heading"><strong id="mealSuggestionsTitle">Sugestões</strong><button class="text-button" id="editWeeklyIngredients" type="button">Editar ingredientes</button></div>
+        <div class="meal-suggestions" id="mealSuggestions" role="radiogroup" aria-label="Sugestões para a refeição"></div>
+        <p class="fineprint" id="mealSuggestionsHint"></p>
+        <label for="mealFood" id="mealOtherField" hidden>
+          O que comeu?
+          <input id="mealFood" type="text" maxlength="160" autocomplete="off" placeholder="Escreva o alimento">
         </label>
         <label class="meal-water-option" for="mealWater">
           <input id="mealWater" type="checkbox">
@@ -800,6 +856,7 @@
     <script src="baby-age.js?v=20260928.5" defer></script>
     <script src="pumping-calculations.js?v=20260928.3" defer></script>
     <script src="stock-pots.js?v=20260928.3" defer></script>
-    <script src="app.js?v=20261012.v1" defer></script>
+    <script src="meal-menu.js?v=20261021.v4" defer></script>
+    <script src="app.js?v=20261021.v4" defer></script>
   </body>
 </html>
