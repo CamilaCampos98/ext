@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261021.v4";
+const APP_VERSION = "20261021.v5";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -11,7 +11,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwbEjREdgmImwKyg6TD0a0Me5Pw9UxOkjcXqP0-fyRsKwwG798FjsYHiBsgvt-ACpci0A/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzr-AdcaqCfHuYCxxWFaoGP4XuoPnwSV86NwnsYrwntEpUzQCgKBq3HdodHJ3X7hBpG_A/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
