@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261021.v5";
+const APP_VERSION = "20261028.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -2925,6 +2925,12 @@ function renderPrediction(prediction) {
   }
 
   const night = calculateNightSuggestion(prediction);
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  if (rescueNap) {
+    if (els.nextWindow) els.nextWindow.textContent = "Soneca curta";
+    if (els.nextHint) els.nextHint.textContent = `${minutesToTime(rescueNap.start)} - ${minutesToTime(rescueNap.end)} · limite a ${formatDuration(rescueNap.duration)} para preservar a noite.`;
+    return;
+  }
   if (shouldKeepLateNapVisible(prediction, today, night)) {
     const name = state.babyName || "bebê";
     if (els.nextWindow) els.nextWindow.textContent = "Janela estimada passou";
@@ -3532,6 +3538,13 @@ function renderRingCenter(prediction, today) {
   }
 
   const night = calculateNightSuggestion(prediction);
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  if (rescueNap) {
+    els.dayCenterLabel.textContent = "soneca curta";
+    els.dayCenterTime.textContent = now < rescueNap.start ? `em ${formatDuration(rescueNap.start - now)}` : "janela aberta";
+    els.dayCenterHint.textContent = `${minutesToTime(rescueNap.start)} - ${minutesToTime(rescueNap.end)}`;
+    return;
+  }
   if (shouldKeepLateNapVisible(prediction, today, night)) {
     els.dayCenterLabel.textContent = nextNapName;
     els.dayCenterTime.textContent = "reavaliando";
@@ -3628,7 +3641,7 @@ function plannedNapMarkers(prediction, today, night) {
   for (let index = 0; index < remaining; index += 1) {
     const windowStart = index === 0 && !state.activeNapStart ? start : start + Math.round(step * index);
     if (windowStart > latestNapStart) continue;
-    const windowEnd = Math.min(windowStart + 30, latestNapEnd);
+    const windowEnd = Math.min(index === 0 && !state.activeNapStart ? prediction.end : windowStart + 30, latestNapEnd);
     if (windowEnd - windowStart < 15) continue;
     markers.push({ start: windowStart, end: windowEnd,
       target: Math.round((windowStart + windowEnd) / 2) });
@@ -6935,6 +6948,7 @@ async function syncNapsToSheet(naps, statusMessage) {
 function sheetPayloadForNap(nap) {
   const prediction = calculatePrediction();
   const night = calculateNightSuggestion(prediction);
+  const today = napsToday();
   const recordType = nap.type || "nap";
   const startedAt = new Date(nap.start);
   const endedAt = new Date(nap.end);
@@ -6958,11 +6972,21 @@ function sheetPayloadForNap(nap) {
     sleep24: prediction.sleep24,
     napCount: napsToday().length,
     wakeWindow: `${formatDuration(prediction.minWindow)} - ${formatDuration(prediction.maxWindow)}`,
-    nextWindow: `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`,
+    nextWindow: nextWindowForSheet(prediction, night, today, recordType),
     nightSuggestion: recordType === "night" ? bedtime : minutesToTime(night.sleepTime || night.start),
     note: recordType === "night" ? nightAwakeningsNote(nap) : napGoalNote(nap)
   };
   return payload;
+}
+
+function nextWindowForSheet(prediction, night, today, recordType) {
+  if (recordType === "night") return `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
+  const rescueNap = lateRescueNapPlan(prediction, night, today);
+  if (rescueNap) return `${minutesToTime(rescueNap.start)} - ${minutesToTime(rescueNap.end)}`;
+  if (shouldKeepLateNapVisible(prediction, today, night) || shouldSuggestNapBeforeNight(prediction, today)) {
+    return `${minutesToTime(prediction.start)} - ${minutesToTime(prediction.end)}`;
+  }
+  return `Sem nova soneca · rotina ${minutesToTime(night.start)}`;
 }
 
 async function syncFeedingToSheet(feeding) {
@@ -9864,7 +9888,7 @@ function renderSyncCenter() {
     ? visibleChanges.map((change) => `
       <div class="sync-change-item">
         <i class="fa-solid ${iconByType[change.type] || "fa-arrows-rotate"}" aria-hidden="true"></i>
-        <div><strong>${escapeHtml(change.title || "Alteração recebida")}</strong><span>${escapeHtml(change.detail || "Dados atualizados")}</span></div>
+        <div><strong>${escapeHtml(change.title || "Alteração recebida")}</strong><span>${escapeHtml(syncChangeDisplayDetail(change))}</span></div>
         <small>${escapeHtml(formatSyncMoment(change.receivedAt).replace("Hoje, ", ""))}</small>
       </div>`).join("")
     : '<p class="sync-empty">Nenhuma alteração nova recebida neste aparelho.</p>';
@@ -9885,6 +9909,13 @@ function visibleSyncChanges() {
     })
     .sort((a, b) => new Date(b.receivedAt || 0) - new Date(a.receivedAt || 0))
     .slice(0, 5);
+}
+
+function syncChangeDisplayDetail(change) {
+  const detail = change.detail || "Dados atualizados";
+  if (!["nap", "night"].includes(change.type) || /^\d{2}\/\d{2}\/\d{4}/.test(detail)) return detail;
+  const start = new Date(change.at || "");
+  return Number.isNaN(start.getTime()) ? detail : `${start.toLocaleDateString("pt-BR")} · ${detail}`;
 }
 
 function sharedRecordSnapshot() {
@@ -9911,7 +9942,12 @@ function syncRecordTimeDetail(startValue, endValue) {
   const start = new Date(startValue || "");
   const end = new Date(endValue || "");
   if (Number.isNaN(start.getTime())) return "Horário atualizado";
-  return Number.isNaN(end.getTime()) ? `Início às ${timeLabel(start)}` : `${timeLabel(start)}–${timeLabel(end)}`;
+  const date = start.toLocaleDateString("pt-BR");
+  if (Number.isNaN(end.getTime())) return `${date} · início às ${timeLabel(start)}`;
+  const endDate = end.toLocaleDateString("pt-BR");
+  return date === endDate
+    ? `${date} · ${timeLabel(start)}–${timeLabel(end)}`
+    : `${date} ${timeLabel(start)} – ${endDate} ${timeLabel(end)}`;
 }
 
 function syncSingleTimeDetail(value) {

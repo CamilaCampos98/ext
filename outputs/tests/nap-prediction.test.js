@@ -101,7 +101,7 @@ test("janela personalizada aprende com as sonecas recentes, não com as mais ant
   assert.ok(context.profile.max >= 170);
 });
 
-function plannedMarkers({ suggested = true, now = 16 * 60, nightStart = 18 * 60 + 5 } = {}) {
+function plannedMarkers({ suggested = true, now = 16 * 60, nightStart = 18 * 60 + 5, prediction = { start: 16 * 60 + 30, end: 17 * 60 } } = {}) {
   const source = appSource.slice(
     appSource.indexOf("function plannedNapMarkers(prediction, today, night) {"),
     appSource.indexOf("function plannedNapOverlapsCompleted(")
@@ -120,11 +120,7 @@ function plannedMarkers({ suggested = true, now = 16 * 60, nightStart = 18 * 60 
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  const result = context.plannedNapMarkers(
-    { start: 16 * 60 + 30, end: 17 * 60 },
-    [{}, {}],
-    { start: nightStart }
-  );
+  const result = context.plannedNapMarkers(prediction, [{}, {}], { start: nightStart });
   return Array.from(result);
 }
 
@@ -138,4 +134,12 @@ test("concha não mostra soneca perto demais da rotina noturna", () => {
 
 test("concha não desenha quinta soneca quando o assistente prioriza a noite", () => {
   assert.equal(plannedMarkers({ suggested: false }).length, 0);
+});
+
+test("primeira janela no percurso termina no mesmo horário mostrado no centro", () => {
+  const prediction = { start: 14 * 60 + 10, end: 15 * 60 + 6 };
+  const markers = plannedMarkers({ now: 14 * 60 + 20, nightStart: 17 * 60 + 35, prediction });
+
+  assert.equal(markers[0].start, prediction.start);
+  assert.equal(markers[0].end, prediction.end);
 });
