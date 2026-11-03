@@ -152,9 +152,11 @@ button {
 
 main {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .topbar,
@@ -372,7 +374,7 @@ main {
 .meal-menu-heading strong { color: var(--ink); }
 .meal-menu-heading button { padding: 6px 0; }
 .meal-suggestions { display: grid; gap: 8px; }
-.meal-timing-panel { padding: 18px; }
+.meal-timing-panel { width: min(520px, 100%); margin: 14px auto 0; padding: 16px; }
 .meal-timing-list { display: grid; gap: 8px; margin: 14px 0 10px; padding: 0; list-style: none; }
 .meal-timing-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(168, 216, 240, 0.06); }
 .meal-timing-list li strong, .meal-timing-list li small { display: block; }
@@ -769,6 +771,7 @@ h2 {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
   grid-template-columns: 1fr;
   justify-items: center;
   min-height: 0;
