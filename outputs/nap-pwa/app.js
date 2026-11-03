@@ -1,9 +1,10 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261028.v1";
+const APP_VERSION = "20261103.v1";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
+const MealSchedule = window.SonecaMealSchedule;
 const LIVIA_VERIFIED_BIRTH_DATE = "2026-03-26";
 const CIRCLE_LENGTH = 314;
 const PUSH_PUBLIC_KEY_ENDPOINT = "/api/push/public-key";
@@ -403,6 +404,8 @@ const els = {
   saveFeeding: document.querySelector("#saveFeeding"),
   feedingError: document.querySelector("#feedingError"),
   mealSheet: document.querySelector("#mealSheet"),
+  mealScheduleList: document.querySelector("#mealScheduleList"),
+  mealScheduleNote: document.querySelector("#mealScheduleNote"),
   closeMeal: document.querySelector("#closeMeal"),
   mealTime: document.querySelector("#mealTime"),
   mealType: document.querySelector("#mealType"),
@@ -2325,6 +2328,7 @@ function render() {
   updateProfileRoutineStats();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
+  renderMealSchedule(prediction);
   renderLastFeedingDock();
   renderPumping();
   renderTimer();
@@ -2350,6 +2354,7 @@ function renderLiveTick() {
   const prediction = calculatePrediction();
   renderPrediction(prediction);
   renderDayPlanner(prediction);
+  renderMealSchedule(prediction);
   renderLastFeedingDock();
   renderPumping();
   renderTimer();
@@ -2963,6 +2968,61 @@ function renderPrediction(prediction) {
   const target = minutesToTime(prediction.target);
   const name = state.babyName || "bebê";
   if (els.nextHint) els.nextHint.textContent = `Alvo provável para ${name}: perto de ${target}.`;
+}
+
+function renderMealSchedule(prediction) {
+  if (!els.mealScheduleList || !MealSchedule) return;
+  const rules = currentMealRules();
+  if (!MealSchedule.mealTypes.some((type) => rules.activeTypes[type])) {
+    els.mealScheduleList.innerHTML = "";
+    els.mealScheduleNote.textContent = "Ative uma refeição nas regras do perfil para ver horários sugeridos.";
+    return;
+  }
+  if (state.activeNightStart || nightRoutineIsActive()) {
+    els.mealScheduleList.innerHTML = "";
+    els.mealScheduleNote.textContent = "A rotina noturna está em andamento. Os horários voltam no próximo dia.";
+    return;
+  }
+
+  const night = calculateNightSuggestion(prediction);
+  const today = napsToday();
+  const now = nowMinutes();
+  const sleepIntervals = today.map((nap) => ({
+    start: dateToDayMinutes(new Date(nap.start)),
+    end: dateToDayMinutes(new Date(nap.end))
+  }));
+  if (state.activeNapStart) {
+    const start = dateToDayMinutes(new Date(state.activeNapStart));
+    const goal = Number(state.activeNapGoalDuration) || 60;
+    sleepIntervals.push({ start, end: Math.max(now + 15, start + goal) });
+  }
+  plannedNapMarkers(prediction, today, night)
+    .filter((nap) => !plannedNapOverlapsCompleted(nap, today))
+    .forEach((nap) => sleepIntervals.push({ start: nap.target - 10, end: nap.target + 55 }));
+
+  const suggestions = MealSchedule.schedule({
+    date: new Date(),
+    now,
+    dayStart: safeTimeToMinutes(state.dayStart || state.lastWake, 7 * 60),
+    nightStart: night.start,
+    activeTypes: rules.activeTypes,
+    completedMeals: mealsToday(),
+    history: state.meals,
+    sleepIntervals
+  });
+  els.mealScheduleList.innerHTML = suggestions.map((item) => {
+    const detail = item.status === "done" ? "Registrado hoje"
+      : item.status === "passed" ? "Horário habitual passou"
+      : item.status === "unavailable" ? "Ajuste conforme a rotina"
+        : item.movedForSleep ? "Após a soneca"
+          : item.movedForNow ? "Recalculado para agora"
+            : item.source === "history" ? "Baseado no histórico" : "Estimado pela rotina";
+    const time = item.status === "passed" ? "Sem registro"
+      : item.status === "unavailable" ? "Sem encaixe"
+      : `${item.status === "suggested" ? "~" : ""}${minutesToTime(item.time)}`;
+    return `<li class="is-${item.status}"><div><strong>${mealTypeLabel(item.type)}</strong><small>${detail}</small></div><span>${time}</span></li>`;
+  }).join("");
+  els.mealScheduleNote.textContent = "Horários aproximados para organizar o dia. Observe os sinais de fome e saciedade; não substituem mamadas nem orientação pediátrica.";
 }
 
 function renderDayPlanner(prediction) {

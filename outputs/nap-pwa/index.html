@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=1">
-    <link rel="stylesheet" href="styles.css?v=20261028.v1">
+    <link rel="stylesheet" href="styles.css?v=20261103.v1">
   </head>
   <body class="is-loading">
     <div class="app-loading" id="appLoading" role="status" aria-live="polite">
@@ -94,6 +94,14 @@
             <strong id="sleepPressure">0%</strong>
             <span>pressão</span>
           </div>
+        </section>
+
+        <section class="panel meal-timing-panel" aria-labelledby="mealScheduleHeading">
+          <div class="section-head compact-head">
+            <div><p class="label">Alimentação</p><h2 id="mealScheduleHeading">Horários de hoje</h2></div>
+          </div>
+          <ol class="meal-timing-list" id="mealScheduleList"></ol>
+          <p class="fineprint meal-timing-note" id="mealScheduleNote">Horários aproximados; observe os sinais de fome e saciedade.</p>
         </section>
 
         <section class="panel timer-panel">
@@ -857,6 +865,7 @@
     <script src="pumping-calculations.js?v=20260928.3" defer></script>
     <script src="stock-pots.js?v=20260928.3" defer></script>
     <script src="meal-menu.js?v=20261028.v1" defer></script>
-    <script src="app.js?v=20261028.v1" defer></script>
+    <script src="meal-schedule.js?v=20261103.v1" defer></script>
+    <script src="app.js?v=20261103.v1" defer></script>
   </body>
 </html>

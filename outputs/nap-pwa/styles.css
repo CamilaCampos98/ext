@@ -372,6 +372,16 @@ main {
 .meal-menu-heading strong { color: var(--ink); }
 .meal-menu-heading button { padding: 6px 0; }
 .meal-suggestions { display: grid; gap: 8px; }
+.meal-timing-panel { padding: 18px; }
+.meal-timing-list { display: grid; gap: 8px; margin: 14px 0 10px; padding: 0; list-style: none; }
+.meal-timing-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(168, 216, 240, 0.06); }
+.meal-timing-list li strong, .meal-timing-list li small { display: block; }
+.meal-timing-list li strong { font-size: .88rem; }
+.meal-timing-list li small { margin-top: 2px; color: var(--muted); font-size: .72rem; }
+.meal-timing-list li > span { flex-shrink: 0; color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; }
+.meal-timing-list li.is-done > span { color: #9ee6d3; }
+.meal-timing-list li.is-unavailable > span, .meal-timing-list li.is-passed > span { color: var(--muted); font-size: .78rem; }
+.meal-timing-note { margin: 0; }
 .meal-suggestion { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid rgba(168,216,240,.28); border-radius: 12px; background: rgba(168,216,240,.08); color: var(--ink); font-size: .9rem; cursor: pointer; }
 .meal-suggestion input { width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 1px 0 0; accent-color: #a8d8f0; }
 #mealOtherField[hidden] { display: none; }
