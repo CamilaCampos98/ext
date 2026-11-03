@@ -3531,6 +3531,11 @@ select {
     padding-bottom: 24px;
   }
 
+  main > .sleep-dashboard,
+  main > .meal-timing-panel {
+    flex: 0 0 auto;
+  }
+
   .bottom-nav {
     position: relative;
     left: auto;
