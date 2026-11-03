@@ -135,6 +135,8 @@ test("permite corrigir o fim da soneca anterior enquanto outra está ativa", asy
     applyLastWakeFromLatestNap: () => {},
     saveState: () => {},
     render: () => {},
+    showNapDetailCard: () => events.push("preview"),
+    napIndexForStart: () => 1,
     setHint: () => {},
     syncNapToSheet: async () => events.push("upsert")
   };
@@ -143,7 +145,7 @@ test("permite corrigir o fim da soneca anterior enquanto outra está ativa", asy
   await context.saveNapDetailEdits("previous");
 
   assert.deepEqual(errors, []);
-  assert.deepEqual(events, ["upsert"]);
+  assert.deepEqual(events, ["preview", "upsert"]);
   assert.equal(state.naps[0].end, "2026-10-02T14:28:00.000Z");
   assert.equal(state.activeNapResumeId, "current");
 });

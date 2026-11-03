@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261103.v3";
+const APP_VERSION = "20261103.v5";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -827,6 +827,8 @@ function bindEvents() {
   els.clearHistory.addEventListener("click", clearHistory);
   els.dayMarkers.addEventListener("click", handleDayMarkerClick);
   els.napDetailCard.addEventListener("click", handleNapDetailCardClick);
+  els.napDetailCard.addEventListener("input", updateNapDetailPreview);
+  els.napDetailCard.addEventListener("change", updateNapDetailPreview);
   els.historyDate.addEventListener("change", renderHistory);
   els.todayHistory.addEventListener("click", () => {
     els.historyDate.value = dateInputValue(new Date());
@@ -3279,9 +3281,9 @@ function showNapDetailCard(nap, index) {
   els.napDetailCard.innerHTML = `
     <button class="nap-detail-close" type="button" data-close-nap-detail aria-label="Fechar">×</button>
     <span>${title}</span>
-    <strong>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
-    <small>Meta: ${formatDuration(goal)} · ${goalPercent}% atingido</small>
-    <small>Duração: ${formatDuration(safeDuration(nap))}</small>
+    <strong data-nap-preview-range>Soneca: ${timeLabel(start)} - ${timeLabel(end)}</strong>
+    <small data-nap-preview-goal="${goal}">Meta: ${formatDuration(goal)} · ${goalPercent}% atingido</small>
+    <small data-nap-preview-duration>Duração: ${formatDuration(safeDuration(nap))}</small>
     <div class="nap-detail-edit">
       <label>
         <span>Inicio</span>
@@ -3303,6 +3305,33 @@ function showNapDetailCard(nap, index) {
     </button>
   `;
   els.napDetailCard.hidden = false;
+}
+
+function updateNapDetailPreview(event) {
+  if (!event.target.matches("[data-nap-edit-start], [data-nap-edit-end]")) return;
+  const startInput = els.napDetailCard.querySelector("[data-nap-edit-start]");
+  const endInput = els.napDetailCard.querySelector("[data-nap-edit-end]");
+  const range = els.napDetailCard.querySelector("[data-nap-preview-range]");
+  const goalLabel = els.napDetailCard.querySelector("[data-nap-preview-goal]");
+  const durationLabel = els.napDetailCard.querySelector("[data-nap-preview-duration]");
+  const nap = state.naps.find((item) => napIdentity(item) === startInput?.dataset.napEditStart);
+  if (!startInput?.value || !endInput?.value || !range || !goalLabel || !durationLabel || !nap) return;
+
+  const start = new Date(startInput.value);
+  const end = new Date(endInput.value);
+  const goal = Number(goalLabel.dataset.napPreviewGoal);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    range.textContent = "Soneca: confira início e fim";
+    goalLabel.textContent = `Meta: ${formatDuration(goal)} · confira os horários`;
+    durationLabel.textContent = "Duração: --";
+    return;
+  }
+
+  const grossDuration = Math.round((end - start) / 60000);
+  const duration = Math.max(1, grossDuration - napAwakeMinutesFromRecord(nap));
+  range.textContent = `Soneca: ${timeLabel(start)} - ${timeLabel(end)}`;
+  goalLabel.textContent = `Meta: ${formatDuration(goal)} · ${napGoalPercent(duration, goal)}% atingido`;
+  durationLabel.textContent = `Duração: ${formatDuration(duration)}`;
 }
 
 async function saveNapDetailEdits(napKey) {
@@ -3358,6 +3387,7 @@ async function saveNapDetailEdits(napKey) {
   applyLastWakeFromLatestNap();
   saveState();
   render();
+  showNapDetailCard(updatedNap, napIndexForStart(startedAt));
   setHint("Soneca corrigida. Atualizando Google Sheets...");
 
   await syncNapToSheet(updatedNap);
