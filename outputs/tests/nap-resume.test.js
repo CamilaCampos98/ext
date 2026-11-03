@@ -147,5 +147,6 @@ test("permite corrigir o fim da soneca anterior enquanto outra está ativa", asy
   assert.deepEqual(errors, []);
   assert.deepEqual(events, ["preview", "upsert"]);
   assert.equal(state.naps[0].end, "2026-10-02T14:28:00.000Z");
+  assert.equal(state.naps[0].needsUpsert, true);
   assert.equal(state.activeNapResumeId, "current");
 });

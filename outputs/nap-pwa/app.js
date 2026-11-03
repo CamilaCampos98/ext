@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261103.v6";
+const APP_VERSION = "20261103.v7";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -12,7 +12,7 @@ const PUSH_SUBSCRIBE_ENDPOINT = "/api/push/subscribe";
 const PUSH_SCHEDULE_ENDPOINT = "/api/push/schedule";
 const ACTIVE_NAP_NOTICE_KEY = "soneca-active-nap-notices-v1";
 const ACTIVE_NIGHT_NOTICE_KEY = "soneca-active-night-notices-v1";
-const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzr-AdcaqCfHuYCxxWFaoGP4XuoPnwSV86NwnsYrwntEpUzQCgKBq3HdodHJ3X7hBpG_A/exec";
+const SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzKsBORdUiPMAnB-TP-fLhjZDHUxRboH3KZSZ2bSgnB-uhZfexP492noq0bGxjG0dbXXw/exec";
 const SHEETS_SHARED_TOKEN = "sonecas";
 const DEFAULT_DAY_START = "07:00";
 const CYCLE_START_GRACE_MINUTES = 5;
@@ -3382,6 +3382,7 @@ async function saveNapDetailEdits(napKey) {
   updatedNap.dayStart = nap.dayStart || state.dayStart;
   updatedNap.bedtime = nap.bedtime || state.bedtime;
   updatedNap.synced = false;
+  updatedNap.needsUpsert = true;
   state.naps = state.naps.map((item) => napIdentity(item) === napKey ? updatedNap : item)
     .sort((a, b) => new Date(b.end) - new Date(a.end));
   applyLastWakeFromLatestNap();
@@ -5719,7 +5720,10 @@ async function syncNightToSheet(night) {
 async function syncPendingNapsToSheet() {
   const pending = [...state.naps, ...state.nights].filter((record) => !record.synced);
   if (!pending.length) return;
-  await syncNapsToSheet(pending, "Sincronizando registros pendentes com o Google Sheets...");
+  const edits = pending.filter((record) => record.needsUpsert);
+  const additions = pending.filter((record) => !record.needsUpsert);
+  if (edits.length) await syncNapsToSheet(edits, "Atualizando sonecas corrigidas no Google Sheets...");
+  if (additions.length) await syncNapsToSheet(additions, "Sincronizando registros pendentes com o Google Sheets...");
 }
 
 function activeSessionPayload() {
@@ -6541,6 +6545,10 @@ function sheetRecordToNap(record) {
   const startedAt = new Date(record.start);
   const endedAt = new Date(record.end);
   if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return null;
+  const duration = safeDuration({ ...record, start: startedAt.toISOString(), end: endedAt.toISOString() });
+  const goalMatch = String(record.note || "").match(/Meta da soneca:\s*(?:(\d+)h(\d{2})?|(\d+)min)/);
+  const goalDuration = goalMatch ? (goalMatch[3] ? Number(goalMatch[3])
+    : Number(goalMatch[1]) * 60 + Number(goalMatch[2] || 0)) : 0;
   return {
     id: String(record.id),
     type: "nap",
@@ -6551,7 +6559,9 @@ function sheetRecordToNap(record) {
     lastWake: normalizeTimeField(record.lastWake),
     start: startedAt.toISOString(),
     end: endedAt.toISOString(),
-    duration: safeDuration({ ...record, start: startedAt.toISOString(), end: endedAt.toISOString() }),
+    duration,
+    goalDuration,
+    goalPercent: goalDuration ? napGoalPercent(duration, goalDuration) : 0,
     mood: moodKeyFromLabel(record.mood),
     synced: true
   };
@@ -6861,11 +6871,10 @@ function yesNoKey(value) {
 }
 
 function mergeNaps(remoteNaps) {
-  const byId = new Map();
+  const byId = new Map(remoteNaps.map((nap) => [String(nap.id), nap]));
   state.naps
     .filter((nap) => !nap.synced)
     .forEach((nap) => byId.set(String(nap.id || napIdentity(nap)), nap));
-  remoteNaps.forEach((nap) => byId.set(String(nap.id), nap));
   state.naps = Array.from(byId.values())
     .sort((a, b) => new Date(b.end) - new Date(a.end))
     .slice(0, 80);
@@ -6997,10 +7006,12 @@ function applyProfileFromLatestNap() {
 async function syncNapsToSheet(naps, statusMessage) {
   if (!SHEETS_WEB_APP_URL || !naps.length) return;
 
+  const requiresUpsert = naps.some((nap) => nap.needsUpsert);
   const records = naps.map((nap) => sheetPayloadForNap(nap));
   const payload = {
     token: SHEETS_SHARED_TOKEN,
-    action: records.length > 1 ? "bulkAppend" : "append",
+    action: requiresUpsert ? (records.length > 1 ? "bulkUpsertNaps" : "upsertNap")
+      : (records.length > 1 ? "bulkAppend" : "append"),
     records,
     ...records[0]
   };
@@ -7014,20 +7025,28 @@ async function syncNapsToSheet(naps, statusMessage) {
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Falha ao gravar.");
+    if (requiresUpsert && result.upsertSupported !== true) {
+      throw new Error("Atualize a implantação do Apps Script para sincronizar edições de soneca.");
+    }
 
-    const syncedIds = new Set([...(result.inserted || []), ...(result.skipped || [])].map(String));
+    const syncedIds = new Set([...(result.inserted || []), ...(result.updated || []),
+      ...(requiresUpsert ? [] : (result.skipped || []))].map(String));
+    if (requiresUpsert && records.some((record) => !syncedIds.has(String(record.id)))) {
+      throw new Error("A planilha não confirmou todas as edições de soneca.");
+    }
     state.naps = state.naps.map((nap) => (
-      syncedIds.has(String(nap.id || napIdentity(nap))) ? { ...nap, synced: true } : nap
+      syncedIds.has(String(nap.id || napIdentity(nap))) ? { ...nap, synced: true, needsUpsert: false } : nap
     ));
     state.nights = state.nights.map((night) => (
-      syncedIds.has(String(night.id || napIdentity(night))) ? { ...night, synced: true } : night
+      syncedIds.has(String(night.id || napIdentity(night))) ? { ...night, synced: true, needsUpsert: false } : night
     ));
     saveState();
 
     const inserted = (result.inserted || []).length;
+    const updated = (result.updated || []).length;
     const skipped = (result.skipped || []).length;
     setHint(records.length > 1
-      ? `Google Sheets sincronizado: ${inserted} nova(s), ${skipped} já existia(m).`
+      ? `Google Sheets sincronizado: ${inserted} nova(s), ${updated} corrigida(s), ${skipped} já existia(m).`
       : "Registro salvo no aparelho e sincronizado com o Google Sheets."
     );
     return { ok: true, result };

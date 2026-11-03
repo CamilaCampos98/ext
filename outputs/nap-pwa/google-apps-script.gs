@@ -334,6 +334,11 @@ function doPost(e) {
       return jsonResponse(appendMissingRows(sheet, payload.records || []));
     }
 
+    if (payload.action === 'upsertNap' || payload.action === 'bulkUpsertNaps') {
+      return jsonResponse(upsertNapRows(sheet,
+        payload.action === 'upsertNap' ? [payload] : (payload.records || [])));
+    }
+
     return jsonResponse(appendMissingRows(sheet, [payload]));
   } catch (error) {
     return jsonResponse({
@@ -747,6 +752,47 @@ function appendMissingRows(sheet, records) {
     inserted: inserted,
     skipped: skipped
   };
+}
+
+function upsertNapRows(sheet, records) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const lastRow = sheet.getLastRow();
+    const ids = lastRow < 2 ? [] : sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    const rowNumbersById = new Map();
+    ids.forEach((row, index) => {
+      const id = String(row[0] || '');
+      if (!id) return;
+      if (!rowNumbersById.has(id)) rowNumbersById.set(id, []);
+      rowNumbersById.get(id).push(index + 2);
+    });
+
+    const inserted = [];
+    const updated = [];
+    const skipped = [];
+    records.forEach((record) => {
+      const id = String(record.id || '');
+      if (!id) {
+        skipped.push(id);
+        return;
+      }
+      const row = toSheetRow(record);
+      const existing = rowNumbersById.get(id);
+      if (existing?.length) {
+        existing.forEach((rowNumber) => sheet.getRange(rowNumber, 1, 1, HEADERS.length).setValues([row]));
+        updated.push(id);
+      } else {
+        const rowNumber = sheet.getLastRow() + 1;
+        sheet.getRange(rowNumber, 1, 1, HEADERS.length).setValues([row]);
+        rowNumbersById.set(id, [rowNumber]);
+        inserted.push(id);
+      }
+    });
+    return { ok: true, upsertSupported: true, inserted, updated, skipped };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function appendMissingFeedingRows(sheet, records) {
