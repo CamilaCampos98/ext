@@ -34,6 +34,10 @@
       Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
       .sort((a, b) => a.start - b.start);
     const completed = options.completedMeals || [];
+    const latestFeeding = (options.feedings || [])
+      .map((feeding) => clockMinutes(feeding.at))
+      .filter((time) => time !== null && time <= now)
+      .sort((a, b) => b - a)[0];
     const dayLength = nightStart - dayStart;
     const active = mealTypes.filter((type) => options.activeTypes?.[type]);
     const targets = Object.fromEntries(active.map((type) => {
@@ -56,10 +60,12 @@
       const nextTarget = targets[active[index + 1]]?.base;
       if (laterCompleted || now >= (nextTarget ?? base + 180))
         return { type, status: "passed" };
-      let time = Math.max(base, now + 10, dayStart + 30, previous + 75);
+      const beforeFeeding = Math.max(base, now + 10, dayStart + 30, previous + 75);
+      let time = Math.max(beforeFeeding, latestFeeding === undefined ? 0 : latestFeeding + 120);
+      const movedForFeeding = time > beforeFeeding;
       let movedForSleep = false;
       for (const interval of blocked) {
-        if (time >= interval.start - 10 && time <= interval.end + 10) {
+        if (time >= interval.start - 20 && time <= interval.end + 10) {
           time = interval.end + 15;
           movedForSleep = true;
         }
@@ -67,7 +73,7 @@
       if (time > nightStart - 25) return { type, status: "unavailable" };
       previous = time;
       return { type, status: "suggested", time, source: habitual === null ? "day" : "history",
-        movedForSleep, movedForNow: time > base && !movedForSleep };
+        movedForSleep, movedForFeeding, movedForNow: time > base && !movedForSleep && !movedForFeeding };
     });
   }
 

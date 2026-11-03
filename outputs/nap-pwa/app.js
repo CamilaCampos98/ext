@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261103.v2";
+const APP_VERSION = "20261103.v3";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -2998,7 +2998,7 @@ function renderMealSchedule(prediction) {
   }
   plannedNapMarkers(prediction, today, night)
     .filter((nap) => !plannedNapOverlapsCompleted(nap, today))
-    .forEach((nap) => sleepIntervals.push({ start: nap.target - 10, end: nap.target + 55 }));
+    .forEach((nap) => sleepIntervals.push({ start: nap.start, end: Math.max(nap.end, nap.target + 55) }));
 
   const suggestions = MealSchedule.schedule({
     date: new Date(),
@@ -3007,6 +3007,7 @@ function renderMealSchedule(prediction) {
     nightStart: night.start,
     activeTypes: rules.activeTypes,
     completedMeals: mealsToday(),
+    feedings: feedingsToday(),
     history: state.meals,
     sleepIntervals
   });
@@ -3015,6 +3016,7 @@ function renderMealSchedule(prediction) {
       : item.status === "passed" ? "Horário habitual passou"
       : item.status === "unavailable" ? "Ajuste conforme a rotina"
         : item.movedForSleep ? "Após a soneca"
+          : item.movedForFeeding ? "Pelo menos 2h após a mamada"
           : item.movedForNow ? "Recalculado para agora"
             : item.source === "history" ? "Baseado no histórico" : "Estimado pela rotina";
     const time = item.status === "passed" ? "Sem registro"

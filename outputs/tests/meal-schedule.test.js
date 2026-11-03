@@ -38,6 +38,38 @@ test("desloca o horário que coincide com uma soneca para depois dela", () => {
   assert.equal(result[0].movedForSleep, true);
 });
 
+test("mamada às 09h deixa o lanche para 11h sem substituir a mamada", () => {
+  const result = MealSchedule.schedule({ ...base, now: 9 * 60,
+    feedings: [{ at: "2026-11-03T09:00:00" }] });
+  assert.equal(result[0].time, 11 * 60);
+  assert.equal(result[0].movedForFeeding, true);
+  assert.equal(result[1].status, "suggested");
+});
+
+test("soneca entre a mamada e o lanche mantém a sugestão fora da janela de sono", () => {
+  const result = MealSchedule.schedule({ ...base, now: 9 * 60,
+    feedings: [{ at: "2026-11-03T09:00:00" }],
+    sleepIntervals: [{ start: 10 * 60 + 30, end: 11 * 60 + 20 }] });
+  assert.equal(result[0].time, 11 * 60 + 35);
+  assert.equal(result[0].movedForSleep, true);
+});
+
+test("janela de soneca logo após o horário sugerido também desloca a refeição", () => {
+  const result = MealSchedule.schedule({ ...base, now: 9 * 60,
+    feedings: [{ at: "2026-11-03T09:00:00" }],
+    sleepIntervals: [{ start: 11 * 60 + 10, end: 11 * 60 + 40 }] });
+  assert.equal(result[0].time, 11 * 60 + 55);
+});
+
+test("mamada recente não altera o horário de refeição já registrada", () => {
+  const result = MealSchedule.schedule({ ...base, now: 12 * 60,
+    completedMeals: [{ mealType: "morningSnack", at: "2026-11-03T10:00:00" }],
+    feedings: [{ at: "2026-11-03T11:30:00" }] });
+  assert.equal(result[0].status, "done");
+  assert.equal(result[0].time, 10 * 60);
+  assert.ok(result[1].time >= 13 * 60 + 30);
+});
+
 test("recalcula horários atrasados sem invadir a rotina noturna", () => {
   const late = MealSchedule.schedule({ ...base, now: 11 * 60 });
   assert.ok(late[0].time >= 11 * 60 + 10);
