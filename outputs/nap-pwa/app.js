@@ -1,6 +1,6 @@
 const STORAGE_KEY = "soneca-pwa-state-v1";
 const SYNC_META_KEY = "soneca-sync-meta-v1";
-const APP_VERSION = "20261103.v7";
+const APP_VERSION = "20261104.v2";
 const SleepCalculations = window.SonecaSleepCalculations;
 const BabyAge = window.SonecaBabyAge;
 const MealMenu = window.SonecaMealMenu;
@@ -3011,13 +3011,15 @@ function renderMealSchedule(prediction) {
     completedMeals: mealsToday(),
     feedings: feedingsToday(),
     history: state.meals,
+    wakeHistory: state.nights,
     sleepIntervals
   });
   els.mealScheduleList.innerHTML = suggestions.map((item) => {
     const detail = item.status === "done" ? "Registrado hoje"
       : item.status === "passed" ? "Horário habitual passou"
       : item.status === "unavailable" ? "Ajuste conforme a rotina"
-        : item.movedForSleep ? "Após a soneca"
+        : item.sleepPlacement === "before" ? "Antes da soneca"
+          : item.sleepPlacement === "after" ? "Após a soneca"
           : item.movedForFeeding ? "Pelo menos 2h após a mamada"
           : item.movedForNow ? "Recalculado para agora"
             : item.source === "history" ? "Baseado no histórico" : "Estimado pela rotina";
